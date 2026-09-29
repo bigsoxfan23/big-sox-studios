@@ -8,21 +8,41 @@ heroMedia:
   src: "/projects/placeholders/home.svg"
   alt: "Abstract smart-home illustration representing HA Builder and Home Guardian"
 timeline:
-  - label: "Builder foundation"
+  - label: "Home Caretaker observation foundation"
+    date: "2026-09-23"
+  - label: "HA Builder architecture and safety baseline"
     date: "2026-09-28"
-  - label: "Bounded editing expansion"
+  - label: "Metadata-only editing accepted"
+    date: "2026-09-28"
+  - label: "Backup and exact-change verification added"
     date: "2026-09-29"
+  - label: "Bounded behavior changes begin"
+    date: "2026-09-29"
+learnings:
+  - "Observation and mutation are different trust problems and deserve different agents."
+  - "Small accepted capability batches make smart-home automation easier to reason about and safer to expand."
+  - "Backups and exact-change verification should be built into the workflow before behavior-changing edits."
 ---
-## Two agents, two jobs
+## The idea
 
-HA Builder and Home Guardian split smart-home AI work into two intentionally different responsibilities.
+HA Builder and Home Guardian split one tempting “AI for the smart home” idea into two jobs with very different trust requirements.
 
-**HA Builder** focuses on making carefully bounded changes to supported Home Assistant configuration. **Home Guardian** is the observational side: noticing useful signals and helping surface things that deserve attention.
+**HA Builder** is the maker. It focuses on supported Home Assistant configuration changes. **Home Guardian** is the watcher: it observes useful home-system signals and surfaces things that deserve attention. Keeping those roles separate is intentional.
 
-## Why split them?
+## What it does
 
-Building and watching are different trust problems. Keeping those roles distinct makes it easier to reason about what an agent is allowed to see, what it can change, and when the owner needs to approve something.
+Home Guardian starts from read-only awareness—looking for meaningful conditions without quietly deciding that every unusual sensor reading needs an intervention.
 
-## Current direction
+HA Builder follows a gated build workflow. Its capabilities expand in small batches, with backups, validation, exact-change tracking, and owner approval where a change affects live behavior. Early work intentionally started with safer metadata changes before moving toward bounded script behavior.
 
-The project is actively evolving. Expansion happens in small, tested batches rather than jumping directly to broad home control. The public case study will continue to document the product ideas while keeping private home details and administrative controls out of the site.
+## Why it matters
+
+A smart home is unusually personal infrastructure. A bad automation is not just a failed test; it can turn off the wrong thing, wake someone up, or create the exciting new household ritual of asking why the lights are doing that.
+
+Separating observation from mutation makes the system easier to trust and easier to expand. Each agent has a clear job and a clear boundary.
+
+## What I learned
+
+The safest path to a capable agent is incremental. Proving read-only observation, then constrained edits, then backup and verification behavior creates a much stronger foundation than starting with broad device control.
+
+I also learned that “can the agent change this?” is only half the question. “Can it prove exactly what changed, recover safely, and know when to ask?” is usually the more important half.
