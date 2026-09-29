@@ -2,7 +2,6 @@
 import '../styles/global.css';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
-interface Props{title?:string;description?:string}
 const{title='Big Sox Studios',description='Projects, experiments, and useful ideas across AI, travel, tech, and everyday life.'}=Astro.props;
 const pageTitle=title==='Big Sox Studios'?title:`${title} | Big Sox Studios`;
 ---
