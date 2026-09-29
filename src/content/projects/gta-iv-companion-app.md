@@ -16,16 +16,14 @@ timeline:
     date: "2026-07-21"
   - label: "Ongoing product and architecture iteration"
     date: "2026-09-29"
-learnings:
-  - "Building a real product is a better way to learn web development than practicing isolated syntax."
-  - "Version control and project architecture become much easier to understand when every change has a visible purpose."
-  - "Data structures that look equivalent can behave very differently once the interface needs to preserve ordering."
 ---
 ## The idea
 
 The GTA IV Companion App is deliberately a learning project first and an app second. The goal is to learn professional web-development habits by building something interesting enough that I actually care whether it works well.
 
 That means learning HTML, CSS, JavaScript, Git, GitHub, project architecture, PWAs, deployment, and product thinking as parts of one real application instead of a parade of disconnected tutorials.
+
+Liberty City already has enough chaos; the companion app does not need to contribute any.
 
 ## What it does
 
@@ -38,6 +36,8 @@ One early architecture lesson came from timeline data: sorting records and then 
 This project is a sandbox for learning how software is really built: not just writing code, but deciding how data should flow, how interfaces should behave, how changes are versioned, and why architecture decisions matter later.
 
 AI can help explain and accelerate the work, but the project is intentionally not “ask AI to make an app and come back when it is done.” The learning is the feature.
+
+The app is allowed to be ambitious. Its data model is not allowed to drive like a Liberty City cab.
 
 ## What I learned
 
