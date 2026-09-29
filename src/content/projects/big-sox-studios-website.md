@@ -7,36 +7,46 @@ summary: "The site you are looking at: a public home for projects, experiments, 
 heroMedia:
   src: "/projects/placeholders/website.svg"
   alt: "Abstract browser layout illustration representing the Big Sox Studios website"
-updates:
-  - date: "2026-09-29"
-    text: "Launched the production foundation, finished homepage, production brand assets, and Projects Clean Grid."
+timeline:
+  - label: "Website HQ and public-site direction established"
+    date: "2026-09-28"
+  - label: "Foundation deployed"
+    date: "2026-09-29"
+  - label: "Homepage completed"
+    date: "2026-09-29"
+  - label: "Production brand assets and Socket integrated"
+    date: "2026-09-29"
+  - label: "Projects Clean Grid launched"
+    date: "2026-09-29"
+  - label: "Editorial Case Studies begin"
+    date: "2026-09-29"
 learnings:
   - "A strong content and visual system makes it easier to add personality without turning every page into a different website."
   - "Keeping the public site static by default creates a useful security boundary as more private AI projects are showcased."
-timeline:
-  - label: "Foundation"
-    date: "2026-09-29"
-  - label: "Homepage + brand system"
-    date: "2026-09-29"
-  - label: "Projects index"
-    date: "2026-09-29"
+  - "Building in bounded batches makes it easier to review the real site instead of making every design decision in the abstract."
 ---
-## A home for the studio
+## The idea
 
-Big Sox Studios is the public home for projects, experiments, recommendations, AI systems, and ideas worth sharing.
+Big Sox Studios is the public home for projects, experiments, recommendations, AI systems, and ideas worth sharing. The goal is a site that feels like a small creative studio rather than a résumé with a navigation bar.
 
-The goal was never to make a generic personal portfolio. The site is designed more like an editorial workshop: a consistent studio identity with different spaces for projects, agents, Austin favorites, and personal context.
+The visual direction mixes a warm editorial feel with a restrained futuristic workshop. That gives very different subjects—AI agents, a GTA companion app, Austin favorites, a home lab—a common home without pretending they are all the same kind of project.
 
-## Built to stay simple
+## What it does
 
-The site uses Astro and is generated primarily as static content. GitHub is the source of truth, and Cloudflare handles production deployment.
+The site is built with Astro and generated primarily as static content. GitHub is the source of truth, Cloudflare handles deployment, and local content collections keep projects structured without adding a CMS or database that the site does not need.
 
-That architecture is intentionally boring in the best way: fast pages, low maintenance, minimal recurring infrastructure, and no database or CMS where one is not needed.
+The homepage introduces the studio, Projects provides a searchable and filterable shelf of work, and these Editorial Case Studies give individual projects room to explain the idea, what they do, why they matter, their timeline, and what I learned.
 
-## Design system
+The brand system includes the Big Sox Studios logo and Socket, the sock-corgi mascot. Socket appears selectively, because even a very good mascot does not need to attend every meeting.
 
-Warm cream surfaces, deep charcoal and navy, restrained orange accents, editorial typography, and the Big Sox Studios identity tie the site together. Socket, the studio's sock-corgi mascot, appears selectively rather than becoming decoration on every page.
+## Why it matters
 
-## Still being built
+I wanted one durable public place where projects could live outside individual chats, repositories, dashboards, and notes. It should be understandable to someone who knows nothing about the private systems behind it while still showing that the projects are real and evolving.
 
-The website itself is one of the studio's active projects. Each section is being finished in bounded batches, with real content and richer project imagery replacing temporary material as the site develops.
+Keeping the public site mostly static also creates a clean security boundary. Private agents and infrastructure can be represented here without turning the website into a control panel for them.
+
+## What I learned
+
+The strongest design decisions have been the ones that make later decisions easier: a consistent visual system, reusable page patterns, structured content, and a clear boundary between public storytelling and private operations.
+
+Building in batches has helped too. Seeing each section on a real phone is much more useful than debating every possible detail beforehand. Websites, apparently, are more informative when they exist.
