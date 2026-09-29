@@ -16,10 +16,6 @@ timeline:
     date: "2026-09-25"
   - label: "Production-runnable council"
     date: "2026-09-26"
-learnings:
-  - "Different models are most useful when their perspectives are structured and synthesized rather than simply stacked together."
-  - "A reusable council needs a clear evidence and decision format, not just more model calls."
-  - "Cost and retry boundaries matter when a clever experiment becomes something you actually want to run."
 ---
 ## The idea
 
@@ -28,6 +24,8 @@ The Multi-AI Council started with a question that sounds obvious until you try t
 The system gives multiple providers the same decision and evidence, lets them analyze independently, then adds critique, dissent, revision, and a final synthesis. The point is not voting. It is to make disagreement useful.
 
 Fantasy football became the first serious proving ground because trades and roster decisions are messy enough to benefit from multiple perspectives but concrete enough to judge afterward. The architecture is reusable for purchases, travel, research, and other decisions.
+
+The Council is deliberately not a democracy of autocomplete boxes; each model has to show its work before the room moves on.
 
 ## What it does
 
@@ -40,6 +38,8 @@ Behind that simple flow are deliberately boring but important pieces: provider i
 Most multi-model demos stop at putting several answers next to each other. The Council explores the harder question: how do you turn different model strengths into a repeatable decision process?
 
 That makes it useful beyond the original fantasy-football pilot. The interesting product is the deliberation pattern itself—evidence in, structured disagreement in the middle, useful synthesis out.
+
+It turns out four AIs agreeing instantly is less reassuring than four AIs disagreeing for useful reasons.
 
 ## What I learned
 
