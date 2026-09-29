@@ -20,16 +20,14 @@ timeline:
     date: "2026-09-29"
   - label: "Editorial Case Studies begin"
     date: "2026-09-29"
-learnings:
-  - "A strong content and visual system makes it easier to add personality without turning every page into a different website."
-  - "Keeping the public site static by default creates a useful security boundary as more private AI projects are showcased."
-  - "Building in bounded batches makes it easier to review the real site instead of making every design decision in the abstract."
 ---
 ## The idea
 
 Big Sox Studios is the public home for projects, experiments, recommendations, AI systems, and ideas worth sharing. The goal is a site that feels like a small creative studio rather than a résumé with a navigation bar.
 
 The visual direction mixes a warm editorial feel with a restrained futuristic workshop. That gives very different subjects—AI agents, a GTA companion app, Austin favorites, a home lab—a common home without pretending they are all the same kind of project.
+
+The goal is personality without making every scroll feel like the website is auditioning for an awards show.
 
 ## What it does
 
@@ -44,6 +42,8 @@ The brand system includes the Big Sox Studios logo and Socket, the sock-corgi ma
 I wanted one durable public place where projects could live outside individual chats, repositories, dashboards, and notes. It should be understandable to someone who knows nothing about the private systems behind it while still showing that the projects are real and evolving.
 
 Keeping the public site mostly static also creates a clean security boundary. Private agents and infrastructure can be represented here without turning the website into a control panel for them.
+
+Socket remains available for morale and selective appearances, which is already a stronger job description than most mascots receive.
 
 ## What I learned
 
