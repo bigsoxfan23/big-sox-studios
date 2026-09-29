@@ -1,4 +1,42 @@
 ---
-import PlaceholderPage from '../components/PlaceholderPage.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+const projects=(await getCollection('projects')).sort((a,b)=>a.data.title.localeCompare(b.data.title));
+const categories=[...new Set(projects.map(p=>p.data.category))].sort();
+const statuses=[...new Set(projects.map(p=>p.data.status))].sort();
 ---
-<PlaceholderPage title="Projects" description="Projects, experiments, and useful things taking shape at Big Sox Studios." />
+<BaseLayout title="Projects" description="Projects, experiments, and useful things taking shape at Big Sox Studios.">
+<section class="projects-intro container">
+  <p class="eyebrow">What I'm working on</p><h1>Projects</h1>
+  <p class="lede">A working shelf of builds, experiments, systems, and ideas. Some are polished, some are still moving, and all are here because there is something worth exploring.</p>
+</section>
+<section class="project-browser container" aria-labelledby="browse-title">
+  <div class="browser-heading"><div><p class="eyebrow">Studio index</p><h2 id="browse-title">Browse the work</h2></div><p><span id="result-count">{projects.length}</span> projects</p></div>
+  <form class="project-tools" id="project-tools" role="search">
+    <div class="search-field"><label for="project-search">Search projects</label><input id="project-search" name="search" type="search" placeholder="Search by title, category, or idea…" autocomplete="off"/></div>
+    <fieldset><legend>Category</legend><div class="chips" data-filter="category"><button type="button" class="chip active" data-value="all" aria-pressed="true">All</button>{categories.map(x=><button type="button" class="chip" data-value={x.toLowerCase()} aria-pressed="false">{x}</button>)}</div></fieldset>
+    <fieldset><legend>Status</legend><div class="chips" data-filter="status"><button type="button" class="chip active" data-value="all" aria-pressed="true">All</button>{statuses.map(x=><button type="button" class="chip" data-value={x.toLowerCase()} aria-pressed="false">{x}</button>)}</div></fieldset>
+    <button type="reset" class="reset">Reset filters</button>
+  </form>
+  <div class="project-grid" id="project-grid">
+    {projects.map(({data})=><article class="project-card" data-category={data.category.toLowerCase()} data-status={data.status.toLowerCase()} data-search={`${data.title} ${data.category} ${data.status} ${data.summary}`.toLowerCase()}>
+      <div class="project-media"><img src={data.heroMedia.src} alt={data.heroMedia.alt} loading="lazy"/></div>
+      <div class="project-copy"><div class="meta"><span>{data.category}</span><span class="status">{data.status}</span></div><h3>{data.title}</h3><p>{data.summary}</p><span class="project-action">Case study coming soon <b aria-hidden="true">↗</b></span></div>
+    </article>)}
+  </div>
+  <div class="no-results" id="no-results" hidden><img src="/brand/mascot/sock-corgi-default.webp" alt="" width="180" height="180"/><h3>Socket couldn't find that one.</h3><p>Try another search or clear the filters to bring the whole project shelf back.</p><button type="button" id="empty-reset">Show all projects</button></div>
+</section>
+<script is:inline>
+(()=>{const form=document.querySelector('#project-tools'),search=document.querySelector('#project-search'),cards=[...document.querySelectorAll('.project-card')],count=document.querySelector('#result-count'),empty=document.querySelector('#no-results');if(!form||!search||!count||!empty)return;let category='all',status='all';const apply=()=>{const q=search.value.trim().toLowerCase();let visible=0;cards.forEach(card=>{const match=(category==='all'||card.dataset.category===category)&&(status==='all'||card.dataset.status===status)&&(!q||card.dataset.search.includes(q));card.hidden=!match;if(match)visible++});count.textContent=String(visible);empty.hidden=visible!==0};document.querySelectorAll('[data-filter]').forEach(group=>group.addEventListener('click',e=>{const button=e.target.closest('button[data-value]');if(!button)return;group.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});if(group.dataset.filter==='category')category=button.dataset.value;else status=button.dataset.value;apply()}));search.addEventListener('input',apply);form.addEventListener('reset',()=>{requestAnimationFrame(()=>{category='all';status='all';document.querySelectorAll('.chip').forEach(b=>{const on=b.dataset.value==='all';b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on))});apply()})});document.querySelector('#empty-reset')?.addEventListener('click',()=>form.reset());})();
+</script>
+</BaseLayout>
+<style>
+.projects-intro{padding-block:clamp(4.5rem,10vw,8rem);max-width:78rem}.projects-intro h1{margin:.25rem 0 .8rem;font-size:clamp(5rem,14vw,11rem);line-height:.78;letter-spacing:-.075em}.projects-intro .lede{max-width:48rem;margin:2rem 0 0;font-family:var(--font-display);font-size:clamp(1.5rem,3vw,2.35rem);line-height:1.12}
+.project-browser{padding-bottom:clamp(5rem,10vw,9rem)}.browser-heading{display:flex;justify-content:space-between;align-items:end;gap:2rem;padding-top:2.5rem;border-top:1px solid var(--border)}.browser-heading h2{font-size:clamp(2.6rem,5vw,4.8rem);margin:.25rem 0}.browser-heading>p{color:var(--muted);font-weight:750}
+.project-tools{display:grid;grid-template-columns:minmax(16rem,1.1fr) 1fr 1fr auto;gap:1rem;align-items:end;padding:1.25rem;margin:1rem 0 2rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}.search-field label,fieldset legend{display:block;margin-bottom:.55rem;font-size:.72rem;font-weight:850;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}.search-field input{width:100%;min-height:2.9rem;padding:.7rem .85rem;border:1px solid var(--border);border-radius:.75rem;background:var(--surface-strong);color:var(--text);font:inherit}.project-tools fieldset{min-width:0;margin:0;padding:0;border:0}.chips{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.1rem}.chip,.reset,.no-results button{min-height:2.9rem;border:1px solid var(--border);border-radius:999px;background:var(--surface-strong);color:var(--text);font:inherit;font-size:.82rem;font-weight:750;white-space:nowrap;cursor:pointer}.chip{padding:.65rem .8rem}.chip.active{background:var(--text);color:var(--bg);border-color:var(--text)}.reset{padding:.65rem 1rem}.chip:hover,.reset:hover{border-color:var(--accent)}
+.project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}.project-card{display:grid;grid-template-rows:auto 1fr;min-width:0;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--surface-strong);box-shadow:0 10px 30px rgba(23,32,43,.045)}.project-card[hidden]{display:none}.project-media{aspect-ratio:5/3;overflow:hidden;background:var(--surface)}.project-media img{width:100%;height:100%;object-fit:cover;display:block}.project-copy{display:flex;flex-direction:column;padding:1.25rem;min-height:16.5rem}.meta{display:flex;flex-wrap:wrap;gap:.45rem}.meta span{padding:.35rem .55rem;border:1px solid var(--border);border-radius:999px;font-size:.68rem;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.meta .status{color:var(--accent)}.project-copy h3{margin:1rem 0 .55rem;font-size:clamp(1.7rem,2.5vw,2.25rem);line-height:.95}.project-copy p{margin:0;color:var(--muted);line-height:1.55}.project-action{display:flex;justify-content:space-between;gap:1rem;margin-top:auto;padding-top:1.4rem;font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em}.project-action b{color:var(--accent);font-size:1.1rem}
+.no-results{text-align:center;padding:4rem 1rem;border:1px dashed var(--border);border-radius:var(--radius-lg);background:var(--surface)}.no-results[hidden]{display:none}.no-results img{width:8rem;height:auto}.no-results h3{margin:.5rem 0;font-size:2rem}.no-results p{max-width:30rem;margin:.5rem auto 1.25rem;color:var(--muted)}.no-results button{padding:.7rem 1rem}
+@media(max-width:68rem){.project-tools{grid-template-columns:1fr 1fr}.search-field{grid-column:1/-1}.project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:44rem){.projects-intro{padding-block:3.5rem}.projects-intro h1{font-size:clamp(4.4rem,22vw,7rem)}.browser-heading{align-items:start}.project-tools{grid-template-columns:1fr;padding:1rem}.search-field{grid-column:auto}.chips{margin-inline:-.15rem}.reset{width:100%}.project-grid{grid-template-columns:1fr}.project-copy{min-height:15rem}.project-media{aspect-ratio:16/9}}
+@media(prefers-reduced-motion:no-preference){.project-card{transition:transform .18s ease,box-shadow .18s ease}.project-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-soft)}}
+</style>
