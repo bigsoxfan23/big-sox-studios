@@ -18,16 +18,14 @@ timeline:
     date: "2026-09-23"
   - label: "Production backup coverage re-audited"
     date: "2026-09-29"
-learnings:
-  - "Backups are only useful when restoration and verification are treated as part of the system."
-  - "A home lab becomes much more useful when monitoring and documentation grow alongside the services."
-  - "Keeping working systems boring and recoverable is often better than constantly rebuilding them with the newest thing."
 ---
 ## The idea
 
 The Fridman Server started as a dedicated machine for useful home services and gradually became a personal infrastructure lab: a place to learn self-hosting, containers, media, monitoring, backups, game servers, remote administration, and eventually AI-assisted operations.
 
 It is intentionally practical. Experiments are welcome, but the things that become useful are expected to survive reboots, updates, and the occasional “why is that suddenly offline?” evening.
+
+A good home lab should create experiments, not household folklore about the night everything disappeared.
 
 ## What it does
 
@@ -42,6 +40,8 @@ This public case study intentionally omits addresses, endpoints, network topolog
 A home lab turns infrastructure concepts into consequences. Monitoring makes more sense after something fails at an inconvenient time. Backups become more interesting after you imagine rebuilding the machine. Documentation becomes extremely compelling approximately five minutes after forgetting why you configured something six months ago.
 
 It also provides a stable platform for other projects instead of requiring every new idea to invent its own infrastructure.
+
+The server has accumulated more jobs over time, which is apparently what happens when a laptop demonstrates competence.
 
 ## What I learned
 
