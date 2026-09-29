@@ -18,16 +18,14 @@ timeline:
     date: "2026-09-29"
   - label: "Bounded behavior changes begin"
     date: "2026-09-29"
-learnings:
-  - "Observation and mutation are different trust problems and deserve different agents."
-  - "Small accepted capability batches make smart-home automation easier to reason about and safer to expand."
-  - "Backups and exact-change verification should be built into the workflow before behavior-changing edits."
 ---
 ## The idea
 
 HA Builder and Home Guardian split one tempting “AI for the smart home” idea into two jobs with very different trust requirements.
 
 **HA Builder** is the maker. It focuses on supported Home Assistant configuration changes. **Home Guardian** is the watcher: it observes useful home-system signals and surfaces things that deserve attention. Keeping those roles separate is intentional.
+
+Home Guardian gets to be nosy; HA Builder has to fill out the paperwork.
 
 ## What it does
 
@@ -40,6 +38,8 @@ HA Builder follows a gated build workflow. Its capabilities expand in small batc
 A smart home is unusually personal infrastructure. A bad automation is not just a failed test; it can turn off the wrong thing, wake someone up, or create the exciting new household ritual of asking why the lights are doing that.
 
 Separating observation from mutation makes the system easier to trust and easier to expand. Each agent has a clear job and a clear boundary.
+
+That separation also lowers the odds of an innocent sensor oddity becoming an unsolicited home-improvement project.
 
 ## What I learned
 
