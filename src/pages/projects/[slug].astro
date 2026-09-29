@@ -1,0 +1,34 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+export async function getStaticPaths(){
+  const projects=await getCollection('projects');
+  return projects.map(project=>({params:{slug:project.data.slug},props:{project}}));
+}
+const {project}=Astro.props;
+const {Content}=await render(project);
+const {data}=project;
+---
+<BaseLayout title={data.title} description={data.summary}>
+<main class="case-study">
+  <section class="case-hero container">
+    <a class="back" href="/projects/">← All projects</a>
+    <div class="case-meta"><span>{data.category}</span><span>{data.status}</span></div>
+    <h1>{data.title}</h1><p class="dek">{data.summary}</p>
+  </section>
+  <section class="hero-media container"><img src={data.heroMedia.src} alt={data.heroMedia.alt}/></section>
+  <div class="case-layout container">
+    <aside aria-label="Project details"><p class="eyebrow">Project file</p><dl><div><dt>Category</dt><dd>{data.category}</dd></div><div><dt>Status</dt><dd>{data.status}</dd></div></dl></aside>
+    <article class="case-body"><Content />
+      {data.timeline?.length && <section><h2>Timeline</h2><ol class="timeline">{data.timeline.map(item=><li><strong>{item.label}</strong><time>{item.date.toLocaleDateString('en-US',{month:'short',year:'numeric'})}</time></li>)}</ol></section>}
+      {data.updates?.length && <section><h2>Selected updates</h2>{data.updates.map(item=><div class="update"><time>{item.date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</time><p>{item.text}</p></div>)}</section>}
+      {data.learnings?.length && <section><h2>What I learned</h2><ul>{data.learnings.map(item=><li>{item}</li>)}</ul></section>}
+    </article>
+  </div>
+  <nav class="case-end container" aria-label="Project navigation"><a href="/projects/">Explore all projects <span aria-hidden="true">↗</span></a></nav>
+</main>
+</BaseLayout>
+<style>
+.case-hero{padding-block:clamp(3rem,8vw,7rem) clamp(2.5rem,6vw,5rem)}.back{display:inline-block;margin-bottom:clamp(3rem,7vw,6rem);font-weight:800;text-decoration:none}.case-meta{display:flex;gap:.5rem}.case-meta span{padding:.4rem .65rem;border:1px solid var(--border);border-radius:999px;font-size:.7rem;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.case-meta span:last-child{color:var(--accent)}.case-hero h1{max-width:70rem;margin:1rem 0;font-size:clamp(4rem,11vw,9rem);line-height:.82;letter-spacing:-.065em}.dek{max-width:50rem;margin:2rem 0 0;font-family:var(--font-display);font-size:clamp(1.45rem,3vw,2.4rem);line-height:1.15}.hero-media img{display:block;width:100%;aspect-ratio:16/8;object-fit:cover;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-soft)}.case-layout{display:grid;grid-template-columns:minmax(12rem,1fr) minmax(0,3fr);gap:clamp(2rem,8vw,8rem);padding-block:clamp(4rem,9vw,8rem)}aside{align-self:start;position:sticky;top:6rem}dl{margin:1rem 0 0}dl div{padding:1rem 0;border-top:1px solid var(--border)}dt{font-size:.68rem;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}dd{margin:.25rem 0 0;font-family:var(--font-display);font-size:1.25rem}.case-body{max-width:48rem;font-size:1.08rem;line-height:1.72}.case-body :global(h2){margin:3.5rem 0 1rem;font-size:clamp(2.2rem,5vw,4rem);line-height:.95}.case-body :global(h3){margin:2.5rem 0 .75rem;font-size:1.55rem}.case-body :global(p){color:var(--muted)}.case-body :global(strong){color:var(--text)}.case-body :global(li){margin:.65rem 0}.timeline{list-style:none;padding:0}.timeline li,.update{display:flex;justify-content:space-between;gap:1rem;padding:1rem 0;border-top:1px solid var(--border)}.timeline time,.update time{color:var(--muted);white-space:nowrap}.update{display:block}.update p{margin:.4rem 0}.case-end{padding-bottom:clamp(5rem,10vw,9rem)}.case-end a{display:flex;justify-content:space-between;padding:1.4rem 0;border-block:1px solid var(--border);font-family:var(--font-display);font-size:clamp(1.6rem,4vw,3rem);text-decoration:none}.case-end span{color:var(--accent)}
+@media(max-width:44rem){.case-hero h1{font-size:clamp(3.7rem,18vw,6rem)}.hero-media{padding-inline:0}.hero-media img{border-radius:0;border-inline:0;aspect-ratio:4/3}.case-layout{grid-template-columns:1fr;padding-top:3rem}.case-layout aside{position:static;display:none}.case-body{font-size:1rem}.timeline li{flex-direction:column;gap:.15rem}}
+</style>
