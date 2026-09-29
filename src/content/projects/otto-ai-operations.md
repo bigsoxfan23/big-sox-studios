@@ -18,16 +18,14 @@ timeline:
     date: "2026-09-23"
   - label: "OTTO established as operator identity"
     date: "2026-09-24"
-learnings:
-  - "Useful autonomy depends as much on boundaries, verification, and auditability as it does on model intelligence."
-  - "A small set of well-defined operations is more trustworthy than broad, ambiguous control."
-  - "Verification after an action is part of the action, not an optional victory lap."
 ---
 ## The idea
 
 OTTO is an experiment in practical AI operations: an assistant that can understand a technology problem, gather the right evidence, and help carry out supported maintenance without being handed a giant red button labeled “do whatever.”
 
 The project grew from a series of trusted-operator experiments into a general operator and then a reusable agent runtime. OTTO became the friendly public identity for that operator.
+
+OTTO's ideal day is uneventful: notice the problem, fix the supported problem, prove it is fixed, and resist developing a mysterious side quest.
 
 ## What it does
 
@@ -40,6 +38,8 @@ The important detail is what OTTO does **not** do. It does not treat shell acces
 AI assistants become much more interesting when they can move from explaining a problem to safely helping resolve it. They also become much more consequential.
 
 OTTO is a way to explore that boundary in a real environment: useful enough to save time, constrained enough that “the AI felt adventurous today” is not an incident category.
+
+The less often I need to say “well, that was interesting” during maintenance, the better the design is working.
 
 ## What I learned
 
