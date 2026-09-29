@@ -7,22 +7,40 @@ summary: "A learning-first companion app project built around GTA IV, with an em
 heroMedia:
   src: "/projects/placeholders/gta.svg"
   alt: "Abstract city-map interface illustration representing the GTA IV Companion App"
+timeline:
+  - label: "Companion app learning project established"
+    date: "2026-07-16"
+  - label: "Development workflow and UI-first preferences defined"
+    date: "2026-07-21"
+  - label: "Timeline data model and ordering work"
+    date: "2026-07-21"
+  - label: "Ongoing product and architecture iteration"
+    date: "2026-09-29"
 learnings:
   - "Building a real product is a better way to learn web development than practicing isolated syntax."
   - "Version control and project architecture become much easier to understand when every change has a visible purpose."
+  - "Data structures that look equivalent can behave very differently once the interface needs to preserve ordering."
 ---
-## Learning by building
+## The idea
 
-The GTA IV Companion App is deliberately a learning project first and an app second.
+The GTA IV Companion App is deliberately a learning project first and an app second. The goal is to learn professional web-development habits by building something interesting enough that I actually care whether it works well.
 
-Instead of having AI generate a finished application behind the scenes, the project is a way to learn modern web development through something genuinely interesting: product design, HTML, CSS, JavaScript, project architecture, Git, GitHub, and deployment.
+That means learning HTML, CSS, JavaScript, Git, GitHub, project architecture, PWAs, deployment, and product thinking as parts of one real application instead of a parade of disconnected tutorials.
 
-## The product idea
+## What it does
 
-The goal is a polished companion experience for GTA IV that feels useful alongside the game rather than like a collection of disconnected notes.
+The app is being designed as a polished companion experience for GTA IV, organizing useful game information into an interface that feels intentional rather than like a spreadsheet wearing a leather jacket.
 
-As the app develops, real interface screenshots will replace the temporary Big Sox Studios artwork used on this page.
+One early architecture lesson came from timeline data: sorting records and then grouping them by type lost the original interleaving in the rendered experience. Fixing that meant preserving both grouped views and an ordered item stream—exactly the kind of problem that is much easier to understand when it affects a product you are actually using.
 
-## The rule
+## Why it matters
 
-Every meaningful implementation step should be understandable. Shipping matters, but understanding why the app is built the way it is matters just as much.
+This project is a sandbox for learning how software is really built: not just writing code, but deciding how data should flow, how interfaces should behave, how changes are versioned, and why architecture decisions matter later.
+
+AI can help explain and accelerate the work, but the project is intentionally not “ask AI to make an app and come back when it is done.” The learning is the feature.
+
+## What I learned
+
+The biggest lesson so far is that implementation details become much easier to understand when they solve a visible product problem. Git branches, rendering models, data structures, and deployment stop being abstract vocabulary.
+
+I also learned that the UI can reveal architecture mistakes very quickly. If the timeline is in the wrong order, users do not care that the underlying objects were technically sorted at some earlier point. Rude, but fair.
