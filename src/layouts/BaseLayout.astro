@@ -1,0 +1,8 @@
+---
+import '../styles/global.css';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+const{title='Big Sox Studios',description='Projects, experiments, and useful ideas across AI, travel, tech, and everyday life.'}=Astro.props;
+const pageTitle=title==='Big Sox Studios'?title:`${title} | Big Sox Studios`;
+---
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/><meta name="description" content={description}/><meta name="generator" content={Astro.generator}/><meta name="theme-color" content="#fbf6ea"/><title>{pageTitle}</title><script is:inline>(()=>{const saved=localStorage.getItem('bss-theme');const preferred=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=saved||preferred})();</script></head><body><a class="skip-link" href="#main-content">Skip to content</a><SiteHeader/><main id="main-content" class="site-main"><slot/></main><SiteFooter/></body></html>
