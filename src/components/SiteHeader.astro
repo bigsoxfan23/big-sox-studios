@@ -1,0 +1,6 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+const links=[['Projects','/projects'],['AI Agents','/ai-agents'],['Austin Favorites','/austin-favorites'],['About','/about'],['Newsletter','/newsletter']];
+---
+<header class="site-header"><div class="container nav-wrap"><a class="brand" href="/" aria-label="Big Sox Studios home">BIG SOX <span>STUDIOS</span></a><nav aria-label="Primary navigation">{links.map(([label,href])=><a href={href}>{label}</a>)}</nav><ThemeToggle /></div></header>
+<style>.site-header{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(14px)}.nav-wrap{min-height:4.5rem;display:flex;align-items:center;gap:1rem}.brand{font-weight:900;letter-spacing:-.04em;text-decoration:none;white-space:nowrap}.brand span{color:var(--accent)}nav{margin-left:auto;display:flex;gap:1rem;align-items:center}nav a{font-size:.9rem;text-decoration:none;color:var(--muted)}nav a:hover{color:var(--text)}@media(max-width:55rem){nav{display:none}}</style>

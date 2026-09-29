@@ -1,0 +1,6 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+interface Props{title:string;eyebrow?:string;description:string}
+const{title,eyebrow='Big Sox Studios',description}=Astro.props;
+---
+<BaseLayout title={title} description={description}><div class="container"><p class="eyebrow">{eyebrow}</p><h1>{title}</h1><p class="lede">{description}</p><section class="placeholder" aria-label="Foundation placeholder"><strong>Foundation route ready.</strong><p>This area will be designed and populated in a later implementation batch.</p></section></div></BaseLayout>
