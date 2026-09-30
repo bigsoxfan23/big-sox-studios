@@ -1,4 +1,6 @@
 ---
 import PlaceholderPage from '../components/PlaceholderPage.astro';
+import about from '../data/about.json';
+import seo from '../data/seo.json';
 ---
-<PlaceholderPage title="About" description="The people, interests, curiosity, and ideas behind Big Sox Studios." />
+<PlaceholderPage title={about.title} description={about.description} placeholder={about.placeholder} metaTitle={seo.about.title} metaDescription={seo.about.description} />
