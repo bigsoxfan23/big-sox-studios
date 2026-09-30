@@ -4,7 +4,8 @@
 backend:
   name: github
   repo: bigsoxfan23/big-sox-studios
-  branch: main
+  branch: batch-3c-content-editor
+  # Preview-test target only; switch back to main before Batch 3C merges.
   base_url: https://auth.bigsoxstudios.com
   site_domain: bigsoxstudios.com
   auth_methods: [oauth]
