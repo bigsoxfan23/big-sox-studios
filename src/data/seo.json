@@ -1,0 +1,20 @@
+{
+  "siteTitle": "Big Sox Studios",
+  "defaultDescription": "Projects, experiments, and useful ideas across AI, travel, tech, and everyday life.",
+  "home": {
+    "title": "Big Sox Studios",
+    "description": "Projects, experiments, and useful ideas across AI, travel, tech, and everyday life."
+  },
+  "projects": {
+    "title": "Projects",
+    "description": "Projects, experiments, and useful things taking shape at Big Sox Studios."
+  },
+  "about": {
+    "title": "About",
+    "description": "The people, interests, curiosity, and ideas behind Big Sox Studios."
+  },
+  "newsletter": {
+    "title": "Newsletter",
+    "description": "Occasional notes when there is something from Big Sox Studios worth sharing."
+  }
+}
