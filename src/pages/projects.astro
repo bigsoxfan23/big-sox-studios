@@ -1,11 +1,12 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
+import seo from '../data/seo.json';
 const projects=(await getCollection('projects')).sort((a,b)=>a.data.title.localeCompare(b.data.title));
 const categories=[...new Set(projects.map(p=>p.data.category))].sort();
 const statuses=[...new Set(projects.map(p=>p.data.status))].sort();
 ---
-<BaseLayout title="Projects" description="Projects, experiments, and useful things taking shape at Big Sox Studios.">
+<BaseLayout title={seo.projects.title} description={seo.projects.description}>
 <section class="projects-intro container">
   <p class="eyebrow">What I'm working on</p><h1>Projects</h1>
   <p class="lede">A working shelf of builds, experiments, systems, and ideas. Some are polished, some are still moving, and all are here because there is something worth exploring.</p>

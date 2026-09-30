@@ -1,0 +1,37 @@
+{
+  "eyebrow": "Independent digital workshop",
+  "brandLine1": "BIG SOX",
+  "brandLine2": "STUDIOS",
+  "statement": "A small studio for big ideas.",
+  "lede": "Projects, experiments, and useful ideas across AI, travel, tech, and everyday life.",
+  "exploreLink": "See what’s inside",
+  "exploreEyebrow": "Four doors, one studio",
+  "exploreTitle": "Explore Big Sox",
+  "exploreIntro": "Pick a direction. Everything here starts with curiosity and gets built in public when it’s ready.",
+  "gateways": {
+    "projects": {
+      "title": "Projects",
+      "kicker": "Builds & experiments",
+      "copy": "Things I’m making, testing, learning, and occasionally turning into something useful."
+    },
+    "agents": {
+      "title": "AI Agents",
+      "kicker": "Meet the team",
+      "copy": "A peek inside the small crew of AI agents helping ideas move from curious to working."
+    },
+    "austin": {
+      "title": "Austin Favorites",
+      "kicker": "Curated by Greg & Sarah",
+      "copy": "The places, meals, and local finds we’d actually tell a friend to try."
+    },
+    "about": {
+      "title": "About",
+      "kicker": "Behind the studio",
+      "copy": "A little about me, the interests behind the work, and why this place exists."
+    }
+  },
+  "newsletterEyebrow": "Studio notes",
+  "newsletterTitle": "Worth sending.\nNot just sending.",
+  "newsletterCopy": "An occasional dispatch when there’s a project, find, experiment, or idea worth sharing. No content treadmill.",
+  "newsletterButton": "Join the newsletter"
+}

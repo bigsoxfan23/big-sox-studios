@@ -1,0 +1,185 @@
+# Big Sox Studios content editor
+# Public-safe content only. Layout, styling, application logic, deployment,
+# brand masters, and private infrastructure stay code-owned.
+backend:
+  name: github
+  repo: bigsoxfan23/big-sox-studios
+  branch: batch-3c-content-editor
+  # Preview-test target only; switch back to main before Batch 3C merges.
+  base_url: https://auth.bigsoxstudios.com
+  site_domain: bigsoxstudios.com
+  auth_methods: [oauth]
+  squash_merges: true
+
+publish_mode: editorial_workflow
+
+media_folder: public/media/uploads
+public_folder: /media/uploads
+
+singletons:
+  - name: homepage
+    label: Homepage
+    file: src/data/home.json
+    icon: home
+    fields:
+      - { label: Eyebrow, name: eyebrow, widget: string }
+      - { label: Brand Line 1, name: brandLine1, widget: string }
+      - { label: Brand Line 2, name: brandLine2, widget: string }
+      - { label: Hero Statement, name: statement, widget: string }
+      - { label: Hero Description, name: lede, widget: text }
+      - { label: Explore Link, name: exploreLink, widget: string }
+      - { label: Gateway Eyebrow, name: exploreEyebrow, widget: string }
+      - { label: Gateway Heading, name: exploreTitle, widget: string }
+      - { label: Gateway Intro, name: exploreIntro, widget: text }
+      - label: Gateway Cards
+        name: gateways
+        widget: object
+        fields:
+          - label: Projects
+            name: projects
+            widget: object
+            fields:
+              - { label: Title, name: title, widget: string }
+              - { label: Kicker, name: kicker, widget: string }
+              - { label: Description, name: copy, widget: text }
+          - label: AI Agents
+            name: agents
+            widget: object
+            fields:
+              - { label: Title, name: title, widget: string }
+              - { label: Kicker, name: kicker, widget: string }
+              - { label: Description, name: copy, widget: text }
+          - label: Austin Favorites
+            name: austin
+            widget: object
+            fields:
+              - { label: Title, name: title, widget: string }
+              - { label: Kicker, name: kicker, widget: string }
+              - { label: Description, name: copy, widget: text }
+          - label: About
+            name: about
+            widget: object
+            fields:
+              - { label: Title, name: title, widget: string }
+              - { label: Kicker, name: kicker, widget: string }
+              - { label: Description, name: copy, widget: text }
+      - { label: Newsletter Eyebrow, name: newsletterEyebrow, widget: string }
+      - { label: Newsletter Heading, name: newsletterTitle, widget: text, hint: "A line break is preserved in the public heading." }
+      - { label: Newsletter Description, name: newsletterCopy, widget: text }
+      - { label: Newsletter Button, name: newsletterButton, widget: string }
+
+  - name: about
+    label: About
+    file: src/data/about.json
+    icon: info
+    fields:
+      - { label: Page Title, name: title, widget: string }
+      - { label: Description, name: description, widget: text }
+      - { label: Placeholder Message, name: placeholder, widget: text }
+
+  - name: newsletter_page
+    label: Newsletter
+    file: src/data/newsletter.json
+    icon: mail
+    fields:
+      - { label: Page Title, name: title, widget: string }
+      - { label: Description, name: description, widget: text }
+      - { label: Placeholder Message, name: placeholder, widget: text }
+
+  - name: seo
+    label: SEO
+    file: src/data/seo.json
+    icon: search
+    fields:
+      - { label: Site Name, name: siteTitle, widget: string }
+      - { label: Default Description, name: defaultDescription, widget: text }
+      - label: Homepage
+        name: home
+        widget: object
+        fields:
+          - { label: Browser Title, name: title, widget: string }
+          - { label: Search Description, name: description, widget: text }
+      - label: Projects
+        name: projects
+        widget: object
+        fields:
+          - { label: Browser Title, name: title, widget: string }
+          - { label: Search Description, name: description, widget: text }
+      - label: About
+        name: about
+        widget: object
+        fields:
+          - { label: Browser Title, name: title, widget: string }
+          - { label: Search Description, name: description, widget: text }
+      - label: Newsletter
+        name: newsletter
+        widget: object
+        fields:
+          - { label: Browser Title, name: title, widget: string }
+          - { label: Search Description, name: description, widget: text }
+
+collections:
+  - name: projects
+    label: Projects
+    label_singular: Project
+    folder: src/content/projects
+    create: false
+    delete: false
+    extension: md
+    format: frontmatter
+    identifier_field: title
+    summary: "{{title}} — {{status}}"
+    fields:
+      - { label: Project Name, name: title, widget: string }
+      - { name: slug, widget: hidden }
+      - { label: Category, name: category, widget: string }
+      - { label: Status, name: status, widget: select, options: [Active, "In Progress", Complete, Experimental] }
+      - { label: Project Card Summary, name: summary, widget: text }
+      - label: Hero Image
+        name: heroMedia
+        widget: object
+        fields:
+          - { label: Image, name: src, widget: image }
+          - { label: Alt Text, name: alt, widget: string }
+      - label: Timeline
+        name: timeline
+        widget: list
+        required: false
+        fields:
+          - { label: Milestone, name: label, widget: string }
+          - { label: Date, name: date, widget: datetime, time_format: false }
+      - label: Selected Updates
+        name: updates
+        widget: list
+        required: false
+        fields:
+          - { label: Date, name: date, widget: datetime, time_format: false }
+          - { label: Update, name: text, widget: text }
+      - { label: Case Study, name: body, widget: markdown, hint: "Keep the established sections: The idea, What it does, Why it matters, What I learned." }
+
+  - name: newsletter_archive
+    label: Newsletter Archive
+    label_singular: Newsletter Entry
+    folder: src/content/newsletter
+    create: true
+    delete: false
+    extension: md
+    format: frontmatter
+    identifier_field: title
+    fields:
+      - { label: Title, name: title, widget: string }
+      - { label: URL Slug, name: slug, widget: string }
+      - { label: Summary, name: summary, widget: text }
+      - { label: Published Date, name: publishedDate, widget: datetime, time_format: false }
+      - label: Cover Image
+        name: cover
+        widget: object
+        required: false
+        fields:
+          - { label: Image, name: src, widget: image }
+          - { label: Alt Text, name: alt, widget: string }
+      - { label: Tags, name: tags, widget: list, required: false }
+      - { label: Content, name: body, widget: markdown }
+
+# Austin Favorites is intentionally not exposed yet. Its existing Astro content
+# collection remains ready for a later batch without building that feature here.

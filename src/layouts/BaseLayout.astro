@@ -2,7 +2,8 @@
 import '../styles/global.css';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
-const{title='Big Sox Studios',description='Projects, experiments, and useful ideas across AI, travel, tech, and everyday life.'}=Astro.props;
-const pageTitle=title==='Big Sox Studios'?title:`${title} | Big Sox Studios`;
+import seo from '../data/seo.json';
+const{title=seo.siteTitle,description=seo.defaultDescription}=Astro.props;
+const pageTitle=title===seo.siteTitle?title:`${title} | ${seo.siteTitle}`;
 ---
 <!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/><meta name="description" content={description}/><meta name="generator" content={Astro.generator}/><meta name="theme-color" content="#fbf6ea"/><meta property="og:type" content="website"/><meta property="og:title" content={pageTitle}/><meta property="og:description" content={description}/><meta property="og:image" content="/brand/social/og-default.png"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content={pageTitle}/><meta name="twitter:description" content={description}/><meta name="twitter:image" content="/brand/social/og-default.png"/><link rel="icon" href="/brand/icons/favicon.ico" sizes="any"/><link rel="icon" type="image/png" sizes="32x32" href="/brand/icons/favicon-32.png"/><link rel="icon" type="image/png" sizes="16x16" href="/brand/icons/favicon-16.png"/><link rel="apple-touch-icon" href="/brand/icons/apple-touch-icon.png"/><title>{pageTitle}</title><script is:inline>(()=>{const saved=localStorage.getItem('bss-theme');const preferred=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=saved||preferred})();</script></head><body><a class="skip-link" href="#main-content">Skip to content</a><SiteHeader/><main id="main-content" class="site-main"><slot/></main><SiteFooter/></body></html>
