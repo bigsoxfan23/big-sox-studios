@@ -1,5 +1,7 @@
 {
   "title": "About",
-  "description": "The people, interests, curiosity, and ideas behind Big Sox Studios.",
-  "placeholder": "This area will be designed and populated in a later implementation batch."
+  "description": "The people, AI employees, divisions, and slightly unusual org chart behind Big Sox Studios.",
+  "eyebrow": "Studio directory",
+  "intro": "Big Sox Studios is a tiny studio for software, AI experiments, smart systems, local recommendations, and whatever strange useful thing earns a spot on the workbench.",
+  "note": "We take the projects seriously. The org chart is still allowed to have a Chief Sock Officer."
 }

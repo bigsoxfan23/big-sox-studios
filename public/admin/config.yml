@@ -75,7 +75,9 @@ singletons:
     fields:
       - { label: Page Title, name: title, widget: string }
       - { label: Description, name: description, widget: text }
-      - { label: Placeholder Message, name: placeholder, widget: text }
+      - { label: Eyebrow, name: eyebrow, widget: string }
+      - { label: Intro, name: intro, widget: text }
+      - { label: Closing Note, name: note, widget: text }
 
   - name: newsletter_page
     label: Newsletter

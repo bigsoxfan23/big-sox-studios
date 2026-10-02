@@ -1,0 +1,214 @@
+{
+  "name": "Big Sox Studios",
+  "leadershipNote": "Greg is the owner and final decision-maker. Socket/Muse and ChatGPT/Work/Codex are equal co-coders; neither sits above the other.",
+  "divisions": [
+    {
+      "id": "builds",
+      "number": "01",
+      "name": "Builds Division",
+      "purpose": "Software products, games/mods, and other studio builds.",
+      "members": [
+        {
+          "employee": "greg",
+          "role": "CEO / Developer"
+        },
+        {
+          "employee": "socket",
+          "role": "CSO / Co-Coder"
+        },
+        {
+          "employee": "chatgpt",
+          "role": "Co-Coder"
+        }
+      ],
+      "groups": [
+        {
+          "label": "Current projects",
+          "items": [
+            "GTA IV Companion App — PWA completion guide",
+            "Stardew Valley Animal Rescue Mod — SMAPI mod"
+          ]
+        },
+        {
+          "label": "Repositories",
+          "items": [
+            "bigsoxfan23/GTA-IV-100-Guide",
+            "bigsoxfan23/stardew-animal-rescue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agent-operations",
+      "number": "02",
+      "name": "Agent Operations & Smart Systems",
+      "purpose": "AI employees, AI infrastructure, smart systems, automation, and the systems supporting them.",
+      "members": [
+        {
+          "employee": "otto",
+          "role": "Infrastructure Operator"
+        },
+        {
+          "employee": "porter",
+          "role": "Home Assistant Builder"
+        },
+        {
+          "employee": "trace",
+          "role": "Home Guardian · Pre-Hire"
+        }
+      ],
+      "groups": [
+        {
+          "label": "Owns",
+          "items": [
+            "OTTO",
+            "PORTER",
+            "TRACE",
+            "Multi-AI Council",
+            "Agent HQ",
+            "fridman-server",
+            "Smart Home / Home Assistant systems",
+            "AI Agent Runtime / platform",
+            "big-sox-studios-cms-auth"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "marketing-content",
+      "number": "03",
+      "name": "Marketing & Content",
+      "purpose": "The public Big Sox Studios brand, website, publishing, and content.",
+      "members": [
+        {
+          "employee": "greg",
+          "role": "CEO / Owner"
+        },
+        {
+          "employee": "socket",
+          "role": "CSO / Co-Coder"
+        },
+        {
+          "employee": "chatgpt",
+          "role": "Co-Coder"
+        }
+      ],
+      "groups": [
+        {
+          "label": "Owns",
+          "items": [
+            "bigsoxstudios.com",
+            "Big Sox Studios website",
+            "bigsoxfan23/big-sox-studios",
+            "Studio newsletter"
+          ]
+        }
+      ],
+      "note": "CMS/auth infrastructure belongs to Agent Operations & Smart Systems."
+    },
+    {
+      "id": "editorial",
+      "number": "04",
+      "name": "Editorial",
+      "purpose": "Human-curated recommendations and editorial content.",
+      "members": [
+        {
+          "employee": "greg",
+          "role": "Curator"
+        },
+        {
+          "employee": "sarah",
+          "role": "Curator"
+        }
+      ],
+      "groups": [
+        {
+          "label": "Owns",
+          "items": [
+            "Austin Favorites"
+          ]
+        }
+      ],
+      "note": "Greg and Sarah decide what gets recommended. Marketing & Content owns how approved material is presented and published."
+    }
+  ],
+  "employees": [
+    {
+      "id": "greg",
+      "name": "Greg Fridman",
+      "title": "CEO",
+      "role": "Founder / Owner",
+      "department": "Leadership",
+      "status": "ACTIVE",
+      "monogram": "GF",
+      "photo": "",
+      "description": "Founder, owner, developer, curator, and final decision-maker for Big Sox Studios."
+    },
+    {
+      "id": "socket",
+      "name": "Socket",
+      "title": "Chief Sock Officer (CSO)",
+      "role": "Studio Operations / Co-Coder",
+      "department": "Leadership",
+      "status": "ACTIVE",
+      "monogram": "SK",
+      "photo": "/media/employees/socket.webp",
+      "description": "Official mascot and Meta Muse AI employee handling studio operations, backlog, sequencing, audits, monitoring, verification, and co-coding."
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "title": "Co-Coder",
+      "role": "ChatGPT / Work / Codex",
+      "department": "Builds Division",
+      "status": "ACTIVE",
+      "monogram": "GPT",
+      "photo": "",
+      "description": "Equal co-coder with Socket/Muse for studio builds and public-site work. Neither co-coder outranks the other."
+    },
+    {
+      "id": "otto",
+      "name": "Otto",
+      "title": "Infrastructure Operator",
+      "role": "Operations",
+      "department": "Agent Operations & Smart Systems",
+      "status": "ACTIVE",
+      "monogram": "OT",
+      "photo": "/media/employees/otto.webp",
+      "description": "Operates fridman-server infrastructure, deployments, services, diagnostics, and bounded privileged operations."
+    },
+    {
+      "id": "porter",
+      "name": "Porter",
+      "title": "Home Assistant Builder",
+      "role": "Automation Builder",
+      "department": "Agent Operations & Smart Systems",
+      "status": "ONBOARDING",
+      "monogram": "PO",
+      "photo": "/media/employees/porter.webp",
+      "description": "Operational and actively onboarding. Builds and modifies Home Assistant automations and scripts through controlled approval, backup, verification, and rollback workflows."
+    },
+    {
+      "id": "trace",
+      "name": "Trace",
+      "title": "Home Guardian",
+      "role": "Planned Monitoring",
+      "department": "Agent Operations & Smart Systems",
+      "status": "PRE-HIRE",
+      "monogram": "TR",
+      "photo": "/media/employees/trace.webp",
+      "description": "Planned future employee; not operational yet. Intended to monitor smart-home health and diagnose failures. Porter builds; Trace watches."
+    },
+    {
+      "id": "sarah",
+      "name": "Sarah",
+      "title": "Curator",
+      "role": "Editorial",
+      "department": "Editorial",
+      "status": "ACTIVE",
+      "monogram": "SA",
+      "photo": "",
+      "description": "Co-curates Austin Favorites with Greg and helps decide what earns a recommendation."
+    }
+  ]
+}

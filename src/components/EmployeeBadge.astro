@@ -1,0 +1,67 @@
+---
+const { employee } = Astro.props;
+const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
+---
+<article class:list={['employee-badge', statusClass]} aria-labelledby={`employee-${employee.id}`}>
+  <div class="badge-rail" aria-hidden="true"><span>BIG SOX</span><span>STUDIOS</span></div>
+  <div class="badge-shell">
+    <header class="badge-header">
+      <span class="credential">Studio credential</span>
+      <span class:list={['status', statusClass]}>{employee.status}</span>
+    </header>
+
+    <div class="badge-main">
+      {employee.photo
+        ? <img class="portrait" src={employee.photo} alt={`Portrait of ${employee.name}`} width="480" height="480" loading="lazy" decoding="async" />
+        : <div class="portrait portrait-placeholder" role="img" aria-label={`Portrait placeholder for ${employee.name}`}>
+            <span aria-hidden="true">{employee.monogram}</span>
+          </div>}
+      <div class="identity">
+        <p class="department">{employee.department}</p>
+        <h3 id={`employee-${employee.id}`}>{employee.name}</h3>
+        <p class="title">{employee.title}</p>
+        <p class="role">{employee.role}</p>
+      </div>
+    </div>
+
+    <p class="description">{employee.description}</p>
+
+    <footer class="badge-footer">
+      <span class="brand-dot" aria-hidden="true"></span>
+      <span>Big Sox Studios</span>
+      <span class="scan-lines" aria-hidden="true"></span>
+    </footer>
+  </div>
+</article>
+
+<style>
+.employee-badge{position:relative;display:grid;grid-template-columns:1.35rem 1fr;min-width:0;border:1px solid var(--border);border-radius:1.2rem;overflow:hidden;background:var(--surface-strong);box-shadow:0 18px 38px rgba(23,32,43,.08)}
+.badge-rail{display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:.8rem .25rem;background:var(--text);color:var(--bg);font-size:.52rem;font-weight:900;letter-spacing:.16em;writing-mode:vertical-rl;text-orientation:mixed}
+.badge-shell{display:flex;min-width:0;flex-direction:column;padding:1rem 1rem .9rem}
+.badge-header,.badge-footer{display:flex;align-items:center;gap:.7rem}
+.badge-header{justify-content:space-between;margin-bottom:1rem}
+.credential{font-size:.64rem;font-weight:850;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.status{display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .55rem;border:1px solid var(--border);border-radius:999px;font-size:.62rem;font-weight:900;letter-spacing:.08em}
+.status:before{content:'';width:.45rem;aspect-ratio:1;border-radius:50%;background:currentColor}
+.status.active{color:#447454;background:color-mix(in srgb,#76a984 12%,transparent)}
+.status.onboarding{color:#b26b08;background:color-mix(in srgb,#d97706 12%,transparent)}
+.status.pre-hire{color:#806278;background:color-mix(in srgb,var(--about) 12%,transparent);border-style:dashed}
+.badge-main{display:grid;grid-template-columns:minmax(6.5rem,32%) minmax(0,1fr);gap:1rem;align-items:center}
+.portrait{display:block;width:100%;height:auto;aspect-ratio:1/1;border-radius:.85rem;object-fit:cover;object-position:center;border:1px solid var(--border);background:color-mix(in srgb,var(--surface) 88%,var(--bg));overflow:hidden}
+.portrait-placeholder{position:relative;display:grid;place-items:center;overflow:hidden;background:linear-gradient(145deg,color-mix(in srgb,var(--about) 35%,var(--surface)),color-mix(in srgb,var(--accent) 18%,var(--surface)))}
+.portrait-placeholder:before,.portrait-placeholder:after{content:'';position:absolute;border:1px solid color-mix(in srgb,var(--text) 18%,transparent);border-radius:50%}
+.portrait-placeholder:before{width:5rem;aspect-ratio:1;left:-1.6rem;top:-1.5rem}
+.portrait-placeholder:after{width:4.2rem;aspect-ratio:1;right:-1.7rem;bottom:-1.2rem}
+.portrait-placeholder span{position:relative;z-index:1;font-family:var(--font-display);font-size:1.75rem;font-weight:800;letter-spacing:-.05em}
+.department{margin:0 0 .35rem;color:var(--accent);font-size:.64rem;font-weight:850;letter-spacing:.09em;text-transform:uppercase}
+.identity h3{margin:0;font-size:clamp(1.65rem,3vw,2.3rem);letter-spacing:-.035em}
+.title{margin:.3rem 0 0;font-weight:850;line-height:1.2}
+.role{margin:.25rem 0 0;color:var(--muted);font-size:.82rem}
+.description{margin:1rem 0 1.1rem;color:var(--muted);font-size:.9rem;line-height:1.55}
+.badge-footer{margin-top:auto;padding-top:.75rem;border-top:1px solid var(--border);color:var(--muted);font-size:.65rem;font-weight:750;letter-spacing:.05em;text-transform:uppercase}
+.brand-dot{width:.7rem;aspect-ratio:1;border-radius:50%;background:var(--accent);box-shadow:0 0 0 .22rem var(--accent-soft)}
+.scan-lines{margin-left:auto;width:2.5rem;height:.8rem;background:repeating-linear-gradient(90deg,var(--text) 0 1px,transparent 1px 4px);opacity:.3}
+.employee-badge.pre-hire{background:color-mix(in srgb,var(--surface-strong) 93%,var(--about));border-style:dashed}
+.employee-badge.pre-hire .portrait-placeholder{filter:saturate(.7)}
+@media(max-width:36rem){.badge-main{grid-template-columns:minmax(5.75rem,32%) minmax(0,1fr);gap:.8rem}.badge-shell{padding:.9rem}.department{font-size:.56rem;line-height:1.25}.identity h3{font-size:1.55rem}.title{font-size:.92rem}.role{font-size:.76rem}.description{font-size:.86rem}}
+</style>

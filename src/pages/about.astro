@@ -1,6 +1,202 @@
 ---
-import PlaceholderPage from '../components/PlaceholderPage.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import EmployeeBadge from '../components/EmployeeBadge.astro';
 import about from '../data/about.json';
+import company from '../data/company.json';
 import seo from '../data/seo.json';
+
+const employeeMap = Object.fromEntries(company.employees.map((employee) => [employee.id, employee]));
+const leadership = [employeeMap.greg, employeeMap.socket];
 ---
-<PlaceholderPage title={about.title} description={about.description} placeholder={about.placeholder} metaTitle={seo.about.title} metaDescription={seo.about.description} />
+<BaseLayout title={seo.about.title} description={seo.about.description}>
+  <section class="about-hero container" aria-labelledby="about-title">
+    <p class="eyebrow">{about.eyebrow}</p>
+    <h1 id="about-title">{about.title}</h1>
+    <p class="hero-intro">{about.intro}</p>
+    <p class="hero-note">{about.note}</p>
+  </section>
+
+  <section class="directory-section container" aria-labelledby="directory-title">
+    <div class="section-heading directory-heading">
+      <div>
+        <p class="eyebrow">Employee directory</p>
+        <h2 id="directory-title">Meet the tiny team.</h2>
+      </div>
+      <p>Seven studio credentials, zero cubicles. Portraits are being added as the team provides them; any remaining placeholders can be swapped without redesigning the cards.</p>
+    </div>
+
+    <div class="badge-grid">
+      {company.employees.map((employee) => <EmployeeBadge employee={employee} />)}
+    </div>
+
+    <aside class="status-key" aria-label="Employee status legend">
+      <strong>Status key</strong>
+      <span><i class="active" aria-hidden="true"></i> ACTIVE — current employee</span>
+      <span><i class="onboarding" aria-hidden="true"></i> ONBOARDING — operational, still being brought into the full role</span>
+      <span><i class="pre-hire" aria-hidden="true"></i> PRE-HIRE — planned future employee, not operational</span>
+    </aside>
+  </section>
+
+
+  <section class="org-section container" aria-labelledby="org-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Company structure</p>
+        <h2 id="org-title">Small studio. Real org chart.</h2>
+      </div>
+      <p>Big Sox Studios is intentionally tiny: one owner, a sock executive, human and AI collaborators, and four divisions with clear jobs to do.</p>
+    </div>
+
+    <div class="org-chart" aria-label="Big Sox Studios organizational structure">
+      <div class="org-root">
+        <span class="root-mark" aria-hidden="true">B</span>
+        <div>
+          <p>Company</p>
+          <h3>{company.name}</h3>
+        </div>
+      </div>
+
+      <div class="leadership-node">
+        <div class="node-label">
+          <p class="node-kicker">Leadership</p>
+          <h3>Owner + studio operations</h3>
+        </div>
+        <div class="leader-list">
+          {leadership.map((employee) =>
+            <div class="leader">
+              <span class="leader-monogram" aria-hidden="true">{employee.monogram}</span>
+              <div>
+                <strong>{employee.name}</strong>
+                <span>{employee.title}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <p class="leadership-note">{company.leadershipNote}</p>
+      </div>
+
+      <div class="division-grid">
+        {company.divisions.map((division) =>
+          <article class:list={['division-card', `division-${division.id}`]}>
+            <header>
+              <span class="division-number">{division.number}</span>
+              <div>
+                <p class="division-label">Division</p>
+                <h3>{division.name}</h3>
+              </div>
+            </header>
+            <p class="purpose">{division.purpose}</p>
+
+            <div class="team-list" aria-label={`${division.name} team`}>
+              {division.members.map((member) => {
+                const employee = employeeMap[member.employee];
+                return <div class="team-member">
+                  <span class="mini-avatar" aria-hidden="true">{employee.monogram}</span>
+                  <div><strong>{employee.name}</strong><span>{member.role}</span></div>
+                  {employee.status !== 'ACTIVE' && <span class:list={['mini-status', employee.status.toLowerCase().replace(/[^a-z]+/g,'-')]}>{employee.status}</span>}
+                </div>;
+              })}
+            </div>
+
+            {division.groups.map((group) =>
+              <div class="ownership-group">
+                <p>{group.label}</p>
+                <ul>{group.items.map((item) => <li>{item}</li>)}</ul>
+              </div>
+            )}
+
+            {division.note && <p class="division-note">{division.note}</p>}
+          </article>
+        )}
+      </div>
+    </div>
+  </section>
+
+</BaseLayout>
+
+<style>
+.about-hero{padding-block:clamp(3rem,8vw,7rem) clamp(4rem,10vw,8rem);max-width:78rem}
+.about-hero h1{margin:.45rem 0 1.5rem;font-size:clamp(5rem,14vw,11rem);line-height:.78;letter-spacing:-.075em}
+.hero-intro{max-width:57rem;margin:0;font-family:var(--font-display);font-size:clamp(1.6rem,3.4vw,2.75rem);line-height:1.12}
+.hero-note{max-width:42rem;margin:1.5rem 0 0;color:var(--muted);font-size:1rem;line-height:1.6}
+
+.org-section,.directory-section{padding-bottom:clamp(5rem,10vw,9rem)}
+.section-heading{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(18rem,.72fr);gap:2rem;align-items:end;padding-top:2.6rem;margin-bottom:2rem;border-top:1px solid var(--border)}
+.section-heading h2{margin:.3rem 0 0;font-size:clamp(2.8rem,6vw,5.5rem);letter-spacing:-.045em}
+.section-heading>p{margin:0;color:var(--muted);line-height:1.65}
+
+.org-chart{position:relative;padding:1.2rem;border:1px solid var(--border);border-radius:calc(var(--radius-lg) + .35rem);background:linear-gradient(145deg,var(--surface),color-mix(in srgb,var(--about) 8%,var(--surface)));box-shadow:var(--shadow-soft)}
+.org-root{position:relative;display:flex;align-items:center;gap:1rem;width:min(100%,29rem);margin:0 auto 3.4rem;padding:1rem 1.15rem;border:1px solid var(--border);border-radius:1.15rem;background:var(--text);color:var(--bg)}
+.org-root:after{content:'';position:absolute;left:50%;top:100%;width:1px;height:3.4rem;background:var(--border)}
+.root-mark{display:grid;place-items:center;width:3.3rem;aspect-ratio:1;border-radius:.85rem;background:var(--accent);color:#fff;font-size:1.4rem;font-weight:950}
+.org-root p,.node-kicker,.division-label,.ownership-group>p{margin:0;font-size:.64rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.org-root p{opacity:.7}
+.org-root h3{margin:.2rem 0 0;font-family:var(--font-body);font-size:1.25rem;letter-spacing:-.025em}
+
+.leadership-node{position:relative;width:min(100%,48rem);margin:0 auto 4.8rem;padding:1.25rem;border:1px solid var(--border);border-radius:1.2rem;background:var(--surface-strong)}
+.leadership-node:after{content:'';position:absolute;left:50%;top:100%;width:1px;height:4.8rem;background:var(--border)}
+.node-label{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding-bottom:1rem;border-bottom:1px solid var(--border)}
+.node-kicker{color:var(--accent)}
+.node-label h3{margin:0;font-size:1.45rem}
+.leader-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1rem}
+.leader{display:flex;gap:.7rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:.9rem;background:var(--surface)}
+.leader-monogram,.mini-avatar{display:grid;place-items:center;flex:0 0 auto;width:2.4rem;aspect-ratio:1;border-radius:.65rem;background:color-mix(in srgb,var(--about) 25%,var(--surface));font-size:.7rem;font-weight:900}
+.leader strong,.team-member strong{display:block;font-size:.88rem}
+.leader span:last-child,.team-member div span{display:block;margin-top:.1rem;color:var(--muted);font-size:.72rem}
+.leadership-note{margin:1rem 0 0;padding:.8rem .9rem;border-radius:.8rem;background:color-mix(in srgb,var(--accent) 8%,var(--surface));color:var(--muted);font-size:.84rem;line-height:1.55}
+
+.division-grid{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.division-grid:before{content:'';position:absolute;left:25%;right:25%;top:-2.4rem;height:1px;background:var(--border)}
+.division-card{position:relative;display:flex;min-width:0;flex-direction:column;padding:1.2rem;border:1px solid var(--border);border-radius:1.2rem;background:var(--surface-strong)}
+.division-card:before{content:'';position:absolute;left:50%;bottom:100%;width:1px;height:2.4rem;background:var(--border)}
+.division-card header{display:flex;align-items:flex-start;gap:.9rem}
+.division-number{display:grid;place-items:center;flex:0 0 auto;width:2.7rem;aspect-ratio:1;border-radius:.75rem;background:var(--text);color:var(--bg);font-size:.72rem;font-weight:900}
+.division-label{color:var(--accent)}
+.division-card h3{margin:.18rem 0 0;font-size:clamp(1.55rem,3vw,2.25rem);letter-spacing:-.035em}
+.purpose{margin:1rem 0;color:var(--muted);line-height:1.55}
+.team-list{display:grid;gap:.45rem;margin-bottom:1rem}
+.team-member{display:flex;align-items:center;gap:.65rem;padding:.6rem .65rem;border:1px solid var(--border);border-radius:.8rem;background:var(--surface)}
+.mini-avatar{width:2rem;border-radius:.55rem}
+.mini-status{margin-left:auto;padding:.28rem .4rem;border-radius:999px;border:1px solid var(--border);font-size:.52rem;font-weight:900;letter-spacing:.06em}
+.mini-status.onboarding{color:#b26b08}
+.mini-status.pre-hire{color:#806278;border-style:dashed}
+.ownership-group{margin-top:.8rem}
+.ownership-group>p{margin-bottom:.45rem;color:var(--muted)}
+.ownership-group ul{display:flex;flex-wrap:wrap;gap:.4rem;margin:0;padding:0;list-style:none}
+.ownership-group li{padding:.35rem .48rem;border:1px solid var(--border);border-radius:.55rem;background:var(--surface);font-size:.7rem;line-height:1.2}
+.division-note{margin:auto 0 0;padding-top:1rem;color:var(--muted);font-size:.78rem;line-height:1.5}
+
+.directory-heading{margin-bottom:1.4rem}
+.badge-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.status-key{display:flex;flex-wrap:wrap;gap:.75rem 1.1rem;align-items:center;margin-top:1rem;padding:1rem 1.1rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface);color:var(--muted);font-size:.75rem}
+.status-key strong{color:var(--text);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase}
+.status-key span{display:inline-flex;align-items:center;gap:.4rem}
+.status-key i{width:.55rem;aspect-ratio:1;border-radius:50%}
+.status-key .active{background:#447454}.status-key .onboarding{background:#d97706}.status-key .pre-hire{background:#806278}
+
+@media(max-width:60rem){
+  .section-heading{grid-template-columns:1fr;gap:1rem}
+  .division-grid,.badge-grid{grid-template-columns:1fr}
+  .division-grid:before{display:none}
+  .division-card:before{left:1.7rem}
+  .division-card+.division-card{margin-top:1.4rem}
+  .leadership-node{margin-bottom:2.4rem}
+  .leadership-node:after{height:2.4rem}
+}
+@media(max-width:44rem){
+  .about-hero{padding-block:3rem 4rem}
+  .about-hero h1{font-size:clamp(4.4rem,22vw,7rem)}
+  .org-chart{padding:.8rem}
+  .org-root{margin-bottom:2.2rem}
+  .org-root:after{height:2.2rem}
+  .leadership-node{margin-bottom:2rem;padding:1rem}
+  .leadership-node:after{height:2rem}
+  .node-label{display:block}
+  .node-label h3{margin-top:.25rem;font-size:1.25rem}
+  .leader-list{grid-template-columns:1fr}
+  .division-card{padding:1rem}
+  .division-card:before{height:2rem}
+  .division-card+.division-card{margin-top:1rem}
+  .status-key{align-items:flex-start;flex-direction:column}
+}
+</style>
