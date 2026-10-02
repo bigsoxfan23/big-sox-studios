@@ -12,7 +12,7 @@ const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
 
     <div class="badge-main">
       {employee.photo
-        ? <img class="portrait" src={employee.photo} alt={`Portrait of ${employee.name}`} loading="lazy" />
+        ? <img class="portrait" src={employee.photo} alt={`Portrait of ${employee.name}`} width="256" height="320" loading="lazy" decoding="async" />
         : <div class="portrait portrait-placeholder" role="img" aria-label={`Portrait placeholder for ${employee.name}`}>
             <span aria-hidden="true">{employee.monogram}</span>
           </div>}
