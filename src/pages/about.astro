@@ -16,6 +16,28 @@ const leadership = [employeeMap.greg, employeeMap.socket];
     <p class="hero-note">{about.note}</p>
   </section>
 
+  <section class="directory-section container" aria-labelledby="directory-title">
+    <div class="section-heading directory-heading">
+      <div>
+        <p class="eyebrow">Employee directory</p>
+        <h2 id="directory-title">Meet the tiny team.</h2>
+      </div>
+      <p>Seven studio credentials, zero cubicles. Portrait spaces are placeholders for now so the real employee images can drop in later without redesigning the cards.</p>
+    </div>
+
+    <div class="badge-grid">
+      {company.employees.map((employee) => <EmployeeBadge employee={employee} />)}
+    </div>
+
+    <aside class="status-key" aria-label="Employee status legend">
+      <strong>Status key</strong>
+      <span><i class="active" aria-hidden="true"></i> ACTIVE — current employee</span>
+      <span><i class="onboarding" aria-hidden="true"></i> ONBOARDING — operational, still being brought into the full role</span>
+      <span><i class="pre-hire" aria-hidden="true"></i> PRE-HIRE — planned future employee, not operational</span>
+    </aside>
+  </section>
+
+
   <section class="org-section container" aria-labelledby="org-title">
     <div class="section-heading">
       <div>
@@ -88,27 +110,6 @@ const leadership = [employeeMap.greg, employeeMap.socket];
         )}
       </div>
     </div>
-  </section>
-
-  <section class="directory-section container" aria-labelledby="directory-title">
-    <div class="section-heading directory-heading">
-      <div>
-        <p class="eyebrow">Employee directory</p>
-        <h2 id="directory-title">Meet the tiny team.</h2>
-      </div>
-      <p>Seven studio credentials, zero cubicles. Portrait spaces are placeholders for now so the real employee images can drop in later without redesigning the cards.</p>
-    </div>
-
-    <div class="badge-grid">
-      {company.employees.map((employee) => <EmployeeBadge employee={employee} />)}
-    </div>
-
-    <aside class="status-key" aria-label="Employee status legend">
-      <strong>Status key</strong>
-      <span><i class="active" aria-hidden="true"></i> ACTIVE — current employee</span>
-      <span><i class="onboarding" aria-hidden="true"></i> ONBOARDING — operational, still being brought into the full role</span>
-      <span><i class="pre-hire" aria-hidden="true"></i> PRE-HIRE — planned future employee, not operational</span>
-    </aside>
   </section>
 </BaseLayout>
 
