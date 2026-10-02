@@ -1,6 +1,6 @@
 {
   "name": "Big Sox Studios",
-  "leadershipNote": "Greg is the owner and final decision-maker. Socket/Muse and ChatGPT/Work/Codex are equal co-coders; neither sits above the other.",
+  "leadershipNote": "Greg is the owner and final decision-maker. Socket/Muse and ChatGPT/Work/Codex are peer co-coding resources; Socket is an employee, while ChatGPT/Work/Codex are development tools/platforms.",
   "divisions": [
     {
       "id": "builds",
@@ -15,13 +15,17 @@
         {
           "employee": "socket",
           "role": "CSO / Co-Coder"
-        },
-        {
-          "employee": "chatgpt",
-          "role": "Co-Coder"
         }
       ],
       "groups": [
+        {
+          "label": "Development tooling",
+          "items": [
+            "ChatGPT",
+            "Work",
+            "Codex"
+          ]
+        },
         {
           "label": "Current projects",
           "items": [
@@ -87,13 +91,17 @@
         {
           "employee": "socket",
           "role": "CSO / Co-Coder"
-        },
-        {
-          "employee": "chatgpt",
-          "role": "Co-Coder"
         }
       ],
       "groups": [
+        {
+          "label": "Development tooling",
+          "items": [
+            "ChatGPT",
+            "Work",
+            "Codex"
+          ]
+        },
         {
           "label": "Owns",
           "items": [
@@ -154,17 +162,6 @@
       "monogram": "SK",
       "photo": "/media/employees/socket.webp",
       "description": "Official mascot and Meta Muse AI employee handling studio operations, backlog, sequencing, audits, monitoring, verification, and co-coding."
-    },
-    {
-      "id": "chatgpt",
-      "name": "ChatGPT",
-      "title": "Co-Coder",
-      "role": "ChatGPT / Work / Codex",
-      "department": "Builds Division",
-      "status": "ACTIVE",
-      "monogram": "GPT",
-      "photo": "",
-      "description": "Equal co-coder with Socket/Muse for studio builds and public-site work. Neither co-coder outranks the other."
     },
     {
       "id": "otto",
