@@ -152,7 +152,7 @@
       "department": "Leadership",
       "status": "ACTIVE",
       "monogram": "SK",
-      "photo": "",
+      "photo": "/media/employees/socket.webp",
       "description": "Official mascot and Meta Muse AI employee handling studio operations, backlog, sequencing, audits, monitoring, verification, and co-coding."
     },
     {
@@ -174,7 +174,7 @@
       "department": "Agent Operations & Smart Systems",
       "status": "ACTIVE",
       "monogram": "OT",
-      "photo": "",
+      "photo": "/media/employees/otto.webp",
       "description": "Operates fridman-server infrastructure, deployments, services, diagnostics, and bounded privileged operations."
     },
     {
@@ -185,7 +185,7 @@
       "department": "Agent Operations & Smart Systems",
       "status": "ONBOARDING",
       "monogram": "PO",
-      "photo": "",
+      "photo": "/media/employees/porter.webp",
       "description": "Operational and actively onboarding. Builds and modifies Home Assistant automations and scripts through controlled approval, backup, verification, and rollback workflows."
     },
     {
@@ -196,7 +196,7 @@
       "department": "Agent Operations & Smart Systems",
       "status": "PRE-HIRE",
       "monogram": "TR",
-      "photo": "",
+      "photo": "/media/employees/trace.webp",
       "description": "Planned future employee; not operational yet. Intended to monitor smart-home health and diagnose failures. Porter builds; Trace watches."
     },
     {
