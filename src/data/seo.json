@@ -16,5 +16,9 @@
   "newsletter": {
     "title": "Newsletter",
     "description": "Occasional notes when there is something from Big Sox Studios worth sharing."
+  },
+  "agents": {
+    "title": "AI Agents",
+    "description": "Meet Otto, Porter, and Trace—the purpose-built AI agents behind Big Sox Studios infrastructure and smart-home operations."
   }
 }
