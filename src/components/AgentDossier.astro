@@ -38,7 +38,7 @@ const reverse = index % 2 === 1;
     <section class="jobs">
       <p class="detail-label">Example jobs</p>
       <ul>
-        {agent.examples.map((item) => <li>{item}</li>)}
+        {agent.examples.map((item: string) => <li>{item}</li>)}
       </ul>
     </section>
 
