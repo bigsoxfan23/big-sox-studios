@@ -1,0 +1,91 @@
+---
+const { employee, agent, index = 0 } = Astro.props;
+const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
+const reverse = index % 2 === 1;
+---
+<section class:list={['agent-dossier', statusClass, { reverse }]} aria-labelledby={`dossier-${employee.id}`}>
+  <div class="dossier-visual">
+    <div class="dossier-frame">
+      <div class="frame-top">
+        <span>{String(index + 1).padStart(2, '0')} / OPS</span>
+        <span class:list={['status-dot', statusClass]}>{employee.status}</span>
+      </div>
+      <img src={employee.photo} alt={`${employee.name}, ${employee.title}`} width="480" height="480" loading="lazy" decoding="async" />
+      <div class="frame-bottom">
+        <strong>{employee.name}</strong>
+        <span>{employee.title}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dossier-copy">
+    <p class="eyebrow">{employee.status === 'PRE-HIRE' ? 'Future agent dossier' : 'Agent dossier'}</p>
+    <h2 id={`dossier-${employee.id}`}>{employee.name}</h2>
+    <p class="job">{agent.job}</p>
+
+    <div class="detail-grid">
+      <section>
+        <p class="detail-label">Why this role exists</p>
+        <p>{agent.why}</p>
+      </section>
+
+      <section>
+        <p class="detail-label">Current status</p>
+        <p>{agent.current}</p>
+      </section>
+    </div>
+
+    <section class="jobs">
+      <p class="detail-label">Example jobs</p>
+      <ul>
+        {agent.examples.map((item) => <li>{item}</li>)}
+      </ul>
+    </section>
+
+    <section class="boundary">
+      <p class="detail-label">Operational boundaries</p>
+      <p>{agent.boundaries}</p>
+    </section>
+
+    <blockquote>{agent.personality}</blockquote>
+  </div>
+</section>
+
+<style>
+.agent-dossier{display:grid;grid-template-columns:minmax(17rem,.82fr) minmax(0,1.18fr);gap:clamp(2rem,6vw,5rem);align-items:center;padding-block:clamp(4rem,8vw,7rem);border-top:1px solid var(--border)}
+.agent-dossier.reverse{grid-template-columns:minmax(0,1.18fr) minmax(17rem,.82fr)}
+.agent-dossier.reverse .dossier-visual{order:2}
+.agent-dossier.reverse .dossier-copy{order:1}
+.dossier-visual{min-width:0}
+.dossier-frame{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:1.35rem;background:linear-gradient(155deg,color-mix(in srgb,var(--agents) 13%,var(--surface-strong)),var(--surface-strong));box-shadow:var(--shadow-soft)}
+.dossier-frame:before{content:'';position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--agents) 10%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--agents) 10%,transparent) 1px,transparent 1px);background-size:24px 24px;pointer-events:none}
+.frame-top,.frame-bottom{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem .9rem;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 82%,transparent)}
+.frame-top{color:var(--muted);font-size:.62rem;font-weight:900;letter-spacing:.12em}
+.frame-bottom{border-top:1px solid var(--border);border-bottom:0;align-items:flex-end}
+.frame-bottom strong{font-size:1rem}
+.frame-bottom span{color:var(--muted);font-size:.72rem}
+.status-dot{display:inline-flex;align-items:center;gap:.35rem}
+.status-dot:before{content:'';width:.46rem;aspect-ratio:1;border-radius:50%;background:currentColor}
+.status-dot.active{color:#447454}
+.status-dot.onboarding{color:#b26b08}
+.status-dot.pre-hire{color:#806278}
+.dossier-frame img{position:relative;z-index:1;display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover;object-position:center;background:var(--surface)}
+.dossier-copy{min-width:0}
+.dossier-copy>.eyebrow{color:var(--agents)}
+.dossier-copy h2{margin:.25rem 0 1rem;font-size:clamp(3.5rem,8vw,7.5rem);letter-spacing:-.065em}
+.job{max-width:48rem;margin:0;color:var(--text);font-family:var(--font-display);font-size:clamp(1.3rem,2.5vw,2rem);line-height:1.22}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:1.7rem}
+.detail-grid section,.jobs,.boundary{padding:1rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface)}
+.detail-label{margin:0 0 .45rem;color:var(--agents);font-size:.66rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.detail-grid p:last-child,.boundary p:last-child{margin:0;color:var(--muted);font-size:.9rem;line-height:1.6}
+.jobs{margin-top:1rem}
+.jobs ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem .85rem;margin:.75rem 0 0;padding:0;list-style:none}
+.jobs li{position:relative;padding-left:1rem;color:var(--muted);font-size:.87rem;line-height:1.45}
+.jobs li:before{content:'→';position:absolute;left:0;color:var(--accent);font-weight:900}
+.boundary{margin-top:1rem}
+blockquote{margin:1rem 0 0;padding:1rem 1.1rem;border-left:3px solid var(--accent);border-radius:0 .9rem .9rem 0;background:color-mix(in srgb,var(--accent) 7%,var(--surface));font-family:var(--font-display);font-size:1.05rem;font-style:italic;line-height:1.45}
+.agent-dossier.pre-hire .dossier-frame{border-style:dashed;background:linear-gradient(155deg,color-mix(in srgb,var(--about) 12%,var(--surface-strong)),var(--surface-strong))}
+.agent-dossier.pre-hire .dossier-frame img{filter:saturate(.88)}
+@media(max-width:56rem){.agent-dossier,.agent-dossier.reverse{grid-template-columns:1fr;gap:2rem}.agent-dossier.reverse .dossier-visual,.agent-dossier.reverse .dossier-copy{order:initial}.dossier-frame{width:min(100%,34rem);margin-inline:auto}}
+@media(max-width:42rem){.detail-grid,.jobs ul{grid-template-columns:1fr}.agent-dossier{padding-block:3.4rem}.dossier-copy h2{font-size:clamp(3.4rem,18vw,5.6rem)}}
+</style>
