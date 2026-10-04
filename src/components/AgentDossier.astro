@@ -2,7 +2,6 @@
 const { employee, agent, index = 0 } = Astro.props;
 const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
 const reverse = index % 2 === 1;
-const examples = Array.isArray(agent.examples) ? agent.examples.map(String) : [];
 ---
 <section class:list={['agent-dossier', statusClass, { reverse }]} aria-labelledby={`dossier-${employee.id}`}>
   <div class="dossier-visual">
@@ -39,7 +38,12 @@ const examples = Array.isArray(agent.examples) ? agent.examples.map(String) : []
     <section class="jobs">
       <p class="detail-label">Example jobs</p>
       <ul>
-        {examples.map((item) => <li>{item}</li>)}
+        {agent.examples[0] && <li>{agent.examples[0]}</li>}
+        {agent.examples[1] && <li>{agent.examples[1]}</li>}
+        {agent.examples[2] && <li>{agent.examples[2]}</li>}
+        {agent.examples[3] && <li>{agent.examples[3]}</li>}
+        {agent.examples[4] && <li>{agent.examples[4]}</li>}
+        {agent.examples[5] && <li>{agent.examples[5]}</li>}
       </ul>
     </section>
 
