@@ -1,4 +1,171 @@
 ---
-import PlaceholderPage from '../components/PlaceholderPage.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import AgentDossier from '../components/AgentDossier.astro';
+import company from '../data/company.json';
+import agents from '../data/agents.json';
+import seo from '../data/seo.json';
+
+const employeeMap = Object.fromEntries(company.employees.map((employee) => [employee.id, employee]));
+const agentRows = [
+  { employee: employeeMap.otto, agent: agents.agents.otto },
+  { employee: employeeMap.porter, agent: agents.agents.porter },
+  { employee: employeeMap.trace, agent: agents.agents.trace }
+];
 ---
-<PlaceholderPage title="AI Agents" description="A public-safe showcase of the agents and AI systems behind selected studio experiments." />
+<BaseLayout title={seo.agents.title} description={seo.agents.description}>
+  <section class="agents-hero container" aria-labelledby="agents-title">
+    <div class="hero-copy">
+      <p class="eyebrow">{agents.eyebrow}</p>
+      <h1 id="agents-title">{agents.title}</h1>
+      <p class="hero-intro">{agents.intro}</p>
+    </div>
+
+    <aside class="floor-status" aria-label="Operations floor roster">
+      <div class="floor-status-top">
+        <span>OPS FLOOR</span>
+        <span class="live-dot">LIVE</span>
+      </div>
+
+      <nav class="floor-roster" aria-label="Jump to an agent profile">
+        <a href="#agent-otto">
+          <span class="agent-name">Otto</span>
+          <span class="agent-role">Infrastructure Operator</span>
+          <span class="roster-status active">ACTIVE</span>
+        </a>
+        <a href="#agent-porter">
+          <span class="agent-name">Porter</span>
+          <span class="agent-role">Home Assistant Builder</span>
+          <span class="roster-status onboarding">ONBOARDING</span>
+        </a>
+        <a href="#agent-trace">
+          <span class="agent-name">Trace</span>
+          <span class="agent-role">Home Guardian</span>
+          <span class="roster-status pre-hire">PRE-HIRE</span>
+        </a>
+      </nav>
+
+      <p>Three roles. Separate permissions. Zero plans for a robot uprising.</p>
+    </aside>
+  </section>
+
+  <section class="roster-section container" aria-labelledby="roster-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Current roster</p>
+        <h2 id="roster-title">Meet the operators.</h2>
+      </div>
+      <p>One profile per agent: who they are, what they do, why the role exists, and where the guardrails are.</p>
+    </div>
+
+    <div class="dossiers" aria-label="AI agent profiles">
+      {agentRows.map(({ employee, agent }, index) => (
+        <AgentDossier employee={employee} agent={agent} index={index} />
+      ))}
+    </div>
+  </section>
+
+  <section class="relationship-section container" aria-labelledby="relationship-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Team topology</p>
+        <h2 id="relationship-title">{agents.relationship.title}</h2>
+      </div>
+      <p>{agents.relationship.intro}</p>
+    </div>
+
+    <div class="relationship-board" aria-label="How Otto, Porter, and Trace work together">
+      <article class="relationship-node">
+        <span class="node-index">01</span>
+        <p class="node-kicker">Infrastructure</p>
+        <h3>Otto</h3>
+        <p>{agents.relationship.otto}</p>
+      </article>
+
+      <div class="relationship-arrow" aria-hidden="true">→</div>
+
+      <article class="relationship-node">
+        <span class="node-index">02</span>
+        <p class="node-kicker">Builder</p>
+        <h3>Porter</h3>
+        <p>{agents.relationship.porter}</p>
+      </article>
+
+      <div class="relationship-link" aria-hidden="true">
+        <span>↔</span>
+        <small>{agents.relationship.motto}</small>
+      </div>
+
+      <article class="relationship-node future">
+        <span class="node-index">03</span>
+        <p class="node-kicker">Guardian · coming soon</p>
+        <h3>Trace</h3>
+        <p>{agents.relationship.trace}</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="definition-section container" aria-labelledby="definition-title">
+    <div class="definition-panel">
+      <div>
+        <p class="eyebrow">What makes these agents?</p>
+        <h2 id="definition-title">Names are the fun part. Boundaries are the important part.</h2>
+      </div>
+      <div class="definition-copy">
+        <p>{agents.definition}</p>
+        <p>{agents.toolingNote}</p>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+.agents-hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(18rem,.55fr);gap:clamp(2rem,6vw,5rem);align-items:end;padding-block:clamp(1rem,4vw,3rem) clamp(5rem,9vw,8rem)}
+.hero-copy{max-width:60rem}
+.agents-hero h1{margin:.35rem 0 1.4rem;font-size:clamp(4.5rem,11vw,9.5rem);line-height:.82;letter-spacing:-.07em}
+.hero-intro{max-width:52rem;margin:0;color:var(--muted);font-family:var(--font-display);font-size:clamp(1.35rem,2.5vw,2.2rem);line-height:1.25}
+.floor-status{position:relative;overflow:hidden;padding:.95rem;border:1px solid var(--border);border-radius:1.1rem;background:linear-gradient(145deg,color-mix(in srgb,var(--agents) 11%,var(--surface)),var(--surface));box-shadow:var(--shadow-soft)}
+.floor-status:before{content:'';position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--agents) 9%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--agents) 9%,transparent) 1px,transparent 1px);background-size:20px 20px;pointer-events:none;opacity:.4}
+.floor-status>*{position:relative;z-index:1}
+.floor-status-top{display:flex;justify-content:space-between;gap:1rem;padding:.05rem .05rem .7rem;border-bottom:1px solid var(--border);font-size:.62rem;font-weight:900;letter-spacing:.12em}
+.live-dot{display:inline-flex;align-items:center;gap:.35rem;color:#447454}
+.live-dot:before{content:'';width:.45rem;aspect-ratio:1;border-radius:50%;background:currentColor;box-shadow:0 0 0 .2rem color-mix(in srgb,currentColor 14%,transparent)}
+.floor-roster{display:grid;grid-template-columns:1fr;margin-top:.15rem}
+.floor-roster a{display:grid;grid-template-columns:minmax(7rem,.8fr) minmax(0,1.4fr) minmax(7.5rem,.8fr);align-items:center;gap:.8rem;min-width:0;padding:.78rem .75rem;text-decoration:none;border-bottom:1px solid var(--border);transition:background .15s ease}
+.floor-roster a:last-child{border-bottom:0}
+.floor-roster a:hover{background:color-mix(in srgb,var(--agents) 8%,transparent)}
+.agent-name{font-family:var(--font-display);font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
+.agent-role{overflow:hidden;color:var(--muted);font-size:.67rem;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
+.roster-status{display:inline-flex;align-items:center;justify-self:end;gap:.32rem;margin-top:0;font-size:.56rem;font-weight:900;letter-spacing:.08em}
+.roster-status:before{content:'';width:.42rem;aspect-ratio:1;border-radius:50%;background:currentColor}
+.roster-status.active{color:#447454}
+.roster-status.onboarding{color:#b26b08}
+.roster-status.pre-hire{color:#806278}
+.floor-status>p{margin:.65rem .05rem .05rem;padding-top:.65rem;border-top:1px solid var(--border);color:var(--muted);font-size:.7rem;line-height:1.45}
+
+.roster-section,.relationship-section,.definition-section{padding-bottom:clamp(5rem,9vw,8rem)}
+.section-heading{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(18rem,.72fr);gap:2rem;align-items:end;padding-top:2.4rem;margin-bottom:1.5rem;border-top:1px solid var(--border)}
+.section-heading h2{margin:.25rem 0 0;font-size:clamp(2.8rem,6vw,5.5rem);letter-spacing:-.05em}
+.section-heading>p{margin:0;color:var(--muted);line-height:1.65}
+.dossiers{display:grid;gap:0}
+
+.relationship-board{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:.8rem;align-items:stretch;padding:1rem;border:1px solid var(--border);border-radius:1.35rem;background:linear-gradient(145deg,color-mix(in srgb,var(--agents) 9%,var(--surface)),var(--surface));box-shadow:var(--shadow-soft)}
+.relationship-node{position:relative;min-width:0;padding:1.1rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface-strong)}
+.relationship-node.future{border-style:dashed;background:color-mix(in srgb,var(--about) 7%,var(--surface-strong))}
+.node-index{display:inline-grid;place-items:center;width:2rem;aspect-ratio:1;border-radius:.55rem;background:var(--text);color:var(--bg);font-size:.62rem;font-weight:900}
+.node-kicker{margin:1.1rem 0 .2rem;color:var(--agents);font-size:.64rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.relationship-node h3{margin:0;font-size:clamp(2.1rem,4vw,3.6rem);letter-spacing:-.045em}
+.relationship-node>p:last-child{margin:.8rem 0 0;color:var(--muted);font-size:.88rem;line-height:1.55}
+.relationship-arrow,.relationship-link{display:grid;place-items:center;align-content:center;color:var(--accent);font-family:var(--font-display);font-size:2rem;font-weight:900}
+.relationship-link{gap:.4rem;min-width:5.5rem;text-align:center}
+.relationship-link small{max-width:6rem;color:var(--muted);font-family:var(--font-body);font-size:.58rem;line-height:1.2;text-transform:uppercase;letter-spacing:.06em}
+
+.definition-panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(20rem,.75fr);gap:clamp(2rem,6vw,5rem);padding:clamp(1.4rem,4vw,2.5rem);border:1px solid var(--border);border-radius:1.4rem;background:var(--text);color:var(--bg);box-shadow:var(--shadow-soft)}
+.definition-panel .eyebrow{color:var(--accent-soft)}
+.definition-panel h2{margin:.35rem 0 0;font-size:clamp(2.5rem,5vw,4.8rem);letter-spacing:-.05em}
+.definition-copy{align-self:end}
+.definition-copy p{margin:0;color:color-mix(in srgb,var(--bg) 78%,transparent);line-height:1.7}
+.definition-copy p+p{margin-top:1rem;padding-top:1rem;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent)}
+
+@media(max-width:62rem){.agents-hero{grid-template-columns:1fr}.floor-status{max-width:34rem}.relationship-board{grid-template-columns:1fr}.relationship-arrow{transform:rotate(90deg)}.relationship-link{min-width:0}.relationship-link>span{transform:rotate(90deg)}.definition-panel{grid-template-columns:1fr}}
+@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-roster a{grid-template-columns:5rem minmax(0,1fr) 6.5rem;gap:.55rem;padding:.72rem .35rem}.agent-name{font-size:1rem}.agent-role{font-size:.64rem}.roster-status{font-size:.52rem}.floor-status>p{margin-top:.35rem;padding-top:.55rem}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
+</style>
