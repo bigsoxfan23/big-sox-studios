@@ -3,7 +3,7 @@ const { employee, agent, index = 0 } = Astro.props;
 const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
 const reverse = index % 2 === 1;
 ---
-<section class:list={['agent-dossier', statusClass, { reverse }]} aria-labelledby={`dossier-${employee.id}`}>
+<section id={`agent-${employee.id}`} class:list={['agent-dossier', statusClass, { reverse }]} aria-labelledby={`dossier-${employee.id}`}>
   <div class="dossier-visual">
     <div class="dossier-frame">
       <div class="frame-top">
@@ -65,7 +65,7 @@ const reverse = index % 2 === 1;
 </section>
 
 <style>
-.agent-dossier{display:grid;grid-template-columns:minmax(18rem,.82fr) minmax(0,1.18fr);gap:clamp(2rem,6vw,5rem);align-items:start;padding-block:clamp(3.8rem,7vw,6.5rem);border-top:1px solid var(--border)}
+.agent-dossier{display:grid;grid-template-columns:minmax(18rem,.82fr) minmax(0,1.18fr);gap:clamp(2rem,6vw,5rem);align-items:start;padding-block:clamp(3.8rem,7vw,6.5rem);border-top:1px solid var(--border);scroll-margin-top:6rem}
 .agent-dossier:first-child{padding-top:1rem;border-top:0}
 .agent-dossier.reverse{grid-template-columns:minmax(0,1.18fr) minmax(18rem,.82fr)}
 .agent-dossier.reverse .dossier-visual{order:2}
