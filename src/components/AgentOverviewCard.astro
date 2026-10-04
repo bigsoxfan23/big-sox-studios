@@ -18,7 +18,7 @@ const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
     <h2 id={`agent-overview-${employee.id}`}>{employee.name}</h2>
     <p class="hook">{agent.hook}</p>
     <ul class="capabilities" aria-label={`${employee.name} capabilities`}>
-      {agent.capabilities.map((capability) => <li>{capability}</li>)}
+      {agent.capabilities.map((capability: string) => <li>{capability}</li>)}
     </ul>
   </div>
 </article>
