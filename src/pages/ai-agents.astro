@@ -7,11 +7,11 @@ import agents from '../data/agents.json';
 import seo from '../data/seo.json';
 
 const employeeMap = Object.fromEntries(company.employees.map((employee) => [employee.id, employee]));
-const agentIds = ['otto', 'porter', 'trace'] as const;
-const agentRows = agentIds.map((id) => ({
-  employee: employeeMap[id],
-  agent: agents.agents[id]
-}));
+const agentRows = [
+  { employee: employeeMap.otto, agent: agents.agents.otto },
+  { employee: employeeMap.porter, agent: agents.agents.porter },
+  { employee: employeeMap.trace, agent: agents.agents.trace }
+];
 ---
 <BaseLayout title={seo.agents.title} description={seo.agents.description}>
   <section class="agents-hero container" aria-labelledby="agents-title">
