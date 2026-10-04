@@ -1,7 +1,7 @@
 ---
 const { employee, agent, index = 0 } = Astro.props;
 const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
-const capabilities = /** @type {string[]} */ (agent.capabilities);
+const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities.map(String) : [];
 ---
 <article class:list={['agent-overview', statusClass]} aria-labelledby={`agent-overview-${employee.id}`}>
   <div class="overview-topline">
