@@ -1,6 +1,5 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import AgentOverviewCard from '../components/AgentOverviewCard.astro';
 import AgentDossier from '../components/AgentDossier.astro';
 import company from '../data/company.json';
 import agents from '../data/agents.json';
@@ -35,26 +34,20 @@ const agentRows = [
     </aside>
   </section>
 
-  <section class="overview-section container" aria-labelledby="overview-title">
+  <section class="roster-section container" aria-labelledby="roster-title">
     <div class="section-heading">
       <div>
         <p class="eyebrow">Current roster</p>
-        <h2 id="overview-title">Meet the operators.</h2>
+        <h2 id="roster-title">Meet the operators.</h2>
       </div>
-      <p>Big portraits, real statuses, and enough detail to explain what each agent is actually for without turning the page into a wiring diagram.</p>
+      <p>One profile per agent: who they are, what they do, why the role exists, and where the guardrails are.</p>
     </div>
 
-    <div class="overview-grid">
+    <div class="dossiers" aria-label="AI agent profiles">
       {agentRows.map(({ employee, agent }, index) => (
-        <AgentOverviewCard employee={employee} agent={agent} index={index} />
+        <AgentDossier employee={employee} agent={agent} index={index} />
       ))}
     </div>
-  </section>
-
-  <section class="dossiers container" aria-label="Detailed agent dossiers">
-    {agentRows.map(({ employee, agent }, index) => (
-      <AgentDossier employee={employee} agent={agent} index={index} />
-    ))}
   </section>
 
   <section class="relationship-section container" aria-labelledby="relationship-title">
@@ -128,11 +121,11 @@ const agentRows = [
 .floor-status dd{margin:.2rem 0 0;font-family:var(--font-display);font-size:1.8rem}
 .floor-status>p{margin:.9rem 0 0;color:var(--muted);font-size:.78rem;line-height:1.5}
 
-.overview-section,.relationship-section,.definition-section{padding-bottom:clamp(5rem,9vw,8rem)}
+.roster-section,.relationship-section,.definition-section{padding-bottom:clamp(5rem,9vw,8rem)}
 .section-heading{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(18rem,.72fr);gap:2rem;align-items:end;padding-top:2.4rem;margin-bottom:1.5rem;border-top:1px solid var(--border)}
 .section-heading h2{margin:.25rem 0 0;font-size:clamp(2.8rem,6vw,5.5rem);letter-spacing:-.05em}
 .section-heading>p{margin:0;color:var(--muted);line-height:1.65}
-.overview-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}
+.dossiers{display:grid;gap:0}
 
 .relationship-board{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:.8rem;align-items:stretch;padding:1rem;border:1px solid var(--border);border-radius:1.35rem;background:linear-gradient(145deg,color-mix(in srgb,var(--agents) 9%,var(--surface)),var(--surface));box-shadow:var(--shadow-soft)}
 .relationship-node{position:relative;min-width:0;padding:1.1rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface-strong)}
@@ -152,6 +145,6 @@ const agentRows = [
 .definition-copy p{margin:0;color:color-mix(in srgb,var(--bg) 78%,transparent);line-height:1.7}
 .definition-copy p+p{margin-top:1rem;padding-top:1rem;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent)}
 
-@media(max-width:62rem){.agents-hero{grid-template-columns:1fr}.floor-status{max-width:34rem}.overview-grid{grid-template-columns:1fr}.overview-grid :global(.agent-overview){display:grid;grid-template-columns:minmax(16rem,.72fr) minmax(0,1fr);grid-template-rows:auto 1fr}.overview-grid :global(.agent-overview .overview-topline){grid-column:1/-1}.overview-grid :global(.agent-overview .portrait-wrap){grid-column:1;grid-row:2}.overview-grid :global(.agent-overview .overview-copy){grid-column:2;grid-row:2;align-self:center}.relationship-board{grid-template-columns:1fr}.relationship-arrow{transform:rotate(90deg)}.relationship-link{min-width:0}.relationship-link>span{transform:rotate(90deg)}.definition-panel{grid-template-columns:1fr}}
-@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.overview-grid :global(.agent-overview){display:flex}.floor-status dl{grid-template-columns:1fr}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
+@media(max-width:62rem){.agents-hero{grid-template-columns:1fr}.floor-status{max-width:34rem}.relationship-board{grid-template-columns:1fr}.relationship-arrow{transform:rotate(90deg)}.relationship-link{min-width:0}.relationship-link>span{transform:rotate(90deg)}.definition-panel{grid-template-columns:1fr}}
+@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-status dl{grid-template-columns:1fr}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
 </style>
