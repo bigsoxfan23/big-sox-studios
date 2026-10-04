@@ -129,13 +129,13 @@ const agentRows = [
 .floor-status-top{display:flex;justify-content:space-between;gap:1rem;padding:.05rem .05rem .7rem;border-bottom:1px solid var(--border);font-size:.62rem;font-weight:900;letter-spacing:.12em}
 .live-dot{display:inline-flex;align-items:center;gap:.35rem;color:#447454}
 .live-dot:before{content:'';width:.45rem;aspect-ratio:1;border-radius:50%;background:currentColor;box-shadow:0 0 0 .2rem color-mix(in srgb,currentColor 14%,transparent)}
-.floor-roster{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:.15rem}
-.floor-roster a{display:grid;grid-template-rows:auto auto auto;gap:.14rem;min-width:0;padding:.8rem .75rem;text-decoration:none;border-right:1px solid var(--border);transition:background .15s ease}
-.floor-roster a:last-child{border-right:0}
+.floor-roster{display:grid;grid-template-columns:1fr;margin-top:.15rem}
+.floor-roster a{display:grid;grid-template-columns:minmax(7rem,.8fr) minmax(0,1.4fr) minmax(7.5rem,.8fr);align-items:center;gap:.8rem;min-width:0;padding:.78rem .75rem;text-decoration:none;border-bottom:1px solid var(--border);transition:background .15s ease}
+.floor-roster a:last-child{border-bottom:0}
 .floor-roster a:hover{background:color-mix(in srgb,var(--agents) 8%,transparent)}
 .agent-name{font-family:var(--font-display);font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
 .agent-role{overflow:hidden;color:var(--muted);font-size:.67rem;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
-.roster-status{display:inline-flex;align-items:center;gap:.32rem;margin-top:.35rem;font-size:.56rem;font-weight:900;letter-spacing:.08em}
+.roster-status{display:inline-flex;align-items:center;justify-self:end;gap:.32rem;margin-top:0;font-size:.56rem;font-weight:900;letter-spacing:.08em}
 .roster-status:before{content:'';width:.42rem;aspect-ratio:1;border-radius:50%;background:currentColor}
 .roster-status.active{color:#447454}
 .roster-status.onboarding{color:#b26b08}
@@ -167,5 +167,5 @@ const agentRows = [
 .definition-copy p+p{margin-top:1rem;padding-top:1rem;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent)}
 
 @media(max-width:62rem){.agents-hero{grid-template-columns:1fr}.floor-status{max-width:34rem}.relationship-board{grid-template-columns:1fr}.relationship-arrow{transform:rotate(90deg)}.relationship-link{min-width:0}.relationship-link>span{transform:rotate(90deg)}.definition-panel{grid-template-columns:1fr}}
-@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-roster{grid-template-columns:1fr}.floor-roster a{grid-template-columns:minmax(4.6rem,.72fr) minmax(0,1.3fr) auto;grid-template-rows:auto;align-items:center;gap:.65rem;padding:.72rem .35rem;border-right:0;border-bottom:1px solid var(--border)}.floor-roster a:last-child{border-bottom:0}.agent-name{font-size:1rem}.agent-role{font-size:.64rem}.roster-status{justify-self:end;margin-top:0;font-size:.52rem}.floor-status>p{margin-top:.35rem;padding-top:.55rem}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
+@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-roster a{grid-template-columns:5rem minmax(0,1fr) 6.5rem;gap:.55rem;padding:.72rem .35rem}.agent-name{font-size:1rem}.agent-role{font-size:.64rem}.roster-status{font-size:.52rem}.floor-status>p{margin-top:.35rem;padding-top:.55rem}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
 </style>
