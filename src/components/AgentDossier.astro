@@ -2,6 +2,7 @@
 const { employee, agent, index = 0 } = Astro.props;
 const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
 const reverse = index % 2 === 1;
+const examples = /** @type {string[]} */ (agent.examples);
 ---
 <section class:list={['agent-dossier', statusClass, { reverse }]} aria-labelledby={`dossier-${employee.id}`}>
   <div class="dossier-visual">
@@ -38,7 +39,7 @@ const reverse = index % 2 === 1;
     <section class="jobs">
       <p class="detail-label">Example jobs</p>
       <ul>
-        {agent.examples.map((item: string) => <li>{item}</li>)}
+        {examples.map((item) => <li>{item}</li>)}
       </ul>
     </section>
 
