@@ -7,7 +7,7 @@ import agents from '../data/agents.json';
 import seo from '../data/seo.json';
 
 const employeeMap = Object.fromEntries(company.employees.map((employee) => [employee.id, employee]));
-const agentIds = ['otto', 'porter', 'trace'];
+const agentIds = ['otto', 'porter', 'trace'] as const;
 const agentRows = agentIds.map((id) => ({
   employee: employeeMap[id],
   agent: agents.agents[id]
