@@ -1,7 +1,6 @@
 ---
 const { employee, agent, index = 0 } = Astro.props;
 const statusClass = employee.status.toLowerCase().replace(/[^a-z]+/g, '-');
-const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities.map(String) : [];
 ---
 <article class:list={['agent-overview', statusClass]} aria-labelledby={`agent-overview-${employee.id}`}>
   <div class="overview-topline">
@@ -19,7 +18,10 @@ const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities.map(
     <h2 id={`agent-overview-${employee.id}`}>{employee.name}</h2>
     <p class="hook">{agent.hook}</p>
     <ul class="capabilities" aria-label={`${employee.name} capabilities`}>
-      {capabilities.map((capability) => <li>{capability}</li>)}
+      {agent.capabilities[0] && <li>{agent.capabilities[0]}</li>}
+      {agent.capabilities[1] && <li>{agent.capabilities[1]}</li>}
+      {agent.capabilities[2] && <li>{agent.capabilities[2]}</li>}
+      {agent.capabilities[3] && <li>{agent.capabilities[3]}</li>}
     </ul>
   </div>
 </article>
