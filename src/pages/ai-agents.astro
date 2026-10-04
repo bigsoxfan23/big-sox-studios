@@ -20,16 +20,30 @@ const agentRows = [
       <p class="hero-intro">{agents.intro}</p>
     </div>
 
-    <aside class="floor-status" aria-label="Operations floor status">
+    <aside class="floor-status" aria-label="Operations floor roster">
       <div class="floor-status-top">
         <span>OPS FLOOR</span>
         <span class="live-dot">LIVE</span>
       </div>
-      <dl>
-        <div><dt>Active</dt><dd>1</dd></div>
-        <div><dt>Onboarding</dt><dd>1</dd></div>
-        <div><dt>Pre-hire</dt><dd>1</dd></div>
-      </dl>
+
+      <nav class="floor-roster" aria-label="Jump to an agent profile">
+        <a href="#agent-otto">
+          <span class="agent-name">Otto</span>
+          <span class="agent-role">Infrastructure Operator</span>
+          <span class="roster-status active">ACTIVE</span>
+        </a>
+        <a href="#agent-porter">
+          <span class="agent-name">Porter</span>
+          <span class="agent-role">Home Assistant Builder</span>
+          <span class="roster-status onboarding">ONBOARDING</span>
+        </a>
+        <a href="#agent-trace">
+          <span class="agent-name">Trace</span>
+          <span class="agent-role">Home Guardian</span>
+          <span class="roster-status pre-hire">PRE-HIRE</span>
+        </a>
+      </nav>
+
       <p>Three roles. Separate permissions. Zero plans for a robot uprising.</p>
     </aside>
   </section>
@@ -109,17 +123,24 @@ const agentRows = [
 .hero-copy{max-width:60rem}
 .agents-hero h1{margin:.35rem 0 1.4rem;font-size:clamp(4.5rem,11vw,9.5rem);line-height:.82;letter-spacing:-.07em}
 .hero-intro{max-width:52rem;margin:0;color:var(--muted);font-family:var(--font-display);font-size:clamp(1.35rem,2.5vw,2.2rem);line-height:1.25}
-.floor-status{position:relative;overflow:hidden;padding:1.1rem;border:1px solid var(--border);border-radius:1.25rem;background:linear-gradient(145deg,color-mix(in srgb,var(--agents) 14%,var(--surface)),var(--surface));box-shadow:var(--shadow-soft)}
-.floor-status:before{content:'';position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--agents) 10%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--agents) 10%,transparent) 1px,transparent 1px);background-size:20px 20px;pointer-events:none;opacity:.45}
+.floor-status{position:relative;overflow:hidden;padding:.95rem;border:1px solid var(--border);border-radius:1.1rem;background:linear-gradient(145deg,color-mix(in srgb,var(--agents) 11%,var(--surface)),var(--surface));box-shadow:var(--shadow-soft)}
+.floor-status:before{content:'';position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--agents) 9%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--agents) 9%,transparent) 1px,transparent 1px);background-size:20px 20px;pointer-events:none;opacity:.4}
 .floor-status>*{position:relative;z-index:1}
-.floor-status-top{display:flex;justify-content:space-between;gap:1rem;padding-bottom:.8rem;border-bottom:1px solid var(--border);font-size:.62rem;font-weight:900;letter-spacing:.12em}
+.floor-status-top{display:flex;justify-content:space-between;gap:1rem;padding:.05rem .05rem .7rem;border-bottom:1px solid var(--border);font-size:.62rem;font-weight:900;letter-spacing:.12em}
 .live-dot{display:inline-flex;align-items:center;gap:.35rem;color:#447454}
-.live-dot:before{content:'';width:.45rem;aspect-ratio:1;border-radius:50%;background:currentColor;box-shadow:0 0 0 .22rem color-mix(in srgb,currentColor 14%,transparent)}
-.floor-status dl{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin:1rem 0}
-.floor-status dl div{padding:.75rem .6rem;border:1px solid var(--border);border-radius:.8rem;background:color-mix(in srgb,var(--surface-strong) 78%,transparent)}
-.floor-status dt{color:var(--muted);font-size:.6rem;font-weight:800;text-transform:uppercase}
-.floor-status dd{margin:.2rem 0 0;font-family:var(--font-display);font-size:1.8rem}
-.floor-status>p{margin:.9rem 0 0;color:var(--muted);font-size:.78rem;line-height:1.5}
+.live-dot:before{content:'';width:.45rem;aspect-ratio:1;border-radius:50%;background:currentColor;box-shadow:0 0 0 .2rem color-mix(in srgb,currentColor 14%,transparent)}
+.floor-roster{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:.15rem}
+.floor-roster a{display:grid;grid-template-rows:auto auto auto;gap:.14rem;min-width:0;padding:.8rem .75rem;text-decoration:none;border-right:1px solid var(--border);transition:background .15s ease}
+.floor-roster a:last-child{border-right:0}
+.floor-roster a:hover{background:color-mix(in srgb,var(--agents) 8%,transparent)}
+.agent-name{font-family:var(--font-display);font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
+.agent-role{overflow:hidden;color:var(--muted);font-size:.67rem;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
+.roster-status{display:inline-flex;align-items:center;gap:.32rem;margin-top:.35rem;font-size:.56rem;font-weight:900;letter-spacing:.08em}
+.roster-status:before{content:'';width:.42rem;aspect-ratio:1;border-radius:50%;background:currentColor}
+.roster-status.active{color:#447454}
+.roster-status.onboarding{color:#b26b08}
+.roster-status.pre-hire{color:#806278}
+.floor-status>p{margin:.65rem .05rem .05rem;padding-top:.65rem;border-top:1px solid var(--border);color:var(--muted);font-size:.7rem;line-height:1.45}
 
 .roster-section,.relationship-section,.definition-section{padding-bottom:clamp(5rem,9vw,8rem)}
 .section-heading{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(18rem,.72fr);gap:2rem;align-items:end;padding-top:2.4rem;margin-bottom:1.5rem;border-top:1px solid var(--border)}
@@ -146,5 +167,5 @@ const agentRows = [
 .definition-copy p+p{margin-top:1rem;padding-top:1rem;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent)}
 
 @media(max-width:62rem){.agents-hero{grid-template-columns:1fr}.floor-status{max-width:34rem}.relationship-board{grid-template-columns:1fr}.relationship-arrow{transform:rotate(90deg)}.relationship-link{min-width:0}.relationship-link>span{transform:rotate(90deg)}.definition-panel{grid-template-columns:1fr}}
-@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-status dl{grid-template-columns:1fr}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
+@media(max-width:48rem){.agents-hero{padding-bottom:4rem}.agents-hero h1{font-size:clamp(4.2rem,20vw,7rem)}.section-heading{grid-template-columns:1fr;gap:1rem}.floor-roster{grid-template-columns:1fr}.floor-roster a{grid-template-columns:minmax(4.6rem,.72fr) minmax(0,1.3fr) auto;grid-template-rows:auto;align-items:center;gap:.65rem;padding:.72rem .35rem;border-right:0;border-bottom:1px solid var(--border)}.floor-roster a:last-child{border-bottom:0}.agent-name{font-size:1rem}.agent-role{font-size:.64rem}.roster-status{justify-self:end;margin-top:0;font-size:.52rem}.floor-status>p{margin-top:.35rem;padding-top:.55rem}.relationship-board{padding:.7rem}.definition-panel{padding:1.2rem}}
 </style>
