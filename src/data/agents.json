@@ -1,0 +1,82 @@
+{
+  "eyebrow": "AI Agents",
+  "title": "The Operations Floor",
+  "intro": "Big Sox Studios has a small crew of purpose-built AI agents handling infrastructure and smart-home work. They have defined jobs, limited permissions, and considerably more documentation than most fictional robots.",
+  "definition": "These aren't generic chatbots with employee names pasted on them. Big Sox Studios agents are persistent, purpose-built workers with defined identities, jobs, tools, permissions, operational boundaries, and continuing responsibilities.",
+  "toolingNote": "ChatGPT, Work, Codex, and other AI platforms help build and operate Big Sox Studios, but they are tools and collaborators—not employees.",
+  "agents": {
+    "otto": {
+      "hook": "Keeps the servers running, the services behaving, and the terminal commands away from Greg whenever possible.",
+      "capabilities": [
+        "Server ops",
+        "Deployments",
+        "Diagnostics",
+        "Verification"
+      ],
+      "job": "Otto is the infrastructure operator for the systems behind Big Sox Studios. He handles the boring-but-important work that keeps everything else available: services, deployments, diagnostics, server operations, and carefully bounded privileged actions.",
+      "why": "So routine infrastructure work doesn't require Greg to become the world's most reluctant part-time Linux administrator.",
+      "examples": [
+        "Diagnose why a service stopped working.",
+        "Check the health of the server and supporting services.",
+        "Restart or deploy an approved service.",
+        "Verify that an infrastructure change actually worked.",
+        "Handle bounded maintenance jobs through the studio's agent runtime.",
+        "Produce evidence instead of simply declaring, “looks good to me.”"
+      ],
+      "boundaries": "Otto is not supposed to freestyle with production infrastructure. His access is deliberately bounded, sensitive actions have controls around them, and a command completing successfully is not the same thing as the job being verified.",
+      "current": "Active and operational. Otto is the established infrastructure operator in the current agent lineup.",
+      "personality": "If the server is boring, healthy, and nobody has to think about it, Otto considers that an excellent day."
+    },
+    "porter": {
+      "hook": "Turns “I wish the house did this” into Home Assistant automations—with backups, approvals, verification, and a healthy fear of breaking the lights.",
+      "capabilities": [
+        "Home Assistant",
+        "Automations",
+        "Scripts",
+        "Rollback"
+      ],
+      "job": "Porter is the builder for Home Assistant. He takes natural-language ideas and turns them into controlled smart-home changes, especially automations and scripts.",
+      "why": "Because “make the hallway lights do something smarter” should eventually be a request, not a Saturday afternoon YAML project.",
+      "examples": [
+        "Create new Home Assistant automations.",
+        "Modify existing automations.",
+        "Create and change scripts.",
+        "Inspect the existing Home Assistant configuration before making a change.",
+        "Back up affected configuration before mutation.",
+        "Apply an approved change, verify the result, and roll it back when necessary."
+      ],
+      "boundaries": "Porter has isolated Home Assistant access and does not inherit Otto's infrastructure privileges. Changes are designed around approval, backup, verification, and rollback rather than unrestricted control.",
+      "current": "Operational, but still onboarding into the full Builder role. Broader capabilities—especially richer dashboard work and more of the intended Builder feature set—are still being developed.",
+      "personality": "Porter measures twice, backs up three times, and would really prefer you not unplug the hub halfway through."
+    },
+    "trace": {
+      "hook": "Future smart-home watchdog. She has a name, a job description, and absolutely no permission to touch anything yet.",
+      "capabilities": [
+        "Monitoring",
+        "Diagnosis",
+        "Health checks",
+        "Future remediation"
+      ],
+      "job": "Trace is planned as the Home Guardian: the agent that watches the smart home rather than building it.",
+      "why": "A smart home isn't especially smart if something quietly breaks on Tuesday and nobody discovers it until Friday.",
+      "examples": [
+        "Monitor Home Assistant and smart-home health.",
+        "Notice unusual failures or degraded behavior.",
+        "Help diagnose what went wrong.",
+        "Connect symptoms across devices and systems.",
+        "Eventually support carefully bounded remediation where that is safe and appropriate."
+      ],
+      "boundaries": "Trace is not built yet. She does not currently monitor, diagnose, or remediate anything, and the future version is intended to stay within carefully defined permissions and operational boundaries.",
+      "current": "Pre-hire. Trace is planned, not operational, and her monitoring/remediation capabilities are future work.",
+      "personality": "Trace hasn't started work yet, which technically gives her the best incident record in the company."
+    }
+  },
+  "relationship": {
+    "title": "How they work together",
+    "intro": "Their jobs overlap enough to cooperate, but their responsibilities and permissions stay deliberately separate.",
+    "otto": "Runs and verifies the infrastructure underneath the operation.",
+    "porter": "Builds and changes things inside Home Assistant.",
+    "trace": "Will watch, diagnose, and eventually help respond when the smart home misbehaves.",
+    "motto": "Porter builds. Trace watches."
+  }
+}
