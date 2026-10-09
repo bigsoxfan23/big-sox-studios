@@ -1,42 +1,47 @@
-# Members Portal — Staging acceptance checklist
+# Big Sox Studios Members Portal — Staging acceptance
 
-This checklist must be completed before enabling any real member data or service access.
+Not deployed. Mark these complete **only after real staging evidence**, not on design or simulated tests.
 
-## Identity and MFA
-- [ ] Confirm Google sign-in through selected identity broker.
-- [ ] Confirm Apple sign-in through selected identity broker (not assumed from dashboard sign-in support).
-- [ ] Prove independently enforced MFA for **both** providers, including fresh enrollment and repeat sign-in.
-- [ ] Block accounts that skip, cancel, or fail MFA.
-- [ ] Verify identity linking cannot be hijacked using the same email across providers.
-- [ ] Verify recovery/reset procedures do not silently bypass MFA.
+## Login methods / MFA
 
-## Authorization
-- [ ] Unknown identities denied, even with valid provider login and MFA.
-- [ ] Approved member sees only explicitly granted services.
-- [ ] Suspended member loses access to existing sessions promptly.
-- [ ] All protected endpoints verify authorization on the server.
-- [ ] Owner actions require reauthentication or step-up for high-risk changes.
-- [ ] Never expose CMS authoring or infrastructure administrative access to members.
+- [ ] Personal Google login works and uninvited Google identities are denied.
+- [ ] Email One-time PIN works and uninvited recipient addresses receive no access.
+- [ ] Independent MFA is mandatory **after both Google login and email-code login**.
+- [ ] Cancelled/failed/skipped MFA is denied; users cannot bypass MFA via another Access policy, existing session or provider.
+- [ ] Apple login is integrated via compatible OIDC provider; Apple developer registration and costs approved.
+- [ ] Apple MFA is mandatory; test Hide My Email/private relay and repeat sign-in.
+- [ ] First-time enrollment is secure, including recovery and stolen-credential scenarios.
+- [ ] Nonmember Cloudflare accounts do not receive portal access.
+- [ ] Only member-approved IdPs appear for this application; no unexpected Cloudflare default login.
 
-## Browser/session
-- [ ] Cookies Secure, HttpOnly, appropriately SameSite, narrowly scoped.
-- [ ] Test CSRF, token issuer/audience/expiry, replay and redirect validation.
-- [ ] No member data in static HTML, static JSON, client bundles, caches, previews or logs.
-- [ ] Test mobile Safari and Chrome; logout and session expiration.
-- [ ] Private responses use Cache-Control: no-store.
+## Account ownership / authorization
 
-## Infrastructure
-- [ ] Separate preview/staging and production credentials and allowlists.
-- [ ] Restrict any protected hostname at the edge **and** verify authorization in backend.
-- [ ] Status API exposes only approved, minimal health data; no internal hostnames, ports, IPs, metrics, or secrets.
-- [ ] Confirm Cloudflare streaming terms and Jellyfin compatibility before changing public routing.
-- [ ] Keep current Jellyfin route intact until replacement verified.
-- [ ] Rollback plan documented and tested.
+- [ ] Only owner can approve/suspend identities and grant services.
+- [ ] All members start denied; no service access until granted.
+- [ ] An approved Google account cannot automatically claim another person's Apple/OTP member account via a shared email or display name.
+- [ ] Identity linking requires explicit owner approval and verified provider identity.
+- [ ] Suspended/deleted users lose edge and backend access promptly, including sessions.
+- [ ] Backend independently validates Access JWT signature, issuer, audience, expiry, and active member role.
+- [ ] Direct API access and forged auth headers fail; client side / static HTML never contains member data.
+- [ ] Invalid services and unauthorized admin actions return no protected data.
 
-## Manual account-level setup needed later
-1. Identity-provider application registrations and callback URLs.
-2. Access/MFA policies, private credentials and optional D1 binding.
-3. Owner identity enrollment and MFA test.
-4. Approval of production hostname, DNS, security policy and routing changes.
+## Browser / infrastructure
 
-Never paste secrets into issues, pull requests, chat or the public repository.
+- [ ] Private responses no-store; token/session cookie, CSRF, redirect, and error handling verified.
+- [ ] iOS Safari, desktop Chrome, logout and session expiry pass.
+- [ ] Public website, Sveltia CMS and existing auth unchanged.
+- [ ] Status response has no internal addresses, ports, logs, or other members' personal data.
+- [ ] Member portal traffic does not expose private infrastructure management interfaces.
+- [ ] Jellyfin's own accounts continue to protect libraries; video delivery reviewed separately.
+- [ ] Rollback and audit logging verified.
+
+## Account-level steps that require owner access or approval
+
+1. Google OAuth setup: project, credentials and Cloudflare callback; save client secret **only** in the authorized provider's secure settings.
+2. Add Cloudflare **One-time PIN** identity provider.
+3. Turn on independent MFA in Access settings and enroll owner's authenticator.
+4. Apple: identify Apple Developer account eligibility and vet an OIDC identity broker before registering any paid capability.
+5. Approve protected staging hostname and Access application policy before introducing real identities.
+6. Approve final production policy and domain routing only after all tests pass.
+
+Never paste secrets or member email addresses into chat, public GitHub, or screenshots.
