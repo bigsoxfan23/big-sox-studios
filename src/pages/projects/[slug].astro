@@ -8,8 +8,9 @@ export async function getStaticPaths(){
 const {project}=Astro.props;
 const {Content}=await render(project);
 const {data}=project;
+const canonicalUrl=`https://bigsoxstudios.com/projects/${data.slug}/`;
 ---
-<BaseLayout title={data.title} description={data.summary}>
+<BaseLayout title={data.title} description={data.summary} canonical={canonicalUrl}>
 <main class="case-study">
   <section class="case-hero container">
     <a class="back" href="/projects/">← All projects</a>
