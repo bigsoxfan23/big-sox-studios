@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Members Portal" description="Private Big Sox Studios member access">
+<section class="members-shell" aria-labelledby="members-title">
+  <div class="members-card">
+    <p class="eyebrow">BIG SOX STUDIOS / MEMBERS</p>
+    <h1 id="members-title">Your corner of the studio.</h1>
+    <p>Private access for approved family, friends, and invited Big Sox Studios members.</p>
+    <div class="notice" role="status"><strong>Invitation-only access is being prepared.</strong><p>Member sign-in is not enabled yet. This page does not collect passwords, account details, or personal information.</p></div>
+    <a class="button" href="/">Return to Big Sox Studios →</a>
+  </div>
+</section>
+</BaseLayout>
+<style>
+.members-shell{min-height:65vh;display:grid;place-items:center;padding:4rem 1.25rem;background:radial-gradient(circle at 80% 20%,rgba(226,137,58,.13),transparent 45%)}
+.members-card{width:min(100%,44rem);padding:clamp(1.5rem,5vw,3.5rem);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-soft)}
+h1{font-size:clamp(2.5rem,6vw,4.5rem);line-height:1.05;letter-spacing:-.04em;margin:.5rem 0 1rem}
+.members-card>p:not(.eyebrow){max-width:34rem;line-height:1.6}
+.notice{padding:1.25rem;border:1px solid var(--border);border-radius:1rem;margin:2rem 0;background:var(--background,#fbf6ea)}
+.notice p{margin:.5rem 0 0;line-height:1.5}
+</style>
