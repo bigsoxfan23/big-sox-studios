@@ -46,7 +46,7 @@
         "Apply an approved change, verify the result, and roll it back when necessary."
       ],
       "boundaries": "Porter has isolated Home Assistant access and does not inherit Otto's infrastructure privileges. Changes are designed around approval, backup, verification, and rollback rather than unrestricted control.",
-      "current": "Operational, but still onboarding into the full Builder role. Broader capabilities—especially richer dashboard work and more of the intended Builder feature set—are still being developed.",
+      "current": "Active and operational as the Home Assistant Builder. Porter builds and modifies automations and scripts through controlled approval, backup, verification, and rollback workflows. Further Builder capabilities can continue to develop without changing his active status.",
       "personality": "Porter measures twice, backs up three times, and would really prefer you not unplug the hub halfway through."
     },
     "trace": {

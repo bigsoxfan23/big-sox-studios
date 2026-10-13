@@ -180,10 +180,10 @@
       "title": "Home Assistant Builder",
       "role": "Automation Builder",
       "department": "Agent Operations & Smart Systems",
-      "status": "ONBOARDING",
+      "status": "ACTIVE",
       "monogram": "PO",
       "photo": "/media/employees/porter.webp",
-      "description": "Operational and actively onboarding. Builds and modifies Home Assistant automations and scripts through controlled approval, backup, verification, and rollback workflows."
+      "description": "Active and operational. Builds and modifies Home Assistant automations and scripts through controlled approval, backup, verification, and rollback workflows."
     },
     {
       "id": "trace",

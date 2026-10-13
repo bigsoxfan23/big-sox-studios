@@ -32,7 +32,6 @@ const leadership = [employeeMap.greg, employeeMap.socket];
     <aside class="status-key" aria-label="Employee status legend">
       <strong>Status key</strong>
       <span><i class="active" aria-hidden="true"></i> ACTIVE — current employee</span>
-      <span><i class="onboarding" aria-hidden="true"></i> ONBOARDING — operational, still being brought into the full role</span>
       <span><i class="pre-hire" aria-hidden="true"></i> PRE-HIRE — planned future employee, not operational</span>
     </aside>
   </section>
@@ -172,7 +171,7 @@ const leadership = [employeeMap.greg, employeeMap.socket];
 .status-key strong{color:var(--text);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase}
 .status-key span{display:inline-flex;align-items:center;gap:.4rem}
 .status-key i{width:.55rem;aspect-ratio:1;border-radius:50%}
-.status-key .active{background:#447454}.status-key .onboarding{background:#d97706}.status-key .pre-hire{background:#806278}
+.status-key .active{background:#447454}.status-key .pre-hire{background:#806278}
 
 @media(max-width:60rem){
   .section-heading{grid-template-columns:1fr;gap:1rem}
