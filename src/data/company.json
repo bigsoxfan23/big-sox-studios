@@ -70,7 +70,7 @@
             "TRACE",
             "Multi-AI Council",
             "Agent HQ",
-            "fridman-server",
+            "Studio Home Lab",
             "Smart Home / Home Assistant systems",
             "AI Agent Runtime / platform",
             "big-sox-studios-cms-auth"
@@ -172,7 +172,7 @@
       "status": "ACTIVE",
       "monogram": "OT",
       "photo": "/media/employees/otto.webp",
-      "description": "Operates fridman-server infrastructure, deployments, services, diagnostics, and bounded privileged operations."
+      "description": "Operates the studio’s private infrastructure, deployments, services, diagnostics, and bounded privileged operations."
     },
     {
       "id": "porter",
