@@ -1,0 +1,27 @@
+name = "bss-mail-desk-staging"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-14"
+workers_dev = false
+preview_urls = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[vars]
+DEPLOYMENT_STAGE = "staging"
+SEND_MODE = "mock"
+ALLOW_REAL_SEND = "false"
+NOTION_SYNC_MODE = "off"
+ACCESS_ISSUER = ""
+ACCESS_AUDIENCE = ""
+OWNER_EMAIL = ""
+APP_ORIGIN = ""
+# CSRF_SECRET is a future secret binding, never a plaintext var.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bss-mail-desk-staging"
+database_id = "6595c7ed-cbdb-4d8d-8f89-fc8b87f68860"
+migrations_dir = "migrations"

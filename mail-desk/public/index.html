@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio Mail Desk</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
+<body><header><img src="https://bigsoxstudios.com/brand/icons/app-icon-512.png" alt="Big Sox Studios" width="48" height="48"><div><span class="eyebrow">BIG SOX STUDIOS</span><h1>Mail desk</h1></div><span class="badge">Private · Staging</span></header>
+<div class="notice">Synthetic staging · Send records a mock delivery. Owner Access and MFA acceptance pending.</div>
+<main><aside aria-label="Case queue"><div class="section-heading"><h2>Inbox</h2><button id="refresh" type="button">Refresh</button></div><p class="muted">Membership · Support · General</p><div id="queue"></div></aside>
+<section id="detail" aria-label="Case details"><div class="empty"><h2>A little order for your inbox.</h2><p>Select a case to read the thread and prepare a reply.</p></div></section></main>
+<p id="status" role="status" aria-live="polite"></p>
+<template id="case-template"><h2 id="subject"></h2><p id="identity" class="muted"></p><div id="thread"></div><h3>Reply</h3><label for="draft">Message</label><textarea id="draft" rows="8" maxlength="10000"></textarea><div class="actions"><button id="review" type="button">Save &amp; review</button></div><section id="approval" hidden aria-label="Review reply"><h3>Review your reply</h3><p id="envelope"></p><pre id="preview"></pre><p>Final Send records one mock delivery.</p><button id="send" type="button">Send mock reply</button><button id="cancel" type="button" class="secondary">Back to editing</button></section><h3>Delivery history</h3><div id="deliveries"></div></template>
+</body></html>
