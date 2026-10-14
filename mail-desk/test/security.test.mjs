@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture, token, origin } from './helpers.mjs';
+import { fixture, token } from './helpers.mjs';
 import { b64 } from '../src/security.mjs';
 for (const path of ['/', '/app.js', '/styles.css','/api/session','/api/cases','/api/not-a-route']) {
  test(`JWT required for ${path}`,async t => { const f = await fixture(t); const r = await f.request(path,undefined,{ headers:{ 'Cf-Access-Jwt-Assertion':null, 'Cf-Access-Authenticated-User-Email':'owner@example.test', Cookie:'CF_Authorization=forged' } }); assert.equal(r.status,401); assert.deepEqual(await r.json(),{ error:'unauthorized' }); });
