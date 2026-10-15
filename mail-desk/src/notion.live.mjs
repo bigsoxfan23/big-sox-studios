@@ -64,6 +64,12 @@ export class LiveNotion {
    })(), new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error('timeout')); }, 9000); })]);
   } catch (error) {
    if (/^notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)$/.test(error?.message)) throw error;
+   if (error instanceof SyntaxError) throw Error('notion_json_invalid');
+   if (error?.message === 'bounded') throw Error('notion_json_oversize');
+   if (error?.message === 'empty') throw Error('notion_json_empty');
+   if (error?.message === 'timeout') throw Error('notion_deadline');
+   if (error?.name === 'AbortError') throw Error('notion_transport_abort');
+   if (error instanceof TypeError) throw Error('notion_transport_type');
    throw Error('notion_request_failed');
   }
   finally { clearTimeout(timer); controller.abort(); }

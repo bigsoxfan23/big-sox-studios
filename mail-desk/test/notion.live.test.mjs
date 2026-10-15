@@ -279,7 +279,7 @@ test('9s deadline also bounds a stalled JSON body, aborting the request', async 
   signal = init.signal; entered = true;
   return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{')); } }));
  });
- const pending = assert.rejects(api.findTicket({ channel: 'support', id: crypto.randomUUID() }), /notion_request_failed/);
+ const pending = assert.rejects(api.findTicket({ channel: 'support', id: crypto.randomUUID() }), /notion_deadline/);
  while (!entered) await new Promise(resolve => setImmediate(resolve));
  t.mock.timers.tick(9000); await pending; assert.equal(signal.aborted, true);
 });
@@ -436,4 +436,20 @@ test('failed real Notion lookups audit only a bounded HTTP category, not respons
  assert.equal(logs[0].event,'notion_sync_notion_http_403');
  assert.ok(!JSON.stringify(logs).includes('PRIVATE_BODY_SENTINEL'));
  assert.equal(rows(f,'notion_links').length,0);
+});
+
+test('Notion JSON and response-schema errors remain non-sensitive diagnostic categories', async t => {
+ for (const [content,expected] of [
+  ['this is not JSON','notion_sync_notion_json_invalid'],
+  ['{"results":"wrong shape","has_more":false}', 'notion_sync_notion_invalid_query']
+ ]) {
+  const f = await setup(t); await inbound(f);
+  const fake = async () => new Response(content,{status:200,headers:{'Content-Type':'application/json'}});
+  assert.equal((await runNotionSync(f.env, fake)).unresolved,1);
+  const logs=rows(f,'audit_events').filter(v=>v.event.startsWith('notion_sync_'));
+  assert.equal(logs.length,1);
+  assert.equal(logs[0].event,expected);
+  assert.ok(!JSON.stringify(logs).includes(content));
+  assert.equal(rows(f,'notion_links').length,0);
+ }
 });
