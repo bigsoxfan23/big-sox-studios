@@ -21,7 +21,8 @@ export function mapNotion(c) {
   }
  };
 }
-// Synthetic executor only. No Notion token, fetch, record update or live executor exists.
+// Synthetic executor only. Delivery plans cannot reuse the initial-case mapper.
+// No Notion token, fetch, or live executor exists.
 export async function runMockSync(db, env, execute = async () => {}) {
  if (env.NOTION_SYNC_MODE !== 'mock') return { processed: 0 };
  const time = now();
@@ -32,10 +33,62 @@ export async function runMockSync(db, env, execute = async () => {}) {
  for (const job of jobs.results) {
   try {
    const c = await stmt(db, 'SELECT * FROM cases WHERE id=?', job.case_id).first();
-   await execute(mapNotion(c)); await stmt(db, "UPDATE sync_jobs SET status='done' WHERE id=? AND status='running' AND attempts=?", job.id, job.attempts).run();
+   const plan = job.kind === 'case_created' ? mapNotion(c) : { data_source_id: DATA_SOURCE, externalCaseId: c.id, properties: { 'Reply State': select('Sent') } };
+   await execute(plan);
+   await stmt(db, "UPDATE sync_jobs SET status='done' WHERE id=? AND status='running' AND attempts=?", job.id, job.attempts).run();
   } catch {
    await stmt(db, `UPDATE sync_jobs SET status=?,next_attempt=? WHERE id=? AND status='running' AND attempts=?`, job.attempts >= 5 ? 'dead' : 'pending', time + Math.min(3600, 30 * 2 ** (job.attempts - 1)), job.id, job.attempts).run();
   }
  }
  return { processed: jobs.results.length };
+}
+
+// Local-only model of External Case ID reconciliation. No transport/token is accepted.
+// This mock stores pages in memory; it cannot call Notion or create databases/activity.
+export class OfflineNotion {
+ constructor() { this.pages = new Map(); this.calls = []; }
+ async find(externalId) {
+  this.calls.push('query');
+  return [...this.pages.values()].filter(p => p.externalId === externalId);
+ }
+ async create(externalId, payload) {
+  this.calls.push('create');
+  const page = { id: crypto.randomUUID(), externalId, payload: structuredClone(payload) };
+  this.pages.set(page.id, page); return page;
+ }
+ async update(id, properties) {
+  this.calls.push('update');
+  Object.assign(this.pages.get(id).payload.properties, structuredClone(properties));
+ }
+}
+export async function offlineUpsert(db, env, c, job, mock) {
+ if (env.NOTION_SYNC_MODE !== 'mock' || !(mock instanceof OfflineNotion)) return { status: 'off' };
+ if (job.case_id !== c.id || !['case_created','delivery_sent'].includes(job.kind)) throw Error('invalid_job');
+ if (job.kind === 'delivery_sent' && !await stmt(db, "SELECT id FROM outbound_intents WHERE id=? AND case_id=? AND status='sent'", job.intent_id, c.id).first()) throw Error('delivery_not_sent');
+ // Query failure is safe to retry: it has no write effect. Never blindly retry a create.
+ const found = await mock.find(c.id);
+ if (found.length > 1) throw Error('external_id_conflict');
+ const link = await stmt(db, 'SELECT * FROM notion_links WHERE case_id=?', c.id).first();
+ let page = found[0];
+ if (page) {
+  if (link?.page_id && link.page_id !== page.id) throw Error('page_link_conflict');
+  await stmt(db, `INSERT INTO notion_links VALUES (?,?,'linked',?) ON CONFLICT(case_id) DO UPDATE SET page_id=excluded.page_id,state='linked',updated_at=excluded.updated_at`, c.id, page.id, now()).run();
+ } else {
+  if (link) return { status: 'UNKNOWN' }; // Includes in-flight creates and eventual-consistency gaps.
+  const claim = await stmt(db, `INSERT INTO notion_links VALUES (?,NULL,'creating',?) ON CONFLICT(case_id) DO NOTHING RETURNING case_id`, c.id, now()).first();
+  if (!claim) return { status: 'UNKNOWN' };
+  try {
+   page = await mock.create(c.id, mapNotion(c));
+   if (!page?.id) throw Error('ambiguous_create');
+   await stmt(db, "UPDATE notion_links SET page_id=?,state='linked',updated_at=? WHERE case_id=? AND state='creating'", page.id, now(), c.id).run();
+  } catch {
+   await stmt(db, "UPDATE notion_links SET state='UNKNOWN',updated_at=? WHERE case_id=? AND state='creating'", now(), c.id).run();
+   return { status: 'UNKNOWN' };
+  }
+ }
+ if (job.kind === 'delivery_sent') {
+  // Idempotent assignment only. Never reset Status, ownership, Reference or Sequence.
+  await mock.update(page.id, { 'Reply State': select('Sent') });
+ }
+ return { status: 'linked', pageId: page.id };
 }

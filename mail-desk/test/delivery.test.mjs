@@ -81,7 +81,7 @@ test('sent plus Notion failure persists sent and retries only bounded sync jobs'
  job=f.DB.sqlite.prepare('SELECT * FROM sync_jobs WHERE kind=\'delivery_sent\'').get();assert.equal(job.status,'dead');assert.equal(attempts,5);
  await f.send(id,r);assert.equal(f.calls(),1);assert.equal(f.DB.sqlite.prepare('SELECT status FROM outbound_intents').get().status,'sent');
 });
-test('mock sync success completes job independently',async t=>{const f=await fixture(t);await f.session();const id=await f.seed();const r=await f.review(id);await f.send(id,r);let payload;await runMockSync(f.DB,{NOTION_SYNC_MODE:'mock'},async p=>{payload=p;});assert.equal(payload.parent.data_source_id,DATA_SOURCE);assert.equal(f.DB.sqlite.prepare('SELECT status FROM sync_jobs').get().status,'done');assert.equal(f.calls(),1);});
+test('mock sync success completes job independently',async t=>{const f=await fixture(t);await f.session();const id=await f.seed();const r=await f.review(id);await f.send(id,r);const payloads=[];await runMockSync(f.DB,{NOTION_SYNC_MODE:'mock'},async p=>{payloads.push(p);});assert.equal(payloads[0].parent.data_source_id,DATA_SOURCE);assert.deepEqual(Object.keys(payloads[1].properties),['Reply State']);assert.equal(f.DB.sqlite.prepare('SELECT status FROM sync_jobs').get().status,'done');assert.equal(f.calls(),1);});
 for(const channel of ['members','support','hello']) test(`Notion dry-run mapping ${channel} uses sole existing source, no sequence writes`,()=>{
  const c={...input({channel}),id:crypto.randomUUID()};const mapped=mapNotion(c),p=mapped.properties;
  assert.deepEqual(mapped.parent,{type:'data_source_id',data_source_id:'103d8328-de8b-4b7f-8986-000ce40450b5'});assert.equal(ACTIVITY_SOURCE,'17401fd3-c5f4-46bb-b516-c420b6e3ce24');assert.equal(NOTION_VERSION,'2025-09-03');
@@ -100,9 +100,9 @@ test('future Resend adapter requires independent flags and never fetches in stag
 });
 test('future adapter uses official stable idempotency key; ambiguous errors UNKNOWN',async()=>{
  const i={id:crypto.randomUUID(),sender:'hello@bigsoxstudios.com',recipient:'person@example.test',subject:'test',body:'<untrusted>'};const env={DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'synthetic-placeholder'};
- const result=await resendFuture(i,env,async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(init.headers['Idempotency-Key'],i.id);assert.equal(init.headers['Resend-Idempotency-Key'],i.id);assert.equal(JSON.parse(init.body).text,'<untrusted>');assert.ok(!('html' in JSON.parse(init.body)));return Response.json({id:'synthetic-provider-id'});});assert.equal(result.status,'sent');
- for(const response of [new Response('',{status:500}),new Response('',{status:429}),Response.json({}),new Response('invalid json')]) assert.equal((await resendFuture(i,env,async()=>response)).status,'UNKNOWN');
- assert.equal((await resendFuture(i,env,async()=>{throw Error('timeout');})).status,'UNKNOWN');
+ const result=await resendFuture(i,env,async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(init.headers['Idempotency-Key'],i.id);assert.equal(init.headers['Resend-Idempotency-Key'],i.id);assert.equal(JSON.parse(init.body).text,'<untrusted>');assert.ok(!('html' in JSON.parse(init.body)));return Response.json({id:'synthetic-provider-id'});}, {...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60});assert.equal(result.status,'sent');
+ for(const response of [new Response('',{status:500}),new Response('',{status:429}),Response.json({}),new Response('invalid json')]) assert.equal((await resendFuture(i,env,async()=>response,{...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60})).status,'UNKNOWN');
+ assert.equal((await resendFuture(i,env,async()=>{throw Error('timeout');},{...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60})).status,'UNKNOWN');
 });
 test('actual unresolved dispatch hits watchdog, becomes UNKNOWN, and is never retried',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});

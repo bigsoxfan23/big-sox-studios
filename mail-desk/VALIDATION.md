@@ -1,3 +1,17 @@
+# Task 10 local validation · 2026-10-14
+
+Final commands passed: `npm test --prefix mail-desk` (**148/148**, no failures/skips/cancellations), `npm run check --prefix mail-desk`, `git diff --check`, and `npx wrangler deploy --dry-run --config wrangler.staging.toml` from `mail-desk/`. Node SQLite/mock-timer experimental warnings remain expected. Only exact local `postal-mime@4.0.6` was installed (zero transitive dependencies, integrity-pinned lock, install scripts/audit disabled). Test transports are local stubs; Notion remains an in-memory mock. No real mail, credentials, live Notion, migration, routing, deployment or staging change occurred.
+
+Coverage includes the earlier 130 checks, with obsolete multipart/base64-placeholder expectations replaced by realistic Gmail quoted-printable multipart/alternative and Outlook nested base64 multipart/mixed fixtures. Tests exclude HTML, attachment and encapsulated-message content from stored previews; exercise legacy charset decoding, MIME part/depth/header budgets, ambiguous headers, unknown encoding, attachment subtrees, HTML-only fallback, exact 256 KiB and 10,000-character limits. Thread tests verify new unlinked cases for unknown/partial/conflicting and wrong-envelope-sender hints, retained bounded metadata, original forwarding and replay suppression. Owner-only aggregate status covers missing schema, storage errors, no PII and no writes. A zero-row UNKNOWN transition cannot forward. Existing Task 9 authentication, CSRF, mock-only send, migration, synthetic intake, delivery locks, Notion and UI checks pass.
+
+Dry-run: cached Wrangler **4.151.0**, metrics disabled, npm offline, logs under `/tmp`; local ignored bin symlink used because npx could not resolve the cache automatically. No global install. Bundle **163.85 KiB / gzip 43.00 KiB**; exited explicitly at `--dry-run`. Inbound enable/destination are absent from printed staging bindings. Nonfatal warning: root `astro/tsconfigs/strict` is unavailable because website dependencies are not installed; the Worker bundle succeeds. Website/config files were not changed for this warning.
+
+Runtime limits: streaming retains at most 256 KiB raw; MIME parser transient allocations are additionally bounded by input/part/depth/header caps, and stored text is at most 10,000 characters. The collector intentionally uses pinned postal-mime internals to skip default HTML synthesis and attachment collection; dependency upgrades require fixture review. SQLite transactions and local bundling do not prove Cloudflare D1 semantics, raw-read-then-forward preservation, inbox arrival, deployed concurrency/CPU/memory, rendered browser behavior or Access/MFA. These remain owner-approved acceptance gates in [TASK10_HANDOFF.md](TASK10_HANDOFF.md). Forward tests call the original object's forward method, never reconstruct MIME. Reconciliation/retention and route activation remain manual and separately approved.
+
+The accepted Task 9 evidence below and its saved result files are historical and retained unchanged.
+
+---
+
 # Local validation · 2026-10-14
 
 Executed on Node **v22.22.1**. Only synthetic fixtures and in-memory SQLite were used. Tests execute the actual Worker handler, Web Crypto RSA verification and actual migration/SQL through a D1-shaped adapter. Provider and JWKS fetches are local stubs; all future Resend adapter tests inject a stub. No real mail, Notion data access, Cloudflare resource, DNS or deployment was involved.
