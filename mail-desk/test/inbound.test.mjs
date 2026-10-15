@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { syntheticIntake } from '../src/intake.synthetic.mjs';
 import { fixture, D1, input, token } from './helpers.mjs';
-import { MAX_RAW, MAX_PREVIEW_RAW } from '../src/inbound.mjs';
+import { MAX_RAW, MAX_PREVIEW_RAW, decodedSubject } from '../src/inbound.mjs';
 const FIXTURE_FORWARD_TO = 'owner@example.test';
 const rawDefault = 'Content-Type: text/plain; charset=utf-8\r\n\r\nHello original.';
 function incoming(options = {}) {
@@ -195,4 +195,17 @@ test('zero-row UNKNOWN transition cannot invoke forwarding',async t=>{
 test('status storage failure returns fixed service error without private details',async t=>{
  const f=await fixture(t);f.env.DB={prepare(){throw Error('private storage detail person@example.test');}};
  const r=await f.request('/api/inbound-status');assert.equal(r.status,503);assert.deepEqual(await r.json(),{error:'service_unavailable'});
+});
+
+test('RFC 2047 Gmail encoded Subject safely decoded for case title', async t => {
+ const f = await fixture(t);
+ const header = '=?UTF-8?Q?BSS_Task_10_support_canary_=E2=80=94_2026=2D10=2D15?=';
+ const i = incoming({headers:{Subject:header}});
+ await deliver(f,i);
+ assert.equal(rows(f,'cases')[0].subject,'BSS Task 10 support canary — 2026-10-15');
+ assert.equal(decodedSubject('=?UTF-8?B?SGVsbG8gY2Fmw6k=?='),'Hello café');
+ assert.equal(decodedSubject('Unencoded subject'),'Unencoded subject');
+ assert.equal(decodedSubject(''),'(No subject)');
+ assert.equal(decodedSubject('bad\r\nBcc:evil@example.test'),'bad  Bcc:evil@example.test');
+ assert.equal(decodedSubject('A'.repeat(8200)),'(Subject unavailable)');
 });
