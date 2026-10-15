@@ -425,3 +425,15 @@ test('owner session reports accurate live Notion configuration without exposing 
  f.env.NOTION_SYNC_START_UNIX = 'invalid';
  assert.equal((await f.session()).v.notionSync, 'off');
 });
+
+test('failed real Notion lookups audit only a bounded HTTP category, not response bodies', async t => {
+ const f = await setup(t); await inbound(f);
+ const fetcher = async () => new Response('PRIVATE_BODY_SENTINEL person@example.test', {status:403});
+ const result = await runNotionSync(f.env, fetcher);
+ assert.equal(result.unresolved, 1);
+ const logs = rows(f, 'audit_events').filter(v => v.event.startsWith('notion_sync_'));
+ assert.equal(logs.length,1);
+ assert.equal(logs[0].event,'notion_sync_notion_http_403');
+ assert.ok(!JSON.stringify(logs).includes('PRIVATE_BODY_SENTINEL'));
+ assert.equal(rows(f,'notion_links').length,0);
+});
