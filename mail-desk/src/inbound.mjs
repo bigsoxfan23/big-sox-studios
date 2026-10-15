@@ -1,7 +1,7 @@
 // Dormant Email Routing adapter. No HTTP intake, auto reply, raw storage, or logging.
 import { stmt, now, senders } from './store.mjs';
 import { digest } from './security.mjs';
-import PostalMime from 'postal-mime';
+import PostalMime, { decodeWords } from 'postal-mime';
 // Owner inbox is a Cloudflare-verified deployment setting, not public source code.
 export const MAX_RAW = 25 * 1024 * 1024;
 export const MAX_PREVIEW_RAW = 256 * 1024;
@@ -81,6 +81,16 @@ async function plainPreview(bytes, size) {
   return typeof result.text === 'string' ? result.text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').slice(0, 10000) || '[Empty plain-text message]' : PLACEHOLDER;
  } catch { return PLACEHOLDER; } // Fixed fallback; parser errors never log content or stop forwarding.
 }
+// Decode RFC 2047 encoded-word Subject headers without trusting them as metadata.
+export function decodedSubject(input) {
+ if (input == null || input === '') return '(No subject)';
+ if (typeof input !== 'string' || input.length > 8192) return '(Subject unavailable)';
+ try {
+  const value = decodeWords(input);
+  // eslint-disable-next-line no-control-regex -- Untrusted decoded headers must not carry control bytes into the dashboard.
+  return (value || '(No subject)').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
+ } catch { return '(Subject unavailable)'; }
+}
 export async function email(message, env, ctx) {
  void ctx;
  const reject = () => message.setReject('Mail Desk intake unavailable');
@@ -111,8 +121,7 @@ export async function email(message, env, ctx) {
   const cases = [...new Set(matches.map(m => m.case_id))];
   const linked = parents.length && cases.length === 1 && parents.every(id => matches.some(m => m.message_id === id));
   const caseId = linked ? cases[0] : candidate;
-  // eslint-disable-next-line no-control-regex -- Strip control bytes from untrusted email header before storage.
-  const subject = (message.headers.get('subject') || '(No subject)').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
+  const subject = decodedSubject(message.headers.get('subject'));
   await env.DB.batch([
    stmt(env.DB, `INSERT INTO email_receipts VALUES (?,?,?,?,?,?,?,?, 'claimed',?,?) ON CONFLICT(receipt_key) DO NOTHING`, key, token, caseId, from, to, id, reply, JSON.stringify(refs), time, time),
    stmt(env.DB, `INSERT INTO cases SELECT ?,?,?,?, ?,0,'',?,? WHERE EXISTS(SELECT 1 FROM email_receipts WHERE claim_token=?) AND NOT EXISTS(SELECT 1 FROM cases WHERE id=?)`, caseId, channel, from, from, subject, time, time, token, caseId),
