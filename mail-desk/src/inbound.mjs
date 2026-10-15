@@ -77,6 +77,7 @@ async function plainPreview(bytes, size) {
   if (split < 0 || split > 32768) return PLACEHOLDER;
   const result = await new PlainTextMime({ maxNestingDepth: 16, maxPartCount: 100,
    maxHeadersSize: 32768, maxRfc822NestingDepth: 0, forceRfc822Attachments: true }).parse(bytes);
+  // eslint-disable-next-line no-control-regex -- Intentional sanitization of control bytes in untrusted email text.
   return typeof result.text === 'string' ? result.text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').slice(0, 10000) || '[Empty plain-text message]' : PLACEHOLDER;
  } catch { return PLACEHOLDER; } // Fixed fallback; parser errors never log content or stop forwarding.
 }
@@ -110,6 +111,7 @@ export async function email(message, env, ctx) {
   const cases = [...new Set(matches.map(m => m.case_id))];
   const linked = parents.length && cases.length === 1 && parents.every(id => matches.some(m => m.message_id === id));
   const caseId = linked ? cases[0] : candidate;
+  // eslint-disable-next-line no-control-regex -- Strip control bytes from untrusted email header before storage.
   const subject = (message.headers.get('subject') || '(No subject)').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 200);
   await env.DB.batch([
    stmt(env.DB, `INSERT INTO email_receipts VALUES (?,?,?,?,?,?,?,?, 'claimed',?,?) ON CONFLICT(receipt_key) DO NOTHING`, key, token, caseId, from, to, id, reply, JSON.stringify(refs), time, time),
