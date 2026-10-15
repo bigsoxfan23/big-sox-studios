@@ -3,6 +3,7 @@ import { stmt, audit, rateLimit, getCase, saveDraft, reserveReview, claimSend, f
 import { email } from './inbound.mjs';
 import { stagingProvider } from './providers.mjs';
 import { runNotionSync } from './notion.sync.mjs';
+import { liveEnabled } from './notion.live.mjs';
 const headers = {
  'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://bigsoxstudios.com; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
@@ -30,7 +31,7 @@ export function createWorker({ fetcher = fetch, provider } = {}) {
    }
    if (request.method === 'GET' && url.pathname === '/api/session') {
     const session = await sessionProof(request, env, auth, true);
-    return json({ csrf: session.csrf, sendMode: env.SEND_MODE === 'mock' ? 'mock' : 'disabled', notionSync: 'off', acceptance: 'pending owner Access and MFA review' }, 200, { 'Set-Cookie': session.cookie });
+    return json({ csrf: session.csrf, sendMode: env.SEND_MODE === 'mock' ? 'mock' : 'disabled', notionSync: liveEnabled(env) ? 'live' : 'off', acceptance: 'pending owner Access and MFA review' }, 200, { 'Set-Cookie': session.cookie });
    }
    if (request.method === 'GET' && url.pathname === '/api/inbound-status') {
     // Task9 staging may still have only 0001: absence is explicit, never a zero count.
