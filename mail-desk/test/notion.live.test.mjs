@@ -410,3 +410,18 @@ test('transport only accepts module-owned paths before any network', async () =>
   await assert.rejects(api.request('support', path, {}), /invalid_path/);
  assert.equal(calls, 0);
 });
+
+test('owner session reports accurate live Notion configuration without exposing secret', async t => {
+ const f = await fixture(t);
+ const disabled = await f.session();
+ assert.equal(disabled.v.notionSync, 'off');
+ f.env.NOTION_SYNC_MODE = 'live';
+ f.env.DEPLOYMENT_STAGE = 'staging';
+ f.env.NOTION_API_TOKEN = 'fixture-secret-only';
+ f.env.NOTION_SYNC_START_UNIX = '0';
+ const enabled = await f.session();
+ assert.equal(enabled.v.notionSync, 'live');
+ assert.ok(!JSON.stringify(enabled.v).includes('fixture-secret-only'));
+ f.env.NOTION_SYNC_START_UNIX = 'invalid';
+ assert.equal((await f.session()).v.notionSync, 'off');
+});
