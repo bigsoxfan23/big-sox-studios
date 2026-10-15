@@ -1,0 +1,24 @@
+name: Mail Desk staging validation
+on:
+  pull_request:
+    paths:
+      - "mail-desk/**"
+      - ".github/workflows/mail-desk-validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Mail Desk Worker and D1 tests
+        run: npm test --prefix mail-desk
+      - name: JavaScript syntax checks
+        run: npm run check --prefix mail-desk
