@@ -121,7 +121,7 @@ export async function runNotionSync(env, fetcher = fetch) {
    } catch (error) {
     unresolved++;
     // Only a fixed error category in the private audit log; never any response or PII.
-    const category = /^(?:notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)|notion_(?:invalid_query|incomplete_query|duplicate_matches|invalid_source|activity_conflict|link_conflict|json_invalid|json_oversize|json_empty|deadline|transport_abort|transport_type))$/.test(error?.message)
+    const category = /^(?:notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)|notion_(?:invalid_query|incomplete_query|duplicate_matches|invalid_source|activity_conflict|link_conflict|json_invalid|json_oversize|json_empty|deadline|transport_abort|transport_type|credential_format|transport_fetch_type|transport_body_type))$/.test(error?.message)
      ? error.message : 'notion_request_failed';
     try { await audit(env.DB, 'notion_sync_' + category, c.id); } catch { /* Fail closed without logging customer data. */ }
     // A failed read on an unclaimed case must not monopolize the oldest slots.
