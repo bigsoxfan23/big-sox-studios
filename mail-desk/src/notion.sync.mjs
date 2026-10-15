@@ -1,4 +1,4 @@
-import { stmt, now, senders } from './store.mjs';
+import { stmt, now, senders, audit } from './store.mjs';
 import { LiveNotion, liveEnabled, syncStart } from './notion.live.mjs';
 
 // A receipt is the authority for live intake; synthetic records and mock sends
@@ -118,10 +118,13 @@ export async function runNotionSync(env, fetcher = fetch) {
     activities += result.activities; attempted += result.attempted ?? 0;
     if (result.unresolved > 0) await deferCase(env.DB, c.id);
     unresolved += result.unresolved ?? (result.status === 'linked' ? 0 : 1);
-   } catch {
+   } catch (error) {
     unresolved++;
+    // Only a fixed error category in the private audit log; never any response or PII.
+    const category = /^notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)$/.test(error?.message)
+     ? error.message : 'notion_request_failed';
+    try { await audit(env.DB, 'notion_sync_' + category, c.id); } catch { /* Fail closed without logging customer data. */ }
     // A failed read on an unclaimed case must not monopolize the oldest slots.
-    // Separate from create suppression: expiry only permits a fresh read.
     await deferCase(env.DB, c.id);
    }
   }
