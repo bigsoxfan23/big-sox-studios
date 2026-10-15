@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture, token } from './helpers.mjs';
-import { b64 } from '../src/security.mjs';
+import { fixture, token, jwk } from './helpers.mjs';
+import { b64, authenticate } from '../src/security.mjs';
 for (const path of ['/', '/app.js', '/styles.css','/api/session','/api/cases','/api/not-a-route']) {
  test(`JWT required for ${path}`,async t => { const f = await fixture(t); const r = await f.request(path,undefined,{ headers:{ 'Cf-Access-Jwt-Assertion':null, 'Cf-Access-Authenticated-User-Email':'owner@example.test', Cookie:'CF_Authorization=forged' } }); assert.equal(r.status,401); assert.deepEqual(await r.json(),{ error:'unauthorized' }); });
 }
@@ -23,3 +23,30 @@ test('rejects oversized streamed JSON and declared length',async t=>{const f=awa
 test('rejects invalid JSON, wrong content type and unknown fields',async t=>{const f=await fixture(t);await f.session();const id=await f.seed();assert.equal((await f.request(`/api/cases/${id}/draft`,'{')).status,400);assert.equal((await f.request(`/api/cases/${id}/draft`,{body:'safe',revision:0},{headers:{'Content-Type':'text/plain'}})).status,415);assert.equal((await f.request(`/api/cases/${id}/review`,{revision:0,extra:true})).status,400);});
 test('D1 atomic rate limit applies across concurrent POSTs',async t=>{const f=await fixture(t);await f.session();const id=await f.seed();const responses=await Promise.all(Array.from({length:35},()=>f.request(`/api/cases/${id}/draft`,{revision:0,body:'safe'})));assert.equal(responses.filter(r=>r.status===429).length,5);assert.equal(f.DB.sqlite.prepare('SELECT count FROM rate_limits').get().count,35);});
 test('no inbound route, send on GET, or public preflight',async t=>{const f=await fixture(t);await f.session();const id=await f.seed();await f.review(id);assert.equal((await f.request(`/api/cases/${id}/send`)).status,405);assert.equal((await f.request('/api/inbound',{})).status,404);assert.equal((await f.request('/api/cases',undefined,{method:'OPTIONS'})).status,405);assert.equal(f.calls(),0);});
+
+// Cloudflare's Workers runtime rejects Request redirect mode "error" before fetching JWKS.
+test('JWKS fetch uses manual redirects and verifies a valid signed JWT', async t => {
+ const f = await fixture(t);
+ let requests = 0;
+ const auth = await authenticate(new Request(f.env.APP_ORIGIN, { headers: { 'Cf-Access-Jwt-Assertion': f.jwt } }), f.env, async (url, options) => {
+  requests++;
+  assert.equal(url, `${f.env.ACCESS_ISSUER}/cdn-cgi/access/certs`);
+  assert.equal(options.redirect, 'manual');
+  assert.ok(options.signal instanceof AbortSignal);
+  return Response.json({ keys: [jwk] });
+ });
+ assert.equal(requests, 1);
+ assert.equal(typeof auth.session, 'string');
+});
+test('JWKS redirects fail closed without following the redirect', async t => {
+ const f = await fixture(t);
+ for (const status of [301, 302, 307, 308]) {
+  let requests = 0;
+  await assert.rejects(authenticate(new Request(f.env.APP_ORIGIN, { headers: { 'Cf-Access-Jwt-Assertion': f.jwt } }), f.env, async (url, options) => {
+   requests++;
+   assert.equal(options.redirect, 'manual');
+   return new Response(null, { status, headers: { Location: 'https://untrusted.example.test/keys' } });
+  }), error => error.status === 401 && error.message === 'unauthorized');
+  assert.equal(requests, 1);
+ }
+});

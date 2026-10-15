@@ -31,7 +31,8 @@ export async function authenticate(request, env, fetcher = fetch) {
   requireThat(['exp','nbf','iat'].every(k => Number.isSafeInteger(claims[k])) && claims.exp > now && claims.nbf <= now && claims.iat <= now && claims.iat <= claims.exp && claims.nbf < claims.exp, 401);
   let cached = jwksCache.get(issuer.origin);
   if (!cached || cached.until <= Date.now()) {
-   const res = await fetcher(`${issuer.origin}/cdn-cgi/access/certs`, { redirect: 'error', signal: AbortSignal.timeout(5000) });
+   // Workers rejects redirect: 'error'; manual plus res.ok rejects redirects without following them.
+   const res = await fetcher(`${issuer.origin}/cdn-cgi/access/certs`, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
    requireThat(res.ok, 401); const data = await res.json();
    requireThat(Array.isArray(data.keys) && data.keys.length <= 20, 401);
    cached = { keys: data.keys, until: Date.now() + 300000 }; jwksCache.set(issuer.origin, cached);
