@@ -54,10 +54,18 @@ export class LiveNotion {
      headers: { Authorization: `Bearer ${this.env.NOTION_API_TOKEN}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
      body: JSON.stringify(body)
     });
-    if (!response.ok || response.redirected) { await response.body?.cancel().catch(() => {}); throw Error('http'); }
+    if (!response.ok || response.redirected) {
+     await response.body?.cancel().catch(() => {});
+     // Preserve only the HTTP status category; never Notion's body, URL, headers or token.
+     const code = [400,401,403,404,409,422,429,500,502,503,504].includes(response.status) ? String(response.status) : 'other';
+     throw Error('notion_http_' + code);
+    }
     return await boundedJson(response);
    })(), new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error('timeout')); }, 9000); })]);
-  } catch { throw Error('notion_request_failed'); }
+  } catch (error) {
+   if (/^notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)$/.test(error?.message)) throw error;
+   throw Error('notion_request_failed');
+  }
   finally { clearTimeout(timer); controller.abort(); }
  }
  async find(channel, source, property, type, value) {
