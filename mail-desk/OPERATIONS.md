@@ -1,5 +1,7 @@
 # Operations, retention and rollback
 
+Task 10 supplement: [offline handoff, reconciliation and activation gates](TASK10_HANDOFF.md). Inbound remains disabled (enable flag absent from staging); live Notion and send remain unwired. This supplement supersedes historical Task 9 statements about the absence of an email handler.
+
 ## Current state
 
 Local code only. Do not run deployment, provision resources, activate routes, add credentials or change host services as part of Task #9. Tests create only in-memory SQLite databases. The synthetic intake helper is import-only and is not a production ingestion adapter. No scheduled task or automatic sync runner is registered.

@@ -1,0 +1,33 @@
+From: Person <person@example.test>
+To: support@bigsoxstudios.com
+Subject: Support request
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outlook_outer"
+
+--outlook_outer
+Content-Type: multipart/alternative; boundary="outlook_inner"
+
+--outlook_inner
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+SGVsbG8gc3R1ZGlvLCBwbGVhc2UgaGVscC4=
+--outlook_inner
+Content-Type: text/html; charset="UTF-8"
+
+<html><script>HTML_SECRET</script><body>HTML_ONLY</body></html>
+--outlook_inner--
+--outlook_outer
+Content-Type: text/plain; name="private.txt"
+Content-Disposition: attachment; filename="private.txt"
+Content-Transfer-Encoding: base64
+
+QVRUQUNITUVOVF9TRUNSRVQ=
+--outlook_outer
+Content-Type: message/rfc822
+Content-Disposition: inline
+
+Content-Type: text/plain
+
+ENCAPSULATED_SECRET
+--outlook_outer--

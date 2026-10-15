@@ -4,6 +4,7 @@ import { createWorker } from '../src/worker.mjs';
 import { b64, clearJwksCache } from '../src/security.mjs';
 import { syntheticIntake } from '../src/intake.synthetic.mjs';
 const migration = await readFile(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8');
+const migration2 = await readFile(new URL('../migrations/0002_inbound_and_notion.sql', import.meta.url), 'utf8');
 const keys = await crypto.subtle.generateKey({ name:'RSASSA-PKCS1-v1_5', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256' }, true, ['sign','verify']);
 export const jwk = { ...await crypto.subtle.exportKey('jwk',keys.publicKey), kid:'fixture-key', alg:'RS256', use:'sig' };
 export const origin = 'https://desk.example.test';
@@ -16,7 +17,7 @@ export async function token(changes = {}, headerChanges = {}, signingKey = keys.
  return `${header}.${payload}.${signature}`;
 }
 export class D1 {
- constructor() { this.sqlite = new DatabaseSync(':memory:'); this.sqlite.exec(migration); }
+ constructor({ initialOnly = false } = {}) { this.sqlite = new DatabaseSync(':memory:'); this.sqlite.exec(migration); if (!initialOnly) this.sqlite.exec(migration2); }
  prepare(sql) {
   const db = this.sqlite;
   const make = args => ({

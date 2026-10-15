@@ -1,5 +1,7 @@
 # Security boundaries
 
+Task 10 supplement: [offline handoff, reconciliation and activation gates](TASK10_HANDOFF.md). Inbound remains disabled (enable flag absent from staging); live Notion and send remain unwired. This supplement supersedes historical Task 9 statements about the absence of an email handler.
+
 Every route, including `/`, scripts, styles, unsupported methods and unknown paths, authenticates `Cf-Access-Jwt-Assertion` before data access. Cloudflare Access is an additional perimeter, never a replacement for local verification. The sole owner email must exactly match the configured value. No fallback token headers, Access cookie verification shortcut, email-header trust, CORS wildcard, public API or unauthenticated health endpoint exists.
 
 The signed `__Host-maildesk` nonce cookie has Secure, HttpOnly, SameSite=Strict and Path=/ with no Domain. Its HMAC binds to a SHA-256 digest of the verified JWT. GET `/api/session` issues the corresponding CSRF proof. POST requires this cookie and an HMAC CSRF header, exact configured HTTPS Origin, and no cross-site fetch metadata. A changed JWT invalidates both CSRF and review approvals; refresh the session and review again. Cookie lifetime is one hour; the JWT's checked expiry remains the server authorization boundary. CSRF_SECRET must be a random independent secret of at least 32 characters, provisioned only during future authorized configuration.
