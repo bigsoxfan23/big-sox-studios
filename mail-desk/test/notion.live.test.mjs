@@ -453,3 +453,26 @@ test('Notion JSON and response-schema errors remain non-sensitive diagnostic cat
   assert.equal(rows(f,'notion_links').length,0);
  }
 });
+
+test('Notion token is whitespace-trimmed before its request header without leaking it', async t => {
+ const f=await setup(t),s=server();await inbound(f);
+ f.env.NOTION_API_TOKEN='\n  fixture-secret-only  \r\n';
+ const seen=[];
+ const wrapped=(url,init)=>{
+  seen.push(init.headers.Authorization);
+  return s.fetcher(url,{...init,headers:{...init.headers,Authorization:'Bearer offline-test-placeholder'}});
+ };
+ const result=await runNotionSync(f.env,wrapped);
+ assert.equal(result.unresolved,0);
+ assert.equal(rows(f,'notion_links')[0].state,'linked');
+ assert.ok(seen.length>=2 && seen.every(value=>value==='Bearer fixture-secret-only'));
+});
+test('transport TypeError is reported by stage without leaking exception contents', async t => {
+ const f=await setup(t);await inbound(f);
+ const fetcher=async()=>{throw new TypeError('private token PRIVATE_BODY_SENTINEL');};
+ assert.equal((await runNotionSync(f.env,fetcher)).unresolved,1);
+ const logs=rows(f,'audit_events').filter(x=>x.event.startsWith('notion_sync_'));
+ assert.equal(logs.length,1);
+ assert.equal(logs[0].event,'notion_sync_notion_transport_fetch_type');
+ assert.ok(!JSON.stringify(logs).includes('PRIVATE_BODY_SENTINEL'));
+});
