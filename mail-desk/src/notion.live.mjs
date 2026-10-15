@@ -49,18 +49,29 @@ export class LiveNotion {
   try {
    // Deadline covers transport AND streamed JSON, including a stalled injected fetch.
    return await Promise.race([(async () => {
-    const response = await this.fetcher(`https://api.notion.com/v1/${path}`, {
-     method: 'POST', redirect: 'manual', signal: controller.signal,
-     headers: { Authorization: `Bearer ${this.env.NOTION_API_TOKEN}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
-     body: JSON.stringify(body)
-    });
+    // Never emit credential contents. Notion tokens do not include whitespace;
+    // trim transport artifacts from copy/paste before constructing headers.
+    const token = this.env.NOTION_API_TOKEN.trim();
+    if (!/^[\x21-\x7e]{12,1024}$/.test(token)) throw Error('notion_credential_format');
+    let response;
+    try {
+     response = await this.fetcher(`https://api.notion.com/v1/${path}`, {
+      method: 'POST', redirect: 'manual', signal: controller.signal,
+      headers: { Authorization: `Bearer ${token}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+     });
+    } catch (error) {
+     if (error instanceof TypeError) throw Error('notion_transport_fetch_type');
+     throw error;
+    }
     if (!response.ok || response.redirected) {
      await response.body?.cancel().catch(() => {});
      // Preserve only the HTTP status category; never Notion's body, URL, headers or token.
      const code = [400,401,403,404,409,422,429,500,502,503,504].includes(response.status) ? String(response.status) : 'other';
      throw Error('notion_http_' + code);
     }
-    return await boundedJson(response);
+    try { return await boundedJson(response); }
+    catch (error) { if (error instanceof TypeError) throw Error('notion_transport_body_type'); throw error; }
    })(), new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error('timeout')); }, 9000); })]);
   } catch (error) {
    if (/^notion_http_(?:400|401|403|404|409|422|429|500|502|503|504|other)$/.test(error?.message)) throw error;
@@ -68,6 +79,7 @@ export class LiveNotion {
    if (error?.message === 'bounded') throw Error('notion_json_oversize');
    if (error?.message === 'empty') throw Error('notion_json_empty');
    if (error?.message === 'timeout') throw Error('notion_deadline');
+   if (['notion_credential_format','notion_transport_fetch_type','notion_transport_body_type'].includes(error?.message)) throw error;
    if (error?.name === 'AbortError') throw Error('notion_transport_abort');
    if (error instanceof TypeError) throw Error('notion_transport_type');
    throw Error('notion_request_failed');
