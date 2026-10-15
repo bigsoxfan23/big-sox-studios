@@ -1,0 +1,102 @@
+// Owner-approved schema, dormant transport. No logging or automatic write retries.
+import { DATA_SOURCE, ACTIVITY_SOURCE, NOTION_VERSION, mapNotion } from './notion.mjs';
+// Runtime-only cutover; unsafe/rounded values fail closed before storage or transport.
+export const syncStart = env => typeof env.NOTION_SYNC_START_UNIX === 'string' &&
+ /^[0-9]+$/.test(env.NOTION_SYNC_START_UNIX) && Number.isSafeInteger(Number(env.NOTION_SYNC_START_UNIX))
+ ? Number(env.NOTION_SYNC_START_UNIX) : null;
+export const liveEnabled = env => env.NOTION_SYNC_MODE === 'live' &&
+ env.DEPLOYMENT_STAGE === 'staging' && typeof env.NOTION_API_TOKEN === 'string' &&
+ env.NOTION_API_TOKEN.trim().length > 0 && syncStart(env) !== null;
+export const pageId = id => typeof id === 'string' && /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(id);
+export const activityTitle = id => `Inbound email ${id}`;
+const select = name => ({ select: { name } });
+export function ticketPayload(c) {
+ if (c.channel !== 'support') throw Error('notion_channel_denied');
+ return mapNotion(c);
+}
+export function activityPayload(messageId, ticketId) {
+ if (!pageId(messageId) || !pageId(ticketId)) throw Error('notion_invalid_id');
+ return { parent: { type: 'data_source_id', data_source_id: ACTIVITY_SOURCE }, properties: {
+  Event: { title: [{ text: { content: activityTitle(messageId) } }] },
+  'Event Type': select('Work Note'), Author: select('System'),
+  Details: { rich_text: [{ text: { content: 'Inbound support email received. Review the original forwarded email in the owner inbox.' } }] },
+  Ticket: { relation: [{ id: ticketId }] }
+ } };
+}
+const MAX_JSON = 256 * 1024;
+async function boundedJson(response) {
+ const declared = response.headers.get('Content-Length');
+ if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_JSON)) throw Error('bounded');
+ const reader = response.body?.getReader();
+ if (!reader) throw Error('empty');
+ let size = 0; const chunks = [];
+ try {
+  for (;;) {
+   const { done, value } = await reader.read(); if (done) break;
+   size += value.byteLength; if (size > MAX_JSON) throw Error('bounded'); chunks.push(value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+ } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+export class LiveNotion {
+ constructor(env, fetcher = fetch) { this.env = env; this.fetcher = fetcher; }
+ async request(channel, path, body) {
+  if (!liveEnabled(this.env) || channel !== 'support') throw Error('notion_disabled');
+  if (path !== 'pages' && ![DATA_SOURCE, ACTIVITY_SOURCE].some(source => path === `data_sources/${source}/query`)) throw Error('notion_invalid_path');
+  const controller = new AbortController(); let timer;
+  try {
+   // Deadline covers transport AND streamed JSON, including a stalled injected fetch.
+   return await Promise.race([(async () => {
+    const response = await this.fetcher(`https://api.notion.com/v1/${path}`, {
+     method: 'POST', redirect: 'manual', signal: controller.signal,
+     headers: { Authorization: `Bearer ${this.env.NOTION_API_TOKEN}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
+     body: JSON.stringify(body)
+    });
+    if (!response.ok || response.redirected) { await response.body?.cancel().catch(() => {}); throw Error('http'); }
+    return await boundedJson(response);
+   })(), new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error('timeout')); }, 9000); })]);
+  } catch { throw Error('notion_request_failed'); }
+  finally { clearTimeout(timer); controller.abort(); }
+ }
+ async find(channel, source, property, type, value) {
+  if (![DATA_SOURCE, ACTIVITY_SOURCE].includes(source)) throw Error('notion_invalid_source');
+  const matches = []; const cursors = new Set(); let cursor;
+  // At most two matches and two pages. Incomplete pagination fails closed.
+  for (let n = 0; n < 2; n++) {
+   const result = await this.request(channel, `data_sources/${source}/query`, {
+    filter: { property, [type]: { equals: value } }, page_size: 2 - matches.length,
+    ...(cursor ? { start_cursor: cursor } : {})
+   });
+   if (!Array.isArray(result.results) || result.results.length > 2 - matches.length || typeof result.has_more !== 'boolean' ||
+       result.results.some(p => p.object !== 'page' || !pageId(p.id))) throw Error('notion_invalid_query');
+   matches.push(...result.results);
+   if (matches.length > 1) throw Error('notion_duplicate_matches');
+   if (!result.has_more) return matches;
+   cursor = result.next_cursor;
+   if (typeof cursor !== 'string' || !cursor || cursor.length > 256 || cursors.has(cursor)) throw Error('notion_incomplete_query');
+   cursors.add(cursor);
+  }
+  throw Error('notion_incomplete_query');
+ }
+ findTicket(c) { return this.find(c.channel, DATA_SOURCE, 'External Case ID', 'rich_text', c.id); }
+ async findActivity(c, messageId, ticketId) {
+  const found = await this.find(c.channel, ACTIVITY_SOURCE, 'Event', 'title', activityTitle(messageId));
+  if (found.length) {
+   const title = found[0].properties?.Event;
+   if (!Array.isArray(title?.title) || title.title.some(part => typeof part.plain_text !== 'string' && typeof part.text?.content !== 'string') ||
+       title.title.map(part => part.plain_text ?? part.text.content).join('') !== activityTitle(messageId)) throw Error('notion_activity_conflict');
+   const relation = found[0].properties?.Ticket;
+   if (relation?.has_more === true || !Array.isArray(relation?.relation) || relation.relation.length !== 1 || relation.relation[0].id !== ticketId) throw Error('notion_activity_conflict');
+  }
+  return found;
+ }
+ async createTicket(c) { return this.create(c.channel, ticketPayload(c)); }
+ async createActivity(c, messageId, ticketId) { return this.create(c.channel, activityPayload(messageId, ticketId)); }
+ async create(channel, payload) {
+  const page = await this.request(channel, 'pages', payload);
+  if (page.object !== 'page' || !pageId(page.id)) throw Error('notion_ambiguous_create');
+  return page;
+ }
+}
