@@ -1,0 +1,15 @@
+# OFFLINE REVIEW ONLY. No routes, domains, assets or service bindings.
+name = "bss-owner-launchpad-review"
+main = "src/worker.mjs"
+tsconfig = "tsconfig.json"
+compatibility_date = "2026-10-14"
+workers_dev = false
+preview_urls = false
+
+[vars]
+ACCESS_ISSUER = ""
+ACCESS_AUDIENCE = ""
+APP_ORIGIN = ""
+MAIL_DESK_URL = ""
+# OWNER_EMAIL must be supplied privately as a future secret binding.
+# JWT signing secrets do not belong here; verification uses public Access JWKS.
