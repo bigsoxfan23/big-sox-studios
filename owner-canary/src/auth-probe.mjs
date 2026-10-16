@@ -2,7 +2,7 @@ import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 
 // Diagnostic only. NEVER import this as a sending or approval verifier.
 const requireThat = value => { if (!value) throw new Error('denied'); };
-const bounded = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\u0000-\u0020\u007f]/u.test(value);
+const bounded = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && value.split('').every(char => char.charCodeAt(0) > 32 && char.charCodeAt(0) !== 127);
 const headers = {
  'Content-Type': 'application/json; charset=utf-8',
  'Cache-Control': 'no-store, private',
