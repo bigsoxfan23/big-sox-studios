@@ -1,0 +1,43 @@
+name: Owner Canary Candidate Validation
+on:
+  pull_request:
+    paths:
+      - "owner-canary/**"
+      - ".github/workflows/owner-canary-validate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned candidate dependencies (no scripts)
+        run: npm ci --prefix owner-canary --ignore-scripts --no-audit --no-fund
+      - name: Verify all 112+ isolated canary security cases
+        run: npm test --prefix owner-canary
+      - name: Check candidate syntax
+        run: npm run check --prefix owner-canary
+      - name: Verify original Mail Desk tests and syntax
+        run: |
+          npm ci --prefix mail-desk --ignore-scripts --no-audit --no-fund
+          npm test --prefix mail-desk
+          npm run check --prefix mail-desk
+      - name: Verify no sending deployment is configured
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const config = readFileSync('owner-canary/wrangler.candidate.toml','utf8');
+          const source = readFileSync('owner-canary/src/worker.mjs','utf8');
+          assert.match(config,/workers_dev\s*=\s*false/);
+          assert.match(config,/preview_urls\s*=\s*false/);
+          assert.match(config,/CANARY_SEND_ENABLED\s*=\s*"false"/);
+          assert.match(source,/dispatchAuthorized:\s*false/);
+          NODE
