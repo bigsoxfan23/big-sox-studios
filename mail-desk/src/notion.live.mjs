@@ -54,8 +54,12 @@ export class LiveNotion {
     const token = this.env.NOTION_API_TOKEN.trim();
     if (!/^[\x21-\x7e]{12,1024}$/.test(token)) throw Error('notion_credential_format');
     let response;
+    // Cloudflare Workers fetch must be invoked as a bare function. Calling
+    // this.fetcher(...) incorrectly binds this=LiveNotion and triggers
+    // TypeError: Illegal invocation in the real workerd runtime.
+    const callFetch = this.fetcher;
     try {
-     response = await this.fetcher(`https://api.notion.com/v1/${path}`, {
+     response = await callFetch(`https://api.notion.com/v1/${path}`, {
       method: 'POST', redirect: 'manual', signal: controller.signal,
       headers: { Authorization: `Bearer ${token}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
