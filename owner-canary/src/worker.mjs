@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { authenticate, requireThat } from './auth.mjs';
+import { PRODUCTION_POLICY_RELEASE, POLICY_CONTRACT, validatePolicyRelease, policyBinding } from './policy-release.mjs';
 import { ledger } from './ledger.mjs';
 import { envelope, submitOnce } from './resend.mjs';
 import { assets } from './ui-assets.mjs';
@@ -14,10 +15,21 @@ const headers = {
  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'"
 };
 const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(value), { status, headers: { ...headers, ...extra } });
-function configuration(env) {
+async function configuration(env, identity, release, time) {
  requireThat(env.DEPLOYMENT_STAGE === 'production');
  requireThat(env.CANARY_SEND_ENABLED === 'owner-canary-v1-approved');
- requireThat(env.MFA_CONTRACT === 'signed-amr-mfa-v1');
+ let policy;
+ if (env.MFA_CONTRACT === POLICY_CONTRACT) {
+  policy = validatePolicyRelease(release, time);
+  const binding = await policyBinding(policy, time);
+  requireThat(identity.assurance && Object.keys(identity.assurance).length === Object.keys(binding).length &&
+   Object.entries(binding).every(([name, value]) => identity.assurance[name] === value));
+  requireThat(policy.issuer === `https://${env.ACCESS_TEAM_HOST}` && policy.audience === env.ACCESS_AUD &&
+   policy.origin === env.APP_ORIGIN && policy.ownerSub === env.OWNER_PRINCIPAL && policy.ownerEmail === env.OWNER_ACCESS_EMAIL);
+  requireThat(identity.sub === policy.ownerSub && Number.isSafeInteger(identity.expires) && identity.expires <= policy.validUntil);
+ } else {
+  requireThat(env.MFA_CONTRACT === 'signed-amr-mfa-v1' && !identity.assurance);
+ }
  requireThat(/^re_[A-Za-z0-9_-]{20,}$/.test(env.RESEND_API_KEY ?? ''));
  requireThat(typeof env.APPROVAL_SIGNING_KEY === 'string' && /^[A-Za-z0-9_-]{64,}$/.test(env.APPROVAL_SIGNING_KEY));
  requireThat(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(env.CANARY_CAMPAIGN_ID ?? ''));
@@ -29,7 +41,7 @@ function configuration(env) {
   campaign: env.CANARY_CAMPAIGN_ID, origin: origin.origin,
   owner: env.OWNER_PRINCIPAL, ownerEmail: env.OWNER_ACCESS_EMAIL,
   team: env.ACCESS_TEAM_HOST, audience: env.ACCESS_AUD,
-  epoch: env.SESSION_EPOCH, mfa: env.MFA_CONTRACT, payload });
+  epoch: env.SESSION_EPOCH, mfa: env.MFA_CONTRACT, ...(policy ? { policy, assurance: identity.assurance } : {}), payload });
 }
 async function capability(row, stage, key, time) {
  return new SignJWT({ purpose: 'owner-direct-canary-v1', stage, digest: row.digest, binding: row.binding })
@@ -40,12 +52,12 @@ async function capability(row, stage, key, time) {
 
 // Controlled offline factory. Dependency injection is not a production trust
 // source. The default entrypoint below fixes the real verifier and disables send.
-export function createCandidate({ verify, transport, dispatchAuthorized = false, now = () => Math.floor(Date.now() / 1000) }) {
+export function createCandidate({ verify, transport, dispatchAuthorized = false, policyRelease = PRODUCTION_POLICY_RELEASE, now = () => Math.floor(Date.now() / 1000) }) {
  return { async fetch(request, env) {
   try {
    const identity = await verify(request, env);
-   const snapshot = configuration(env), hash = await digest(snapshot);
    const time = now(), key = encoder.encode(env.APPROVAL_SIGNING_KEY);
+   const snapshot = await configuration(env, identity, policyRelease, time), hash = await digest(snapshot);
    requireThat(identity.expires > time);
    const url = new URL(request.url);
    requireThat(url.origin === env.APP_ORIGIN && !url.search && !url.hash);
@@ -135,6 +147,6 @@ export function createCandidate({ verify, transport, dispatchAuthorized = false,
  } };
 }
 
-// HARD RELEASE BLOCK: actual signed MFA contract and final deployment/send
-// authorization have not been established. No environment flag overrides this.
+// HARD RELEASE BLOCK: actual authentication assurance evidence and final
+// deployment/send authorization have not been established. No environment flag overrides this.
 export default createCandidate({ verify: authenticate, transport: fetch, dispatchAuthorized: false });

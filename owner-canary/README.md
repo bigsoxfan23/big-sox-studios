@@ -22,6 +22,11 @@ push, branch update or merge occurred. Public documentation and package download
 were the only intended external reads. Existing Cloudflare ingress/routing,
 Notion sync, DNS, website and staging service are outside this implementation.
 
+The local policy-backed alternative is implemented but has **no release authority**:
+`PRODUCTION_POLICY_RELEASE` is `null`. See [POLICY-AUTH.md](POLICY-AUTH.md) for the
+exact contract, missing independent evidence and session-cutover gates. The
+currently deployed diagnostic source/config are unchanged by this implementation.
+
 ## Implementation and authority
 
 The runtime modules are:
@@ -35,6 +40,10 @@ The runtime modules are:
   JWKS comes only from operator-configured
   `https://<ACCESS_TEAM_HOST>/cdn-cgi/access/certs`, never a request or JWT URL.
   jose rejects redirects, enforces key suitability and caches keys for five minutes.
+- `policy-release.mjs`: bounded code-owned reviewed release schema and canonical
+  binding for the distinct `reviewed-policy-release-v1` assurance. Null denies;
+  no environment boolean or API token supplies evidence. Policy identities expire
+  at the earlier of token expiry and the reviewed evidence deadline.
 - `worker.mjs`: JSON protocol and private static UI with fresh authentication for every request.
   The singleton preview binds the exact Access token hash, principal and random
   HttpOnly session cookie; a changed JWT requires stopping, never adopting the
@@ -129,7 +138,7 @@ not override the hard release block.
 | --- | --- |
 | `DEPLOYMENT_STAGE` | literal `production` |
 | `CANARY_SEND_ENABLED` | literal `owner-canary-v1-approved`; every other value denies |
-| `MFA_CONTRACT` | literal `signed-amr-mfa-v1`, only after reviewing actual signed evidence |
+| `MFA_CONTRACT` | `signed-amr-mfa-v1` with reviewed signed evidence, or `reviewed-policy-release-v1` with matching code-owned evidence (currently null; denies) |
 | `ACCESS_TEAM_HOST`, `ACCESS_AUD` | one reviewed account host ending exactly `.cloudflareaccess.com` and private app audience |
 | `OWNER_PRINCIPAL`, `OWNER_ACCESS_EMAIL` | exact signed subject and exact signed owner email; no case folding or alias inference |
 | `APP_ORIGIN` | one exact HTTPS origin with no path, credentials or trailing slash |
@@ -181,16 +190,15 @@ JWKS endpoint. The code follows that trust source and verifies additional claims
 describe Access/IdP MFA enforcement, but do not establish that this owner's actual
 app JWT supplies an independently verifiable `amr`. That has **not been demonstrated**.
 A configuration label or browser header is never proof. Missing signed `amr`,
-missing `nbf`, or incompatible lifetime leaves this candidate blocked. Do not
+missing `nbf`, or incompatible lifetime blocks signed-AMR authentication. Do not
 relax checks to make a synthetic fixture resemble real assurance.
 
-If the real assertion cannot supply the required signed MFA evidence, a separate
-reviewed design must validate independent IdP-signed step-up evidence (issuer,
-audience, signature, subject linkage, assurance/freshness, nonce/session binding
-and replay protection) and the actual enforced Access policy. That verifier does
-not exist here; no policy-only boolean fallback is implemented. Establishing the
-IdP/policy and reviewing actual signed claims is the next owner-dependent gate.
-Do not paste raw live assertions or secrets into Git or chat.
+If the real assertion cannot supply signed `amr:mfa`, the distinct policy-source
+contract can be considered only after the full evidence in [POLICY-AUTH.md](POLICY-AUTH.md)
+is independently established and reviewed. It does not attest to a particular MFA
+event or its timestamp. The code-owned production release is null, so this path
+denies today. No operator boolean, environment snapshot or request can enable it.
+Independent IdP-signed step-up remains a possible separate design, not implemented here.
 
 Every mutation verifies its assertion again, and epoch changes invalidate pending
 sessions. Signature checks alone cannot discover an IdP logout or revoked but
