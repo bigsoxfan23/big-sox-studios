@@ -476,3 +476,17 @@ test('transport TypeError is reported by stage without leaking exception content
  assert.equal(logs[0].event,'notion_sync_notion_transport_fetch_type');
  assert.ok(!JSON.stringify(logs).includes('PRIVATE_BODY_SENTINEL'));
 });
+
+test('Cloudflare Workers native fetch must be called without an object receiver', async () => {
+ let received = 0;
+ function strictWorkerdFetch(url, init) {
+  assert.equal(this, undefined, 'using this.fetcher() triggers workerd Illegal invocation');
+  received++;
+  assert.equal(url, 'https://api.notion.com/v1/data_sources/' + DATA_SOURCE + '/query');
+  assert.equal(init.method, 'POST');
+  return Promise.resolve(Response.json({results:[],has_more:false,next_cursor:null}));
+ }
+ const result = await new LiveNotion(enabled, strictWorkerdFetch).findTicket({channel:'support', id:crypto.randomUUID()});
+ assert.deepEqual(result, []);
+ assert.equal(received, 1);
+});
