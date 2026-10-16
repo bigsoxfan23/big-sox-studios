@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 import { createWorker } from '../src/worker.mjs';
 import { b64, clearJwksCache } from '../src/security.mjs';
+import { offlineDelivery } from '../src/providers.mjs';
 import { syntheticIntake } from '../src/intake.synthetic.mjs';
 const migration = await readFile(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8');
 const migration2 = await readFile(new URL('../migrations/0002_inbound_and_notion.sql', import.meta.url), 'utf8');
@@ -42,8 +43,9 @@ export async function fixture(t, options = {}) {
  const DB = new D1({ notion: options.notion === true }); t.after(() => DB.close());
  const env = { DB, ACCESS_ISSUER:'https://fixture.cloudflareaccess.com', ACCESS_AUDIENCE:'fixture-audience', OWNER_EMAIL:'owner@example.test', APP_ORIGIN:origin, CSRF_SECRET:'synthetic-only-secret-at-least-32-characters', SEND_MODE:'mock', ALLOW_REAL_SEND:'false', DEPLOYMENT_STAGE:'staging', NOTION_SYNC_MODE:'off', ...options.env };
  env.ASSETS = { async fetch(req) { const path = new URL(req.url).pathname; const file = path === '/' ? 'index.html' : path.slice(1); return new Response(await readFile(new URL(`../public/${file}`,import.meta.url)), { headers:{ 'Content-Type':file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' } }); } };
- let providerCalls = 0, fetchCalls = 0;
- const worker = createWorker({ fetcher:async url => { fetchCalls++; if (url !== `${env.ACCESS_ISSUER}/cdn-cgi/access/certs`) throw new Error('Unexpected network'); return Response.json({ keys:[jwk] }); }, provider:async i => { providerCalls++; return options.provider ? options.provider(i) : { status:'sent', id:`mock-${i.id}` }; } });
+ const simulation = offlineDelivery(options.simulation);
+ let fetchCalls = 0;
+ const worker = createWorker({ fetcher:async url => { fetchCalls++; if (url !== `${env.ACCESS_ISSUER}/cdn-cgi/access/certs`) throw new Error('Unexpected network'); return Response.json({ keys:[jwk] }); }, simulation: simulation.handle });
  const jwt = await token(); let cookie, csrf;
  async function request(path, data, custom = {}) {
   const h = { 'Cf-Access-Jwt-Assertion':jwt, ...(cookie ? { Cookie:cookie } : {}), ...(data === undefined ? {} : { Origin:origin, 'Content-Type':'application/json', 'X-CSRF-Token':csrf }), ...custom.headers };
@@ -58,5 +60,5 @@ export async function fixture(t, options = {}) {
   const r = await request(`/api/cases/${id}/review`, { revision:(await d.json()).revision }); if (r.status !== 200) throw new Error(`review: ${await r.text()}`); return r.json();
  }
  const send = (id,r,custom) => request(`/api/cases/${id}/send`, { intentId:r.id,approval:r.approval }, custom);
- return { DB,env,worker,jwt,request,session,seed,review,send, calls:() => providerCalls, fetches:() => fetchCalls };
+ return { DB,env,worker,jwt,request,session,seed,review,send, calls:simulation.calls, release:simulation.release, fetches:() => fetchCalls };
 }
