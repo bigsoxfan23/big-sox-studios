@@ -10,9 +10,9 @@ const headers = {
  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Strict-Transport-Security': 'max-age=31536000'
 };
 const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(value), { status, headers: { ...headers, 'Content-Type': 'application/json', ...extra } });
-const approvalValue = i => JSON.stringify([i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
+const approvalValue = i => JSON.stringify(['maildesk-mock-review-v1',i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
 const publicIntent = i => ({ id: i.id, caseId: i.case_id, revision: i.revision, to: i.recipient, from: i.sender, subject: i.subject, body: i.body, status: i.status, expires: i.approval_expires });
-export function createWorker({ fetcher = fetch, provider } = {}) {
+export function createWorker({ fetcher = fetch, provider, simulation } = {}) {
  return { email, scheduled(controller, env, ctx) {
   void controller;
   ctx.waitUntil(runNotionSync(env, fetcher));
@@ -71,7 +71,8 @@ export function createWorker({ fetcher = fetch, provider } = {}) {
      requireThat(i.approval_expires > now(), 409, 'approval_expired');
      // Fail closed even if an operator injects a live mode or credentials into staging.
      requireThat(env.SEND_MODE === 'mock', 503, 'staging_send_disabled');
-     const send = provider ?? stagingProvider(env);
+     requireThat(provider === undefined, 503, 'staging_provider_denied');
+     const send = stagingProvider(env, simulation);
      const claimed = await claimSend(env.DB, i);
      if (!claimed) {
       const latest = await stmt(env.DB, 'SELECT status FROM outbound_intents WHERE id=?', i.id).first();

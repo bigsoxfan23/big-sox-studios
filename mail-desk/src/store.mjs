@@ -38,8 +38,11 @@ export async function claimSend(db, intent) {
  const time = now();
  // One atomic compare-and-set: concurrent requests and old reviews cannot dispatch.
  return stmt(db, `UPDATE outbound_intents SET status='dispatching',updated_at=? WHERE id=? AND status='reserved'
- AND approval_expires>? AND EXISTS(SELECT 1 FROM cases WHERE id=case_id AND revision=outbound_intents.revision)
- AND NOT EXISTS(SELECT 1 FROM outbound_intents o WHERE o.case_id=outbound_intents.case_id AND o.id<>outbound_intents.id AND o.status IN ('dispatching','UNKNOWN')) RETURNING *`, time, intent.id, time).first();
+ AND case_id=? AND revision=? AND recipient=? AND sender=? AND subject=? AND body=? AND session_hash=? AND approval_expires=?
+ AND approval_expires>? AND EXISTS(SELECT 1 FROM cases c WHERE c.id=outbound_intents.case_id AND c.revision=outbound_intents.revision
+ AND c.requester_email=outbound_intents.recipient AND c.subject=outbound_intents.subject AND c.draft=outbound_intents.body
+ AND outbound_intents.sender=CASE c.channel WHEN 'members' THEN 'members@bigsoxstudios.com' WHEN 'support' THEN 'support@bigsoxstudios.com' WHEN 'hello' THEN 'hello@bigsoxstudios.com' END)
+ AND NOT EXISTS(SELECT 1 FROM outbound_intents o WHERE o.case_id=outbound_intents.case_id AND o.id<>outbound_intents.id AND o.status IN ('dispatching','UNKNOWN')) RETURNING *`, time, intent.id, intent.case_id, intent.revision, intent.recipient, intent.sender, intent.subject, intent.body, intent.session_hash, intent.approval_expires, time).first();
 }
 export async function finalize(db, intent, result) {
  requireThat(['sent','failed','UNKNOWN'].includes(result.status), 500, 'provider_contract');
