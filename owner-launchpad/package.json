@@ -1,0 +1,10 @@
+{
+ "name": "bss-owner-launchpad-offline",
+ "private": true,
+ "type": "module",
+ "engines": { "node": ">=22" },
+ "scripts": {
+  "test": "node --test --experimental-test-isolation=none test/*.test.mjs",
+  "check": "node --check src/security.mjs && node --check src/worker.mjs && node --check test/launchpad.test.mjs"
+ }
+}
