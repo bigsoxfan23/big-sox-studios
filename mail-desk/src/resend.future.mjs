@@ -1,4 +1,4 @@
-// Deliberately outside the Worker graph. There is NO live approval authority yet.
+// Outside the staging Worker graph. The isolated candidate still blocks real authority.
 import { senders } from './store.mjs';
 import { mailbox, messageId } from './inbound.mjs';
 function gates(env) {
@@ -9,7 +9,8 @@ export async function resendFuture(intent, env, fetcher, approval) {
  gates(env);
  // A serializable humanApproved flag/snapshot is never authorization. 0001-0003
  // have no immutable outbound thread/provenance snapshot. No caller can safely
- // bridge the current mock review to live delivery. Requires a reviewed code change.
+ // bridge a mock review to live delivery. 0004 is isolated; verified ingress
+ // and a production transport capability still require a reviewed code change.
  void intent; void fetcher; void approval;
  throw Error('approval_required_integration_blocked');
 }
@@ -24,7 +25,8 @@ function validate(intent, env) {
  if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(intent.id) || !mailbox(intent.recipient) ||
      // eslint-disable-next-line no-control-regex -- Prevent untrusted subject headers from containing control characters.
      typeof intent.subject !== 'string' || !intent.subject.trim() || intent.subject.length > 200 || /[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(intent.subject) ||
-     typeof intent.body !== 'string' || !intent.body.trim() || intent.body.length > 10000) throw Error('invalid_intent');
+     // eslint-disable-next-line no-control-regex -- Plain text permits CR/LF/tab, never other hidden control bytes.
+     typeof intent.body !== 'string' || !intent.body.trim() || intent.body.length > 10000 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(intent.body)) throw Error('invalid_intent');
  const refs = intent.references ?? [];
  if (!Array.isArray(refs) || refs.length > 20 || !refs.every(messageId)) throw Error('invalid_thread');
  const all = [...new Set([...refs, ...(intent.inReplyTo ? [intent.inReplyTo] : [])])];
