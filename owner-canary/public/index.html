@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner canary · Private review</title>
+<link rel="stylesheet" href="/styles.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+<header><p class="eyebrow">BIG SOX STUDIOS / PRIVATE</p><h1>One message.<br>Every detail reviewed.</h1><p class="intro">Owner canary review. A single permanent campaign, with separate review, approval and send actions.</p></header>
+<section class="notice"><strong>Offline candidate · Undeployed</strong><p>The default service cannot send. Real Access identity and signed MFA have not been verified. This interface does not authorize a release.</p></section>
+<section aria-labelledby="state-title"><div class="section-heading"><h2 id="state-title">Review desk</h2><span class="tag">Owner only</span></div><p id="status" role="status" aria-live="polite">Checking security gates…</p><p id="detail">No message has been requested.</p><ol class="steps"><li>Preview</li><li>Review</li><li>Approve</li><li>Confirm send</li></ol><p id="expiry"></p><button id="preview" disabled>Create immutable preview</button></section>
+<section id="snapshot" hidden aria-labelledby="message-title"><h2 id="message-title">Exact message</h2><p class="muted">Read-only server snapshot. The browser cannot choose a recipient or edit the message.</p><dl><dt>From</dt><dd id="from"></dd><dt>To</dt><dd id="to"></dd><dt>Subject</dt><dd id="subject"></dd><dt>Plain text</dt><dd><pre id="text"></pre></dd></dl><div class="actions"><button id="review" disabled>Mark reviewed</button><button id="approve" disabled>Approve this preview</button><button id="dispatch" disabled>Confirm one send…</button></div></section>
+<footer>Provider acceptance is not delivery. Inbox, spam and authentication headers require separate owner verification. No retries or second campaign.</footer>
+</main>
+<dialog id="confirmation" aria-labelledby="confirm-title"><h2 id="confirm-title">Send this exact message once?</h2><p>This action is irreversible. A timeout or UNKNOWN outcome may mean the provider accepted the message. There is no retry, resend or second campaign.</p><dl><dt>From</dt><dd id="confirm-from"></dd><dt>To</dt><dd id="confirm-to"></dd><dt>Subject</dt><dd id="confirm-subject"></dd><dt>Plain text</dt><dd><pre id="confirm-text"></pre></dd></dl><div class="actions"><button id="cancel">Cancel</button><button id="send">Send once · irreversible</button></div></dialog>
+</body>
+</html>

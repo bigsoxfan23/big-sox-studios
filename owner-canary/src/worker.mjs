@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { authenticate, requireThat } from './auth.mjs';
 import { ledger } from './ledger.mjs';
 import { envelope, submitOnce } from './resend.mjs';
+import { assets } from './ui-assets.mjs';
 
 const encoder = new TextEncoder();
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -48,6 +49,17 @@ export function createCandidate({ verify, transport, dispatchAuthorized = false,
    requireThat(identity.expires > time);
    const url = new URL(request.url);
    requireThat(url.origin === env.APP_ORIGIN && !url.search && !url.hash);
+   // Every asset passes the same signed identity, MFA, configuration and origin
+   // checks as JSON. No ASSETS binding or independently public asset route.
+   if (request.method === 'GET' && Object.hasOwn(assets, url.pathname)) {
+    requireThat(!request.headers.has('Origin') || request.headers.get('Origin') === env.APP_ORIGIN);
+    requireThat(!request.headers.has('Sec-Fetch-Site') || ['same-origin', 'none'].includes(request.headers.get('Sec-Fetch-Site')));
+    const asset = assets[url.pathname];
+    return new Response(asset.body, { headers: { ...headers, 'Content-Type': asset.type,
+     'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+     'Cross-Origin-Resource-Policy': 'same-origin', 'X-Frame-Options': 'DENY',
+     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' } });
+   }
    const store = ledger(env.CANARY_DB);
    if (request.method === 'GET' && url.pathname === '/status') {
     const row = await store.get();

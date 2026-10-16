@@ -1,10 +1,11 @@
 # Task 10 isolated owner canary candidate — offline, no deployment
 
-This is a separate service candidate on exact PR #25 base
-`ceb08a8351349f66d0fbe92ca1c4adc00d7d6e6e`. It implements one direct owner message,
+This UI continuation is isolated on branch
+`feature/studio-mail-desk-task10-owner-canary-ui`, at exact draft PR #26 base
+`2f72f54709d3c5053befe77162838012591bb4ec`. The underlying candidate preserves
+its original PR #25 baseline manifest. It implements one direct owner message,
 with code, an unapplied isolated schema and adversarial offline tests. It has no
-inbound evidence dependency and cannot unlock customer replies. All existing
-tracked repository files, including the production reply 503 gate, are unchanged.
+inbound evidence dependency and cannot unlock customer replies. The legacy Mail Desk and production reply 503 gate remain unchanged.
 
 **Live dispatch is hard-disabled in the default Worker entrypoint.** No environment
 value overrides `dispatchAuthorized: false`. The committed Wrangler config also
@@ -23,7 +24,7 @@ Notion sync, DNS, website and staging service are outside this implementation.
 
 ## Implementation and authority
 
-Only four runtime modules exist:
+The runtime modules are:
 
 - `auth.mjs`: pinned-account JWKS verification using exact lockfile-pinned
   `jose` 6.2.12. RS256 only; pinned issuer/audience, nonempty `kid`, required
@@ -34,7 +35,7 @@ Only four runtime modules exist:
   JWKS comes only from operator-configured
   `https://<ACCESS_TEAM_HOST>/cdn-cgi/access/certs`, never a request or JWT URL.
   jose rejects redirects, enforces key suitability and caches keys for five minutes.
-- `worker.mjs`: JSON-only protocol with fresh authentication for every request.
+- `worker.mjs`: JSON protocol and private static UI with fresh authentication for every request.
   The singleton preview binds the exact Access token hash, principal and random
   HttpOnly session cookie; a changed JWT requires stopping, never adopting the
   old intention. Stage capabilities are server-signed HS256 JWTs with purpose,
@@ -42,6 +43,9 @@ Only four runtime modules exist:
   Durable capability hashes rotate at each transition. The signing secret is
   separate from the provider key and is never returned. No client envelope,
   content, approval boolean or MFA flag supplies authority.
+- `ui-assets.mjs`: generated literal bundle of the three reviewed files in
+  `public/`. Every asset is returned through the Worker verifier; there is no
+  platform static-assets binding or independently public file route.
 - `ledger.mjs` and `migrations/0001_canary.sql`: the only slot has `CHECK(id=1)`.
   Its campaign, full snapshot, digest, binding and expiry are immutable. Triggers
   enforce ordered transitions, immutable audit timestamps and no delete, replace,
@@ -67,10 +71,21 @@ No test code is imported into the production bundle.
 
 ## Owner protocol and permanent slot
 
-There is no UI in this candidate and no public page/health endpoint. A future
-reviewed same-origin browser interface must display the complete preview as text
-and provide separate review, approval and dispatch actions. Never auto-dispatch
-on approval. This milestone implements the underlying protocol only.
+The private UI is available only at authenticated `GET /`, `/app.js` and
+`/styles.css`, behind exactly the same signed Access/owner/MFA and configuration
+checks as JSON. The committed offline configuration denies **all** these routes;
+opening `public/index.html` directly is not a functional login or authority path.
+No public navigation or launchpad is added. See [UI-ACCEPTANCE.md](UI-ACCEPTANCE.md)
+for offline coverage, manual acceptance and the next owner gate.
+
+The UI loads status without mutation. It keeps capabilities only in page memory,
+requires separate preview → review → approve clicks, then an exact-message modal
+and a separate irreversible send click. Approval never sends. The default false
+`sendAuthority` disables all UI mutation controls; it cannot be overridden from
+the browser. An existing campaign, failed request, expired preview or changed
+session halts the UI. Reloading cannot recover a capability or create a new slot.
+No retry or reset control exists. The server remains the authority if browser
+controls are modified. Synthetic dispatch-enabled factories are used only by tests.
 
 | Request | Required JSON | Result |
 | --- | --- | --- |
@@ -85,7 +100,7 @@ same-origin`, `Content-Type: application/json`, and `X-Canary-Action` matching t
 path. Later stages also require the exact `__Host-canary` Secure/HttpOnly/
 SameSite=Strict/Path=/ cookie and signed capability. No CORS, OPTIONS, DELETE,
 reset, query-string override or service-token route exists. GET never creates
-sessions, intentions or cookies. Responses are JSON with no-store/private cache,
+sessions, intentions or cookies. JSON and asset responses use no-store/private cache,
 no-referrer, nosniff and frame-blocking CSP. All failures are generic and no runtime
 module logs credentials, tokens, raw provider responses or mailbox content.
 
@@ -224,6 +239,7 @@ otherwise reports file wrappers instead of individual Node test cases.
 static tests hash those bytes and separately assert disabled config/import bounds.
 Never regenerate this manifest to conceal a protected-file modification.
 
-See [VALIDATION.md](VALIDATION.md) for the final commands, counts, bundle results
+See [UI-ACCEPTANCE.md](UI-ACCEPTANCE.md) for this continuation's results and
+[VALIDATION.md](VALIDATION.md) for the prior candidate's commands, counts, bundle results
 and explicit limits. A later reviewer must independently verify the hard block
-and deployment boundaries. All files in this directory remain uncommitted.
+and deployment boundaries. This continuation remains uncommitted; the prior candidate is part of the requested base.

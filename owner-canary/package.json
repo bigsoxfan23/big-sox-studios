@@ -2,10 +2,15 @@
   "name": "bss-owner-canary-candidate",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13 <23" },
+  "engines": {
+    "node": ">=22.13 <23"
+  },
   "scripts": {
     "test": "node --test --experimental-test-isolation=none tests/*.test.mjs",
-    "check": "node --check src/worker.mjs && node --check src/auth.mjs && node --check src/ledger.mjs && node --check src/resend.mjs"
+    "check": "node --check src/worker.mjs && node --check src/auth.mjs && node --check src/ledger.mjs && node --check src/resend.mjs && node --check public/app.js && node --check src/ui-assets.mjs && node scripts/bundle-ui.mjs --check",
+    "bundle-ui": "node scripts/bundle-ui.mjs"
   },
-  "dependencies": { "jose": "6.2.12" }
+  "dependencies": {
+    "jose": "6.2.12"
+  }
 }
