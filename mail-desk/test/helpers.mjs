@@ -5,6 +5,7 @@ import { b64, clearJwksCache } from '../src/security.mjs';
 import { syntheticIntake } from '../src/intake.synthetic.mjs';
 const migration = await readFile(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8');
 const migration2 = await readFile(new URL('../migrations/0002_inbound_and_notion.sql', import.meta.url), 'utf8');
+const migration3 = await readFile(new URL('../migrations/0003_notion_activity.sql', import.meta.url), 'utf8');
 const keys = await crypto.subtle.generateKey({ name:'RSASSA-PKCS1-v1_5', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256' }, true, ['sign','verify']);
 export const jwk = { ...await crypto.subtle.exportKey('jwk',keys.publicKey), kid:'fixture-key', alg:'RS256', use:'sig' };
 export const origin = 'https://desk.example.test';
@@ -17,7 +18,7 @@ export async function token(changes = {}, headerChanges = {}, signingKey = keys.
  return `${header}.${payload}.${signature}`;
 }
 export class D1 {
- constructor({ initialOnly = false } = {}) { this.sqlite = new DatabaseSync(':memory:'); this.sqlite.exec(migration); if (!initialOnly) this.sqlite.exec(migration2); }
+ constructor({ initialOnly = false, notion = false } = {}) { this.sqlite = new DatabaseSync(':memory:'); this.sqlite.exec(migration); if (!initialOnly) { this.sqlite.exec(migration2); if (notion) this.sqlite.exec(migration3); } }
  prepare(sql) {
   const db = this.sqlite;
   const make = args => ({
@@ -38,7 +39,7 @@ export class D1 {
 export const input = (overrides = {}) => ({ synthetic:true, key:'synthetic-inbound-1', channel:'members', requester_name:'Synthetic Person', requester_email:'person@example.test', subject:'Synthetic membership question', body:'Hello studio.', ...overrides });
 export async function fixture(t, options = {}) {
  clearJwksCache();
- const DB = new D1(); t.after(() => DB.close());
+ const DB = new D1({ notion: options.notion === true }); t.after(() => DB.close());
  const env = { DB, ACCESS_ISSUER:'https://fixture.cloudflareaccess.com', ACCESS_AUDIENCE:'fixture-audience', OWNER_EMAIL:'owner@example.test', APP_ORIGIN:origin, CSRF_SECRET:'synthetic-only-secret-at-least-32-characters', SEND_MODE:'mock', ALLOW_REAL_SEND:'false', DEPLOYMENT_STAGE:'staging', NOTION_SYNC_MODE:'off', ...options.env };
  env.ASSETS = { async fetch(req) { const path = new URL(req.url).pathname; const file = path === '/' ? 'index.html' : path.slice(1); return new Response(await readFile(new URL(`../public/${file}`,import.meta.url)), { headers:{ 'Content-Type':file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' } }); } };
  let providerCalls = 0, fetchCalls = 0;

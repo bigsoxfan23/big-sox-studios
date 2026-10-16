@@ -2,6 +2,8 @@ import { authenticate, HttpError, requireThat, protectPost, sessionProof, readJs
 import { stmt, audit, rateLimit, getCase, saveDraft, reserveReview, claimSend, finalize, now } from './store.mjs';
 import { email } from './inbound.mjs';
 import { stagingProvider } from './providers.mjs';
+import { runNotionSync } from './notion.sync.mjs';
+import { liveEnabled } from './notion.live.mjs';
 const headers = {
  'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://bigsoxstudios.com; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
@@ -11,7 +13,10 @@ const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(va
 const approvalValue = i => JSON.stringify([i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
 const publicIntent = i => ({ id: i.id, caseId: i.case_id, revision: i.revision, to: i.recipient, from: i.sender, subject: i.subject, body: i.body, status: i.status, expires: i.approval_expires });
 export function createWorker({ fetcher = fetch, provider } = {}) {
- return { email, async fetch(request, env) {
+ return { email, scheduled(controller, env, ctx) {
+  void controller;
+  ctx.waitUntil(runNotionSync(env, fetcher));
+ }, async fetch(request, env) {
   let authed = false;
   try {
    // Authentication also covers unknown routes, assets, errors, and unsupported methods.
@@ -26,7 +31,7 @@ export function createWorker({ fetcher = fetch, provider } = {}) {
    }
    if (request.method === 'GET' && url.pathname === '/api/session') {
     const session = await sessionProof(request, env, auth, true);
-    return json({ csrf: session.csrf, sendMode: env.SEND_MODE === 'mock' ? 'mock' : 'disabled', notionSync: 'off', acceptance: 'pending owner Access and MFA review' }, 200, { 'Set-Cookie': session.cookie });
+    return json({ csrf: session.csrf, sendMode: env.SEND_MODE === 'mock' ? 'mock' : 'disabled', notionSync: liveEnabled(env) ? 'live' : 'off', acceptance: 'pending owner Access and MFA review' }, 200, { 'Set-Cookie': session.cookie });
    }
    if (request.method === 'GET' && url.pathname === '/api/inbound-status') {
     // Task9 staging may still have only 0001: absence is explicit, never a zero count.

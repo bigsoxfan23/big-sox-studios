@@ -122,10 +122,14 @@ export async function email(message, env, ctx) {
   const linked = parents.length && cases.length === 1 && parents.every(id => matches.some(m => m.message_id === id));
   const caseId = linked ? cases[0] : candidate;
   const subject = decodedSubject(message.headers.get('subject'));
+  const localMessageId = crypto.randomUUID();
+  // Optional additive tracking: 0002-only installations keep their intake behavior.
+  const activitySchema = await stmt(env.DB, "SELECT name FROM sqlite_master WHERE type='table' AND name='email_receipt_messages'").first();
   await env.DB.batch([
    stmt(env.DB, `INSERT INTO email_receipts VALUES (?,?,?,?,?,?,?,?, 'claimed',?,?) ON CONFLICT(receipt_key) DO NOTHING`, key, token, caseId, from, to, id, reply, JSON.stringify(refs), time, time),
    stmt(env.DB, `INSERT INTO cases SELECT ?,?,?,?, ?,0,'',?,? WHERE EXISTS(SELECT 1 FROM email_receipts WHERE claim_token=?) AND NOT EXISTS(SELECT 1 FROM cases WHERE id=?)`, caseId, channel, from, from, subject, time, time, token, caseId),
-   stmt(env.DB, `INSERT INTO messages SELECT ?,case_id,'inbound',?,?,NULL FROM email_receipts WHERE claim_token=?`, crypto.randomUUID(), await plainPreview(raw, message.rawSize), time, token),
+   stmt(env.DB, `INSERT INTO messages SELECT ?,case_id,'inbound',?,?,NULL FROM email_receipts WHERE claim_token=?`, localMessageId, await plainPreview(raw, message.rawSize), time, token),
+   ...(activitySchema ? [stmt(env.DB, `INSERT INTO email_receipt_messages SELECT receipt_key,? FROM email_receipts WHERE claim_token=?`, localMessageId, token)] : []),
    stmt(env.DB, `INSERT INTO sync_jobs(id,case_id,kind,next_attempt,created_at) SELECT ?,case_id,'case_created',?,? FROM email_receipts WHERE claim_token=? AND case_id=?`, crypto.randomUUID(), time, time, token, candidate),
    stmt(env.DB, `UPDATE cases SET updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM email_receipts WHERE claim_token=?)`, time, caseId, token)
   ]);
