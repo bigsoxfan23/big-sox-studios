@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "node --test --experimental-test-isolation=none test/*.test.mjs",
-    "check": "node --check src/worker.mjs && node --check src/worker.outbound.mjs && node --check src/outbound.candidate.mjs && node --check src/outbound.provenance.mjs && node --check src/resend.future.mjs && node --check public/app.js && node --check offline/ingress.policy.mjs && node --check test/ingress.fixture.mjs && node --check test/ingress-policy.test.mjs"
+    "check": "node --check src/worker.mjs && node --check src/worker.outbound.mjs && node --check src/outbound.candidate.mjs && node --check src/outbound.provenance.mjs && node --check src/resend.future.mjs && node --check public/app.js && node --check offline/ingress.policy.mjs && node --check test/ingress.fixture.mjs && node --check test/ingress-policy.test.mjs && node --check offline/routing-observation.mjs && node --check test/routing-observation.test.mjs"
   },
   "dependencies": {
     "postal-mime": "4.0.6"
