@@ -22,6 +22,7 @@ function allowlist(value) {
 function validate(intent, env) {
  if (!Object.values(senders).includes(intent.sender)) throw Error('invalid_sender');
  if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(intent.id) || !mailbox(intent.recipient) ||
+     // eslint-disable-next-line no-control-regex -- Prevent untrusted subject headers from containing control characters.
      typeof intent.subject !== 'string' || !intent.subject.trim() || intent.subject.length > 200 || /[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(intent.subject) ||
      typeof intent.body !== 'string' || !intent.body.trim() || intent.body.length > 10000) throw Error('invalid_intent');
  const refs = intent.references ?? [];
