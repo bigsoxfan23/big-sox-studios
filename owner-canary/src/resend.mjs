@@ -1,8 +1,8 @@
 import { requireThat } from './auth.mjs';
 export const MESSAGE = Object.freeze({
  from: 'support@bigsoxstudios.com',
- subject: 'Big Sox Studios owner canary',
- text: 'This is the single owner-approved Big Sox Studios transactional email test. No reply is required.'
+ subject: 'Big Sox Studios — Outbound Email Verification',
+ text: 'This is a one-time test of the Big Sox Studios outbound email system.\n\nThe message verifies that support@bigsoxstudios.com can securely send email through Resend.\n\nNo customer tickets or customer messages are involved.\n\n— Big Sox Studios'
 });
 export function envelope(mailbox) {
  requireThat(typeof mailbox === 'string' && mailbox.length <= 254);
