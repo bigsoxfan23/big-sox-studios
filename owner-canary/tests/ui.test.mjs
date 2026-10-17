@@ -173,7 +173,15 @@ test('expiry while confirmation is open closes dialog and blocks send', async t 
  assert.equal(b.el('confirmation').open, false); await b.click('send'); assert.equal(b.f.sends, 0);
 });
 test('overlapping human clicks cannot start parallel transitions or dispatch twice', async t => {
- const b = await browser(t); await Promise.all([b.click('preview'), b.click('preview')]);
+ const b = await browser(t);
+ // The initial /status request is asynchronous. Wait for actual UI readiness,
+ // not a fixed number of event-loop turns (which races on busy CI runners).
+ const deadline = Date.now() + 5000;
+ while (b.el('preview').disabled && Date.now() < deadline) {
+  await new Promise(resolve => setTimeout(resolve, 10));
+ }
+ assert.equal(b.el('preview').disabled, false, 'the initial owner status must become ready');
+ await Promise.all([b.click('preview'), b.click('preview')]);
  assert.equal(b.calls.filter(x => x.path === '/preview').length, 1);
  await b.click('review'); await b.click('approve'); await b.click('dispatch');
  await Promise.all([b.click('send'), b.click('send')]); assert.equal(b.f.sends, 1);
