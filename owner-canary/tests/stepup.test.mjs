@@ -9,6 +9,8 @@ import { credentialRecord, fingerprint, decode, registration, assertion } from '
 import { createCandidate } from '../src/worker.mjs';
 import production from '../src/worker.mjs';
 import { PRODUCTION_CREDENTIAL_PIN, FINAL_OWNER_CONFIRMATION, STEPUP_CONTRACT } from '../src/stepup-release.mjs';
+const originalProductionPin = PRODUCTION_CREDENTIAL_PIN;
+const confirmedFingerprint = 'sha256:798d9a0ac8aefeb35ac0f64c29341c4962539e051d396fd82a41bcb29c973584';
 
 const req = token => new Request('https://canary.test/', { headers: { 'Cf-Access-Jwt-Assertion': token } });
 test('distinct signed identity accepts absent AMR without manufacturing MFA or cutover evidence', async () => {
@@ -91,7 +93,9 @@ test('enrollment proves possession, emits only public candidate, never consumes 
  assert.equal(proof.data.fingerprint, await s.fingerprint()); assert.deepEqual(proof.data.record, s.auth.record);
  assert.match(proof.data.instruction, /does NOT confirm/);
  assert.ok(!JSON.stringify(proof.data).includes(s.token)); assert.ok(!JSON.stringify(proof.data).includes(s.cookies));
- assert.equal(s.f.row(), undefined); assert.equal(PRODUCTION_CREDENTIAL_PIN, null);
+ assert.equal(s.f.row(), undefined); assert.equal(PRODUCTION_CREDENTIAL_PIN, originalProductionPin);
+ assert.equal(await fingerprint(PRODUCTION_CREDENTIAL_PIN), confirmedFingerprint);
+ assert.ok(Object.isFrozen(PRODUCTION_CREDENTIAL_PIN));
  await assert.rejects(s.possession(candidate));
 });
 for (const path of ['/preview', '/dispatch', '/approve', '/pin', '/reset', '/enroll/pin', '/enroll/approve']) test(`enrollment has no sender/promotion endpoint ${path}`, async t => {
@@ -299,9 +303,11 @@ test('candidate bindings immutable, candidate capacity bounded, expiry permits p
  assert.throws(() => insert.run(Buffer.alloc(32, 65).toString('base64url'), candidate));
  s.advance(600); await assert.rejects(s.possession(candidate)); assert.equal(s.f.row(), undefined);
 });
-test('null production pin/final confirmation and fixed full sender reject request/environment authority', async t => {
+test('confirmed production pin, null final confirmation and fixed full sender reject request/environment authority', async t => {
  const s = await stepupFixture(t);
- assert.equal(PRODUCTION_CREDENTIAL_PIN, null); assert.equal(FINAL_OWNER_CONFIRMATION, null);
+ assert.equal(PRODUCTION_CREDENTIAL_PIN, originalProductionPin);
+ assert.equal(await fingerprint(PRODUCTION_CREDENTIAL_PIN), confirmedFingerprint);
+ assert.ok(Object.isFrozen(PRODUCTION_CREDENTIAL_PIN)); assert.equal(FINAL_OWNER_CONFIRMATION, null);
  const target = createCandidate({ ...s.deps, credentialPin: null });
  assert.equal((await s.call('/preview', { proof: 'A'.repeat(43) }, { target })).r.status, 503);
  const env = { ...s.f.env, MFA_CONTRACT: STEPUP_CONTRACT, verify: s.deps.verify,
