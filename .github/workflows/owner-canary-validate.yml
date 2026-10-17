@@ -20,7 +20,7 @@ jobs:
           node-version: "22"
       - name: Install pinned candidate dependencies (no scripts)
         run: npm ci --prefix owner-canary --ignore-scripts --no-audit --no-fund
-      - name: Verify all 112+ isolated canary security cases
+      - name: Verify all isolated canary security cases
         run: npm test --prefix owner-canary
       - name: Check candidate syntax
         run: npm run check --prefix owner-canary
@@ -29,15 +29,33 @@ jobs:
           npm ci --prefix mail-desk --ignore-scripts --no-audit --no-fund
           npm test --prefix mail-desk
           npm run check --prefix mail-desk
-      - name: Verify no sending deployment is configured
+      - name: Verify offline safety and exact owner-confirmed release gates
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           import assert from 'node:assert/strict';
+          import { FINAL_OWNER_CONFIRMATION, OWNER_CONFIRMED_RELEASE, CONFIRMED_CAMPAIGN_ID, PRODUCTION_CREDENTIAL_PIN } from './owner-canary/src/stepup-release.mjs';
+          import { MESSAGE } from './owner-canary/src/resend.mjs';
           const config = readFileSync('owner-canary/wrangler.candidate.toml','utf8');
           const source = readFileSync('owner-canary/src/worker.mjs','utf8');
           assert.match(config,/workers_dev\s*=\s*false/);
           assert.match(config,/preview_urls\s*=\s*false/);
+          assert.match(config,/routes\s*=\s*\[\]/);
           assert.match(config,/CANARY_SEND_ENABLED\s*=\s*"false"/);
-          assert.match(source,/dispatchAuthorized:\s*false/);
+          assert.match(source,/dispatchAuthorized:\s*OWNER_CONFIRMED_RELEASE,\s*enforceRelease:\s*true/);
+          assert.match(source,/requireThat\(await confirmedSnapshot\(snapshot, env, finalConfirmation\)\)/);
+          assert.equal(OWNER_CONFIRMED_RELEASE,true);
+          assert.equal(CONFIRMED_CAMPAIGN_ID,'3ed38bbd-997c-4ce5-abad-e131b115ede4');
+          assert.equal(PRODUCTION_CREDENTIAL_PIN.origin,'https://canary.bigsoxstudios.com');
+          assert.equal(PRODUCTION_CREDENTIAL_PIN.email,'fridman.greg@gmail.com');
+          assert.deepEqual(FINAL_OWNER_CONFIRMATION,{
+            envelopeDigest:'7ec49e8c8316385f3923f92380277d956ad847c20de5e6181fbbf455793d9880',
+            configDigest:'c5be1b5e09368b115cd7bc65ba5108577efc5bb9c2996aac7d68eaef4a21a4df',
+            epoch:'owner-canary-webauthn-v1-20261016'
+          });
+          assert.deepEqual(MESSAGE,{
+            from:'support@bigsoxstudios.com',
+            subject:'Big Sox Studios — Outbound Email Verification',
+            text:'This is a one-time test of the Big Sox Studios outbound email system.\n\nThe message verifies that support@bigsoxstudios.com can securely send email through Resend.\n\nNo customer tickets or customer messages are involved.\n\n— Big Sox Studios'
+          });
           NODE
