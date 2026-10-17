@@ -46,7 +46,11 @@
   el('snapshot').hidden = false;
  }
  async function stepupProof(purpose) {
-  await request('/stepup/session', {});
+  const session = await request('/stepup/session', {});
+  // Allow the 120-second ceremony and full 300-second review before spending
+  // the permanent slot. Server rechecks remaining lifetime at preview CAS.
+  if (purpose === 'preview' && (!Number.isSafeInteger(session.expires) || session.expires * 1000 < Date.now() + 420000))
+   throw new Error('fresh-session-required');
   const options = await request('/stepup/challenge', { purpose });
   const bytes = s => Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
   const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
@@ -67,6 +71,7 @@
   try {
    const body = action === 'preview' ? {} : { token };
    if (applicationStepup && action === 'preview') body.proof = await stepupProof('preview');
+   if (stage !== required || !fresh()) return;
    const data = await request(`/${action}`, body);
    if (stage !== required) return;
    if (typeof data.token !== 'string' || !Number.isSafeInteger(data.expires)) throw new Error('blocked');
@@ -75,7 +80,7 @@
    if (!fresh()) return;
    el('expiry').textContent = `Preview expires: ${new Date(expires * 1000).toISOString()}. Approval does not extend this deadline.`;
    render({ previewed: 'Preview ready · Read the exact message', reviewed: 'Reviewed · Separate approval required', approved: 'Approved · No message sent. Separate confirmation required.' }[stage]);
-  } catch { halt('Security blocked · Preview or session unavailable'); }
+  } catch { halt('Security blocked · Preview or session unavailable. Before a first preview, use a fresh Access login.'); }
   finally { busy = false; render(el('status').textContent, el('detail').textContent); }
  }
  for (const action of ['preview', 'review', 'approve']) el(action).addEventListener('click', () => transition(action));
@@ -92,6 +97,7 @@
   try {
    const body = { token: approvedToken };
    if (applicationStepup) body.proof = await stepupProof('dispatch');
+   if (!fresh()) return;
    const data = await request('/dispatch', body);
    stage = 'halted'; render(labels[data.status] ?? labels.UNKNOWN, 'Delivery remains unverified. No retry or second campaign.');
   } catch { halt(labels.UNKNOWN); }

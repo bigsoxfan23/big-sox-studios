@@ -25,7 +25,7 @@ test('no legacy modules, ticket bindings, schedules, or bypasses in isolated run
   assert.doesNotMatch(source, /\.\.\/|owner-canary-rehearsal|outbound\.candidate|provenance|NOTION|scheduled\s*\(|queue\s*\(/);
  }
  const worker = read('owner-canary/src/worker.mjs');
- assert.match(worker, /export default createCandidate\(\{ verify: authenticate, transport: fetch, dispatchAuthorized: false \}\)/);
+ assert.match(worker, /export default createCandidate\(\{ verify: authenticate, transport: fetch,\s*dispatchAuthorized: OWNER_CONFIRMED_RELEASE, enforceRelease: true \}\)/);
  assert.doesNotMatch(worker, /console\.|env\.(?:fetch|transport|verify|dispatchAuthorized)/);
 });
 test('candidate config has explicit disabled routes and no credentials/bindings', () => {

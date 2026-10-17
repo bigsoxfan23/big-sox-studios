@@ -1,3 +1,9 @@
+> Current sender release candidate: [SENDER-RELEASE.md](SENDER-RELEASE.md).
+> Exact owner chat consent is now source-owned and production dispatch is gated
+> by that exact configuration plus two fresh native WebAuthn proofs. This run
+> made code/test/doc changes only; it did not deploy or send. The sections below
+> are historical evidence and may describe superseded disabled/null gates.
+
 # Application stepup candidate — live release blocked
 
 This work implements the conditional design in `/tmp/task10-webauthn-design-review.txt`. The production public credential below is now owner-confirmed and pinned in source. Local verification uses generated keys, synthetic `.test` identities and recipients, disposable local databases, and stub transport. Pinning does not authorize an email or release a deployment.

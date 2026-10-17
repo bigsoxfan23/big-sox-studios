@@ -1,4 +1,5 @@
 import { requireThat } from './auth.mjs';
+import { FINAL_OWNER_CONFIRMATION, CONFIRMED_CAMPAIGN_ID, PRODUCTION_CREDENTIAL_PIN } from './stepup-release.mjs';
 export const MESSAGE = Object.freeze({
  from: 'support@bigsoxstudios.com',
  subject: 'Big Sox Studios — Outbound Email Verification',
@@ -20,6 +21,12 @@ export async function submitOnce(row, env, transport = fetch) {
   requireThat(/^re_[A-Za-z0-9_-]{20,}$/.test(env.RESEND_API_KEY ?? ''));
   requireThat(row.status === 'submitted' && /^[0-9a-f-]{36}$/.test(row.campaign));
   const payload = envelope(env.CANARY_OWNER_MAILBOX);
+  if (!payload.to.endsWith('.test')) {
+   requireThat(payload.to === PRODUCTION_CREDENTIAL_PIN.email && row.campaign === CONFIRMED_CAMPAIGN_ID &&
+    env.CANARY_CAMPAIGN_ID === CONFIRMED_CAMPAIGN_ID && env.SESSION_EPOCH === FINAL_OWNER_CONFIRMATION.epoch);
+   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(row.snapshot))), b => b.toString(16).padStart(2, '0')).join('');
+   requireThat(hash === row.digest && hash === FINAL_OWNER_CONFIRMATION.configDigest);
+  }
   requireThat(JSON.stringify(payload) === JSON.stringify(JSON.parse(row.snapshot).payload));
   const response = await transport('https://api.resend.com/emails', {
    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),

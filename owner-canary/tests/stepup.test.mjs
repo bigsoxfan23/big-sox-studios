@@ -303,11 +303,11 @@ test('candidate bindings immutable, candidate capacity bounded, expiry permits p
  assert.throws(() => insert.run(Buffer.alloc(32, 65).toString('base64url'), candidate));
  s.advance(600); await assert.rejects(s.possession(candidate)); assert.equal(s.f.row(), undefined);
 });
-test('confirmed production pin, null final confirmation and fixed full sender reject request/environment authority', async t => {
+test('confirmed production pin, exact final confirmation and fixed full sender reject request/environment authority', async t => {
  const s = await stepupFixture(t);
  assert.equal(PRODUCTION_CREDENTIAL_PIN, originalProductionPin);
  assert.equal(await fingerprint(PRODUCTION_CREDENTIAL_PIN), confirmedFingerprint);
- assert.ok(Object.isFrozen(PRODUCTION_CREDENTIAL_PIN)); assert.equal(FINAL_OWNER_CONFIRMATION, null);
+ assert.ok(Object.isFrozen(PRODUCTION_CREDENTIAL_PIN)); assert.ok(Object.isFrozen(FINAL_OWNER_CONFIRMATION)); assert.deepEqual(Object.keys(FINAL_OWNER_CONFIRMATION).sort(), ['configDigest', 'envelopeDigest', 'epoch']);
  const target = createCandidate({ ...s.deps, credentialPin: null });
  assert.equal((await s.call('/preview', { proof: 'A'.repeat(43) }, { target })).r.status, 503);
  const env = { ...s.f.env, MFA_CONTRACT: STEPUP_CONTRACT, verify: s.deps.verify,

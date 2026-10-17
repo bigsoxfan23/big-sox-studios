@@ -1,6 +1,12 @@
+> Current sender release candidate: [SENDER-RELEASE.md](SENDER-RELEASE.md).
+> Exact owner chat consent is now source-owned and production dispatch is gated
+> by that exact configuration plus two fresh native WebAuthn proofs. This run
+> made code/test/doc changes only; it did not deploy or send. The sections below
+> are historical evidence and may describe superseded disabled/null gates.
+
 # Task 10 isolated owner canary candidate — offline, no deployment
 
-See [WEBAUTHN.md](WEBAUTHN.md) for the additive enrollment/stepup implementation, verification results and remaining owner/release gates. The public credential pin is immutable and owner-confirmed; exact final-message chat confirmation remains null and production dispatch remains false. Enrollment does not authorize email. The historical sections below describe the preceding UI/policy candidates.
+See [WEBAUTHN.md](WEBAUTHN.md) for the additive enrollment/stepup implementation, verification results and remaining owner/release gates. The public credential pin is immutable and owner-confirmed; current exact consent and release behavior are documented in SENDER-RELEASE.md. Enrollment does not authorize email. The historical sections below describe the preceding UI/policy candidates.
 
 This UI continuation is isolated on branch
 `feature/studio-mail-desk-task10-owner-canary-ui`, at exact draft PR #26 base

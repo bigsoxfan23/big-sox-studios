@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { fixture, access, timestamp } from './helpers.mjs';
 import production from '../src/worker.mjs';
+import { stepupFixture } from './stepup-fixtures.mjs';
 import { assets } from '../src/ui-assets.mjs';
 const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 const paths = ['/', '/app.js', '/styles.css'];
@@ -68,7 +69,9 @@ test('UI bundle matches reviewed files; HTML is static and contains no external 
 // Execute the real browser script against the real Worker with a minimal DOM.
 // No test provider request reaches a network. DOM text sinks reject HTML writes.
 async function browser(t, options = {}) {
- const f = await fixture(options); t.after(() => f.cleanup());
+ const s = options.applicationStepup ? await stepupFixture(t) : null;
+ const f = s ? s.f : await fixture(options);
+ if (!s) t.after(() => f.cleanup());
  const nodes = new Map(), calls = [], events = {}, intervals = [];
  const el = id => {
   if (!nodes.has(id)) nodes.set(id, { textContent: '', disabled: true, hidden: true, open: false, handlers: {},
@@ -78,25 +81,50 @@ async function browser(t, options = {}) {
   });
   return nodes.get(id);
  };
- let cookie = '', previewToken, ms = timestamp * 1000;
+ let cookie = '', previewToken, ms = timestamp * 1000, ceremonies = 0;
+ const advance = seconds => { ms += seconds * 1000; if (s) s.advance(seconds); else f.advance(seconds); };
+ if (options.initialAge) advance(options.initialAge);
  const context = vm.createContext({ document: { getElementById: el }, window: { addEventListener: (n, fn) => { events[n] = fn; } },
+  atob, btoa, Uint8Array,
+  navigator: { credentials: { async get({ publicKey }) {
+   ceremonies++;
+   assert.equal(publicKey.userVerification, 'required');
+   assert.ok(publicKey.timeout > 0 && publicKey.timeout <= 120000);
+   assert.equal(publicKey.rpId, 'canary.test');
+   assert.equal(Buffer.from(publicKey.allowCredentials[0].id).toString('base64url'), s.auth.record.credentialID);
+   if (options.cancelPasskey === ceremonies) throw new Error('NotAllowedError');
+   advance(options.passkeySeconds?.[ceremonies - 1] ?? 0);
+   const signed = s.auth.assert(Buffer.from(publicKey.challenge).toString('base64url'), options.badPasskey ?? {});
+   const buf = x => Uint8Array.from(Buffer.from(x, 'base64url')).buffer;
+   return { ...signed, rawId: buf(signed.rawId), response: Object.fromEntries(Object.entries(signed.response).map(([k, v]) => [k, buf(v)])),
+    getClientExtensionResults: () => ({}) };
+  } } },
   setInterval: fn => intervals.push(fn), Date: class extends Date { constructor(...args) { super(...(args.length ? args : [ms])); } static now() { return ms; } },
   fetch: async (path, init) => {
    calls.push({ path, init });
    assert.equal(init.credentials, 'same-origin'); assert.equal(init.cache, 'no-store'); assert.equal(init.redirect, 'error');
    if (options.intercept) { const intercepted = options.intercept(path); if (intercepted) return intercepted; }
    const request = new Request(`https://canary.test${path}`, { ...init, headers: { ...init.headers,
-    'Cf-Access-Jwt-Assertion': f.token, Origin: f.env.APP_ORIGIN, 'Sec-Fetch-Site': 'same-origin', Cookie: cookie } });
-   const response = await f.worker.fetch(request, f.env);
-   if (response.headers.has('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
-   if (path === '/preview' && response.ok) previewToken = (await response.clone().json()).token;
+    'Cf-Access-Jwt-Assertion': s ? s.token : f.token, Origin: f.env.APP_ORIGIN, 'Sec-Fetch-Site': 'same-origin', Cookie: cookie } });
+   const response = await (s ? s.worker : f.worker).fetch(request, f.env);
+   if (response.headers.has('set-cookie')) {
+    const c = response.headers.get('set-cookie').split(';')[0], name = c.split('=')[0];
+    cookie = cookie.split('; ').filter(v => v && v.split('=')[0] !== name).concat(c).join('; ');
+   }
+   if (path === '/preview' && response.ok) {
+    previewToken = (await response.clone().json()).token;
+    if (s) await s.confirm(); // Synthetic configuration consent only, never production proof.
+   }
    return response;
   } });
  vm.runInContext(source, context);
  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise(resolve => setImmediate(resolve)); };
  const click = async id => { await el(id).handlers.click(); await settle(); };
  await settle();
- return { f, calls, el, click, events, async approved() { for (const id of ['preview', 'review', 'approve']) await click(id); },
+ const readyDeadline = Date.now() + 5000;
+ while (!el('status').textContent && Date.now() < readyDeadline) await new Promise(resolve => setTimeout(resolve, 10));
+ assert.ok(el('status').textContent, 'initial status must finish');
+ return { f, calls, el, click, events, advance, get ceremonies() { return ceremonies; }, async approved() { for (const id of ['preview', 'review', 'approve']) await click(id); },
   async consumePreview() {
    const r = await f.worker.fetch(new Request('https://canary.test/review', { method: 'POST', headers: {
     'Cf-Access-Jwt-Assertion': f.token, Origin: f.env.APP_ORIGIN, 'Sec-Fetch-Site': 'same-origin',
@@ -104,7 +132,7 @@ async function browser(t, options = {}) {
    }, body: JSON.stringify({ token: previewToken }) }), f.env);
    assert.equal(r.status, 200);
   },
-  expire() { ms += 301000; f.advance(301); for (const fn of intervals) fn(); } };
+  expire() { advance(301); for (const fn of intervals) fn(); } };
 }
 test('browser → Worker: preview/review/approve do not send; dialog cancellation; explicit single dispatch', async t => {
  const b = await browser(t);
@@ -196,3 +224,39 @@ test('no platform assets binding can bypass worker authentication', () => {
  const config = readFileSync(new URL('../wrangler.candidate.toml', import.meta.url), 'utf8');
  assert.doesNotMatch(config, /\[assets\]|binding\s*=\s*["']ASSETS|run_worker_first/);
 });
+
+
+test('real browser script serializes two separate native passkeys through every sender endpoint', async t => {
+ const b = await browser(t, { applicationStepup: true, passkeySeconds: [90, 60] });
+ await b.click('preview'); b.advance(140);
+ await b.click('review'); await b.click('approve'); await b.click('dispatch'); await b.click('send');
+ assert.equal(b.ceremonies, 2); assert.equal(b.f.sends, 1);
+ assert.equal(b.f.row().status, 'accepted');
+ assert.deepEqual(b.calls.map(x => x.path), ['/status', '/stepup/session', '/stepup/challenge', '/stepup/verify', '/preview',
+  '/review', '/approve', '/stepup/session', '/stepup/challenge', '/stepup/verify', '/dispatch']);
+ const challenges = b.calls.filter(x => x.path === '/stepup/challenge').map(x => JSON.parse(x.init.body).purpose);
+ assert.deepEqual(challenges, ['preview', 'dispatch']);
+ assert.match(b.el('status').textContent, /accepted.*not yet verified/);
+});
+for (const initialAge of [181, 500]) test(`browser refuses old Access session at age ${initialAge} before passkey or permanent preview`, async t => {
+ const b = await browser(t, { applicationStepup: true, initialAge }); await b.click('preview');
+ assert.equal(b.ceremonies, 0); assert.equal(b.f.row(), undefined); assert.equal(b.f.sends, 0);
+ assert.equal(b.calls.some(x => x.path === '/preview'), false);
+ assert.match(b.el('status').textContent, /fresh Access login/);
+});
+for (const options of [{ cancelPasskey: 1 }, { passkeySeconds: [120] }, { badPasskey: { flags: 1 } }, { badPasskey: { flags: 4 } }]) {
+ test(`browser passkey failure cannot spend campaign ${JSON.stringify(options)}`, async t => {
+  const b = await browser(t, { applicationStepup: true, ...options }); await b.click('preview');
+  assert.equal(b.f.row(), undefined); assert.equal(b.f.sends, 0);
+  assert.equal(b.calls.some(x => x.path === '/preview'), false);
+ });
+}
+for (const options of [{ cancelPasskey: 2 }, { passkeySeconds: [0, 120] }, { passkeySeconds: [0, 110], reviewSeconds: 200 }]) {
+ test(`browser cannot POST dispatch after cancelled/expired passkey ${JSON.stringify(options)}`, async t => {
+  const b = await browser(t, { applicationStepup: true, ...options }); await b.approved(); b.advance(options.reviewSeconds ?? 0);
+  await b.click('dispatch'); await b.click('send'); await b.click('send');
+  assert.equal(b.f.sends, 0); assert.equal(b.f.row().status, 'approved');
+  assert.equal(b.calls.some(x => x.path === '/dispatch'), false);
+  assert.equal(b.el('preview').disabled, true); assert.equal(b.el('dispatch').disabled, true);
+ });
+}

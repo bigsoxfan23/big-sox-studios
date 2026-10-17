@@ -31,7 +31,7 @@ test('production pin contains exactly the owner-confirmed canonical public bytes
  }
  assert.throws(() => { PRODUCTION_CREDENTIAL_PIN.candidateID = 'forged'; }, TypeError);
  assert.deepEqual(pinnedRecord(PRODUCTION_CREDENTIAL_PIN, pinEnvironment(), pinIdentity()), confirmedPin);
- assert.equal(FINAL_OWNER_CONFIRMATION, null);
+ assert.ok(Object.isFrozen(FINAL_OWNER_CONFIRMATION)); assert.deepEqual(Object.keys(FINAL_OWNER_CONFIRMATION).sort(), ['configDigest', 'envelopeDigest', 'epoch']);
 });
 
 for (const [field, value] of Object.entries({ APP_ORIGIN: 'https://other.test', OWNER_PRINCIPAL: 'other-owner',
@@ -74,7 +74,7 @@ test('factory defaults use the confirmed pin; forged proof and environment candi
  assert.equal((await s.call('/preview', { proof: 'A'.repeat(43) }, { target })).r.status, 503);
  assert.equal((await s.call('/dispatch', { token: 'forged', proof: 'A'.repeat(43) }, { target })).r.status, 503);
  assert.equal(s.f.row(), undefined); assert.equal(s.f.sends, 0);
- assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.equal(FINAL_OWNER_CONFIRMATION, null);
+ assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.ok(Object.isFrozen(FINAL_OWNER_CONFIRMATION)); assert.deepEqual(Object.keys(FINAL_OWNER_CONFIRMATION).sort(), ['configDigest', 'envelopeDigest', 'epoch']);
 });
 test('exact production mode and owner reject invalid issuer configuration before external JWKS despite injected resolver', async t => {
  const f = await fixture(); t.after(() => f.cleanup());
@@ -121,7 +121,7 @@ for (const mode of ['signed-amr-mfa-v1', POLICY_CONTRACT, STEPUP_CONTRACT, undef
   assert.equal(identity.sub, env.OWNER_PRINCIPAL);
   if (signedAMR) assert.equal((await verifyAccess(request('/preview'), env, resolver, time)).sub, identity.sub);
   if (mode === POLICY_CONTRACT) assert.equal((await verifyPolicyAccess(request('/preview'), env, resolver, env.policyRelease, time)).assurance.contract, POLICY_CONTRACT);
-  assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.equal(FINAL_OWNER_CONFIRMATION, null);
+  assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.ok(Object.isFrozen(FINAL_OWNER_CONFIRMATION)); assert.deepEqual(Object.keys(FINAL_OWNER_CONFIRMATION).sort(), ['configDigest', 'envelopeDigest', 'epoch']);
   // Extra caller arguments cannot replace the module-owned pin or verifier.
   await assert.rejects(authenticateStepupOwner(request('/preview'), env, { credentialPin: pin, keyResolver: resolver }), { message: 'denied' });
   for (const path of ['/', '/status', '/stepup/session', '/preview', '/dispatch']) {
@@ -141,10 +141,10 @@ test('offline factory credential injection cannot replace the production code pi
  assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.equal(s.f.row(), undefined); assert.equal(s.f.sends, 0);
 });
 
-test('default sender fixes the strict production verifier and disabled dispatch independently of offline factories', () => {
+test('default sender fixes the strict production verifier and exact release dispatch independently of offline factories', () => {
  const worker = readFileSync(new URL('../src/worker.mjs', import.meta.url), 'utf8');
  // Keep the historical local alias used by unchanged baseline boundary tests.
  assert.match(worker, /import \{ authenticateStepupOwner as authenticate, requireThat \} from '\.\/auth\.mjs'/);
- assert.match(worker, /export default createCandidate\(\{ verify: authenticate, transport: fetch, dispatchAuthorized: false \}\)/);
- assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.equal(FINAL_OWNER_CONFIRMATION, null);
+ assert.match(worker, /export default createCandidate\(\{ verify: authenticate, transport: fetch,\s*dispatchAuthorized: OWNER_CONFIRMED_RELEASE, enforceRelease: true \}\)/);
+ assert.deepEqual(PRODUCTION_CREDENTIAL_PIN, confirmedPin); assert.ok(Object.isFrozen(FINAL_OWNER_CONFIRMATION)); assert.deepEqual(Object.keys(FINAL_OWNER_CONFIRMATION).sort(), ['configDigest', 'envelopeDigest', 'epoch']);
 });

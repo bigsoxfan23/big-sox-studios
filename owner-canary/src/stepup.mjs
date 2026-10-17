@@ -92,6 +92,12 @@ async function validSession(request, env, identity, now) {
  fresh(row, ctx, identity, now());
  return value;
 }
+export async function sessionDeadline(request, env, identity, now) {
+ const value = cookie(request);
+ const row = await env.CANARY_DB.prepare('SELECT * FROM stepup_challenge WHERE session_hash=?').bind(await sha256(value)).first();
+ fresh(row, await sessionContext(env, identity), identity, now());
+ return Math.min(row.expires, identity.expires);
+}
 export async function sessionBinding(request, env, identity, now) {
  return sha256(await validSession(request, env, identity, now));
 }
@@ -99,13 +105,12 @@ export async function session(request, env, identity, now) {
  exact(await input(request, env, '/stepup/session'), []);
  const old = cookie(request, true);
  if (old) {
-  await validSession(request, env, identity, now);
-  return reply({ ready: true });
+  return reply({ ready: true, expires: await sessionDeadline(request, env, identity, now) });
  }
  const value = random(), ctx = await sessionContext(env, identity);
  deny(identity.expires > now());
- await stepupStore(env.CANARY_DB).issue(ctx, now(), await sha256(value));
- return reply({ ready: true }, 200, {
+ const issued = await stepupStore(env.CANARY_DB).issue(ctx, now(), await sha256(value));
+ return reply({ ready: true, expires: Math.min(identity.expires, issued.expires) }, 200, {
   'Set-Cookie': `__Host-stepup=${value}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=600` });
 }
 export async function context(request, env, identity, purpose, config, extra = {}, now = () => Math.floor(Date.now() / 1000)) {
@@ -201,7 +206,12 @@ export async function senderStepup(request, env, identity, pin, config, target, 
  if (path.endsWith('challenge')) {
   deny(identity.expires > now());
   const row = await store.issue(ctx, now());
-  return reply({ id: row.id, publicKey: authenticationOptions(row, pin) });
+  const publicKey = authenticationOptions(row, pin);
+  // Native prompt cannot outlive the signed identity or approved intention.
+  publicKey.timeout = Math.min(publicKey.timeout, (identity.expires - now()) * 1000,
+   body.purpose === 'dispatch' ? (target.expires - now()) * 1000 : publicKey.timeout);
+  deny(publicKey.timeout > 0);
+  return reply({ id: row.id, publicKey });
  }
  const row = await store.get(body.id);
  fresh(row, ctx, identity, now());
