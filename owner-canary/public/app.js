@@ -4,6 +4,7 @@
  const el = id => document.getElementById(id);
  const buttons = ['preview', 'review', 'approve', 'dispatch'];
  let stage = 'loading', token, payload, expires = 0, authority = false, busy = false, attempted = false;
+ let applicationStepup = false;
  const labels = {
   accepted: 'Provider accepted · Delivered not yet verified',
   refused: 'Rejected by provider · No retry permitted',
@@ -44,12 +45,29 @@
   }
   el('snapshot').hidden = false;
  }
+ async function stepupProof(purpose) {
+  await request('/stepup/session', {});
+  const options = await request('/stepup/challenge', { purpose });
+  const bytes = s => Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
+  const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  const publicKey = options.publicKey;
+  publicKey.challenge = bytes(publicKey.challenge);
+  publicKey.allowCredentials = publicKey.allowCredentials.map(c => ({ ...c, id: bytes(c.id) }));
+  const c = await navigator.credentials.get({ publicKey });
+  const response = { clientDataJSON: b64(c.response.clientDataJSON), authenticatorData: b64(c.response.authenticatorData), signature: b64(c.response.signature),
+   ...(c.response.userHandle ? { userHandle: b64(c.response.userHandle) } : {}) };
+  const verified = await request('/stepup/verify', { purpose, id: options.id,
+   response: { id: c.id, rawId: b64(c.rawId), type: c.type, response, clientExtensionResults: c.getClientExtensionResults() } });
+  return verified.proof;
+ }
  async function transition(action) {
   const required = { preview: 'empty', review: 'previewed', approve: 'reviewed' }[action];
   if (busy || attempted || !authority || stage !== required || !fresh()) return;
   busy = true; render('Verifying security gates…');
   try {
-   const data = await request(`/${action}`, action === 'preview' ? {} : { token });
+   const body = action === 'preview' ? {} : { token };
+   if (applicationStepup && action === 'preview') body.proof = await stepupProof('preview');
+   const data = await request(`/${action}`, body);
    if (stage !== required) return;
    if (typeof data.token !== 'string' || !Number.isSafeInteger(data.expires)) throw new Error('blocked');
    if (action === 'preview') showSnapshot(data.snapshot.payload);
@@ -72,7 +90,9 @@
   render('Submission attempted · Do not retry');
   const approvedToken = token; token = undefined;
   try {
-   const data = await request('/dispatch', { token: approvedToken });
+   const body = { token: approvedToken };
+   if (applicationStepup) body.proof = await stepupProof('dispatch');
+   const data = await request('/dispatch', body);
    stage = 'halted'; render(labels[data.status] ?? labels.UNKNOWN, 'Delivery remains unverified. No retry or second campaign.');
   } catch { halt(labels.UNKNOWN); }
   finally { busy = false; }
@@ -84,6 +104,7 @@
  request('/status').then(data => {
   if (stage !== 'loading') return;
   authority = data.sendAuthority === true;
+  applicationStepup = data.applicationStepup === true;
   stage = data.status === 'empty' ? 'empty' : 'halted';
   if (!authority) render('Disabled · Security blocked', 'The release gate is closed. No preview or send is available.');
   else if (stage === 'empty') render('Ready for one immutable preview', 'Creating a preview permanently consumes the single campaign slot, even if it expires.');

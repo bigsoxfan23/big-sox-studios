@@ -7,10 +7,11 @@
   },
   "scripts": {
     "test": "node --test --experimental-test-isolation=none tests/*.test.mjs",
-    "check": "node --check src/worker.mjs && node --check src/auth.mjs && node --check src/policy-release.mjs && node --check src/ledger.mjs && node --check src/resend.mjs && node --check public/app.js && node --check src/ui-assets.mjs && node scripts/bundle-ui.mjs --check",
+    "check": "node --check src/worker.mjs && node --check src/auth.mjs && node --check src/policy-release.mjs && node --check src/ledger.mjs && node --check src/resend.mjs && node --check public/app.js && node --check src/ui-assets.mjs && node --check src/stepup.mjs && node --check src/stepup-release.mjs && node --check src/enrollment.mjs && node --check src/enrollment-assets.mjs && node --check scripts/validate-stepup-d1.mjs && node scripts/bundle-ui.mjs --check",
     "bundle-ui": "node scripts/bundle-ui.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/server": "14.0.3",
     "jose": "6.2.12"
   }
 }

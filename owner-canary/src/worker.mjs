@@ -1,9 +1,11 @@
 import { SignJWT, jwtVerify } from 'jose';
-import { authenticate, requireThat } from './auth.mjs';
+import { authenticateStepupOwner as authenticate, requireThat } from './auth.mjs';
 import { PRODUCTION_POLICY_RELEASE, POLICY_CONTRACT, validatePolicyRelease, policyBinding } from './policy-release.mjs';
 import { ledger } from './ledger.mjs';
 import { envelope, submitOnce } from './resend.mjs';
 import { assets } from './ui-assets.mjs';
+import { STEPUP_CONTRACT, PRODUCTION_CREDENTIAL_PIN, FINAL_OWNER_CONFIRMATION } from './stepup-release.mjs';
+import { pinnedRecord, fingerprint, senderStepup, consumeProof, sessionBinding } from './stepup.mjs';
 
 const encoder = new TextEncoder();
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -15,11 +17,14 @@ const headers = {
  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'"
 };
 const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(value), { status, headers: { ...headers, ...extra } });
-async function configuration(env, identity, release, time) {
+async function configuration(env, identity, release, time, credentialPin) {
  requireThat(env.DEPLOYMENT_STAGE === 'production');
  requireThat(env.CANARY_SEND_ENABLED === 'owner-canary-v1-approved');
- let policy;
- if (env.MFA_CONTRACT === POLICY_CONTRACT) {
+ let policy, credentialContract;
+ if (env.MFA_CONTRACT === STEPUP_CONTRACT) {
+  const record = pinnedRecord(credentialPin, env, identity);
+  credentialContract = { contract: STEPUP_CONTRACT, record, fingerprint: await fingerprint(record) };
+ } else if (env.MFA_CONTRACT === POLICY_CONTRACT) {
   policy = validatePolicyRelease(release, time);
   const binding = await policyBinding(policy, time);
   requireThat(identity.assurance && Object.keys(identity.assurance).length === Object.keys(binding).length &&
@@ -28,7 +33,7 @@ async function configuration(env, identity, release, time) {
    policy.origin === env.APP_ORIGIN && policy.ownerSub === env.OWNER_PRINCIPAL && policy.ownerEmail === env.OWNER_ACCESS_EMAIL);
   requireThat(identity.sub === policy.ownerSub && Number.isSafeInteger(identity.expires) && identity.expires <= policy.validUntil);
  } else {
-  requireThat(env.MFA_CONTRACT === 'signed-amr-mfa-v1' && !identity.assurance);
+  requireThat(env.MFA_CONTRACT === 'signed-amr-mfa-v1' && !identity.assurance && !identity.identityContract);
  }
  requireThat(/^re_[A-Za-z0-9_-]{20,}$/.test(env.RESEND_API_KEY ?? ''));
  requireThat(typeof env.APPROVAL_SIGNING_KEY === 'string' && /^[A-Za-z0-9_-]{64,}$/.test(env.APPROVAL_SIGNING_KEY));
@@ -37,11 +42,13 @@ async function configuration(env, identity, release, time) {
  const origin = new URL(env.APP_ORIGIN);
  requireThat(origin.protocol === 'https:' && origin.origin === env.APP_ORIGIN);
  const payload = envelope(env.CANARY_OWNER_MAILBOX);
+ requireThat(payload.to === 'fridman.greg@gmail.com' || payload.to.endsWith('.test'));
  return JSON.stringify({ purpose: 'owner-direct-canary-v1', version: 1,
   campaign: env.CANARY_CAMPAIGN_ID, origin: origin.origin,
   owner: env.OWNER_PRINCIPAL, ownerEmail: env.OWNER_ACCESS_EMAIL,
   team: env.ACCESS_TEAM_HOST, audience: env.ACCESS_AUD,
-  epoch: env.SESSION_EPOCH, mfa: env.MFA_CONTRACT, ...(policy ? { policy, assurance: identity.assurance } : {}), payload });
+  epoch: env.SESSION_EPOCH, mfa: env.MFA_CONTRACT, ...(policy ? { policy, assurance: identity.assurance } : {}),
+  ...(credentialContract ? { credentialContract } : {}), payload });
 }
 async function capability(row, stage, key, time) {
  return new SignJWT({ purpose: 'owner-direct-canary-v1', stage, digest: row.digest, binding: row.binding })
@@ -49,15 +56,28 @@ async function capability(row, stage, key, time) {
   .setAudience('owner-canary-stages').setSubject(row.campaign).setJti(crypto.randomUUID())
   .setIssuedAt(time).setExpirationTime(row.expires).sign(key);
 }
+function approvalSession(request) {
+ const cookies = (request.headers.get('Cookie') ?? '').split(';').map(v => v.trim()).filter(v => v.startsWith(`${cookieName}=`));
+ requireThat(cookies.length === 1);
+ const session = cookies[0].slice(cookieName.length + 1);
+ requireThat(/^[0-9a-f-]{36}$/.test(session));
+ return session;
+}
+async function campaignBinding(request, env, identity, session, stepup, now) {
+ const base = `${identity.sub}\n${await digest(identity.token)}\n${session}`;
+ return digest(base + (stepup ? `\n${await sessionBinding(request, env, identity, now)}` : ''));
+}
 
 // Controlled offline factory. Dependency injection is not a production trust
 // source. The default entrypoint below fixes the real verifier and disables send.
-export function createCandidate({ verify, transport, dispatchAuthorized = false, policyRelease = PRODUCTION_POLICY_RELEASE, now = () => Math.floor(Date.now() / 1000) }) {
+export function createCandidate({ verify, transport, dispatchAuthorized = false, policyRelease = PRODUCTION_POLICY_RELEASE,
+ credentialPin = PRODUCTION_CREDENTIAL_PIN, finalConfirmation = FINAL_OWNER_CONFIRMATION, now = () => Math.floor(Date.now() / 1000) }) {
  return { async fetch(request, env) {
   try {
    const identity = await verify(request, env);
    const time = now(), key = encoder.encode(env.APPROVAL_SIGNING_KEY);
-   const snapshot = await configuration(env, identity, policyRelease, time), hash = await digest(snapshot);
+   const snapshot = await configuration(env, identity, policyRelease, time, credentialPin), hash = await digest(snapshot);
+   const stepup = env.MFA_CONTRACT === STEPUP_CONTRACT;
    requireThat(identity.expires > time);
    const url = new URL(request.url);
    requireThat(url.origin === env.APP_ORIGIN && !url.search && !url.hash);
@@ -73,9 +93,19 @@ export function createCandidate({ verify, transport, dispatchAuthorized = false,
      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' } });
    }
    const store = ledger(env.CANARY_DB);
+   const targetBinding = row => row ? { campaign: row.campaign, digest: row.digest, binding: row.binding,
+    capability: row.capability, status: row.status, expires: row.expires } : null;
+   if (url.pathname.startsWith('/stepup/')) {
+    requireThat(stepup);
+    const row = await store.get();
+    requireThat(!row || (row.snapshot === snapshot && row.expires > now()));
+    if (row) requireThat(row.binding === await campaignBinding(request, env, identity, approvalSession(request), true, now));
+    return await senderStepup(request, env, identity, credentialPin, hash, targetBinding(row), now);
+   }
    if (request.method === 'GET' && url.pathname === '/status') {
     const row = await store.get();
-    return json({ status: row?.status ?? 'empty', delivery: 'unverified', sendAuthority: dispatchAuthorized });
+    return json({ status: row?.status ?? 'empty', delivery: 'unverified', sendAuthority: dispatchAuthorized,
+     ...(stepup ? { applicationStepup: true } : {}) });
    }
    requireThat(request.method === 'POST');
    requireThat(['/preview', '/review', '/approve', '/dispatch'].includes(url.pathname));
@@ -99,24 +129,23 @@ export function createCandidate({ verify, transport, dispatchAuthorized = false,
    const body = JSON.parse(raw + decoder.decode());
    requireThat(body && !Array.isArray(body) && typeof body === 'object');
    if (url.pathname === '/preview') {
-    requireThat(Object.keys(body).length === 0);
+    requireThat(Object.keys(body).length === (stepup ? 1 : 0));
+    const proof = stepup ? await consumeProof(request, env, identity, 'preview', hash, {}, body.proof, now) : null;
     const session = crypto.randomUUID();
-    const binding = await digest(`${identity.sub}\n${await digest(identity.token)}\n${session}`);
+    const binding = await campaignBinding(request, env, identity, session, stepup, now);
     const row = { campaign: env.CANARY_CAMPAIGN_ID, snapshot, digest: hash, binding,
      created: time, expires: Math.min(time + 300, identity.expires) };
     requireThat(row.expires > time);
     const token = await capability(row, 'previewed', key, time);
     row.capability = await digest(token);
+    requireThat(identity.expires > now() && row.expires > now() && (!proof || proof.expires > now()));
     requireThat(await store.initialize(row));
     return json({ campaign: row.campaign, snapshot: JSON.parse(snapshot), expires: row.expires, token }, 201,
      { 'Set-Cookie': `${cookieName}=${session}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=300` });
    }
-   requireThat(Object.keys(body).length === 1 && typeof body.token === 'string' && body.token.length < 3000);
-   const cookies = (request.headers.get('Cookie') ?? '').split(';').map(v => v.trim()).filter(v => v.startsWith(`${cookieName}=`));
-   requireThat(cookies.length === 1);
-   const session = cookies[0].slice(cookieName.length + 1);
-   requireThat(/^[0-9a-f-]{36}$/.test(session));
-   const binding = await digest(`${identity.sub}\n${await digest(identity.token)}\n${session}`);
+   requireThat(Object.keys(body).length === (stepup && url.pathname === '/dispatch' ? 2 : 1) && typeof body.token === 'string' && body.token.length < 3000);
+   const session = approvalSession(request);
+   const binding = await campaignBinding(request, env, identity, session, stepup, now);
    const { payload } = await jwtVerify(body.token, key, { algorithms: ['HS256'], issuer: 'owner-canary',
     audience: 'owner-canary-stages', currentDate: new Date(time * 1000), requiredClaims: ['exp', 'iat', 'jti', 'sub'] });
    const row = await store.get();
@@ -133,11 +162,19 @@ export function createCandidate({ verify, transport, dispatchAuthorized = false,
     return json({ status: next[1], token, expires: row.expires, delivery: 'unverified' });
    }
    requireThat(dispatchAuthorized);
+   if (stepup || !env.CANARY_OWNER_MAILBOX.endsWith('.test')) {
+    // Message-specific confirmation is code-owned, separately reviewed, and
+    // never supplied by an HTTP approval, environment flag, or enrollment.
+    requireThat(finalConfirmation && Object.keys(finalConfirmation).length === 3 &&
+     finalConfirmation.configDigest === hash && finalConfirmation.epoch === env.SESSION_EPOCH &&
+     finalConfirmation.envelopeDigest === await digest(JSON.stringify(JSON.parse(snapshot).payload)));
+   }
+   const proof = stepup ? await consumeProof(request, env, identity, 'dispatch', hash, targetBinding(row), body.proof, now) : null;
    // Recheck time immediately before CAS; a consumed claim can NEVER be retried.
-   requireThat(identity.expires > now());
+   requireThat(identity.expires > now() && row.expires > now() && (!proof || proof.expires > now()));
    const claimed = await store.advance('approved', 'submitted', row, row.capability, now());
    requireThat(claimed);
-   const outcome = claimed.expires > now() && identity.expires > now()
+   const outcome = claimed.expires > now() && identity.expires > now() && (!proof || proof.expires > now())
     ? await submitOnce(claimed, env, transport) : { status: 'UNKNOWN' };
    try {
     requireThat(await store.finish(outcome, now()));

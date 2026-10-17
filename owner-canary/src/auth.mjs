@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 
 import { PRODUCTION_POLICY_RELEASE, POLICY_CONTRACT, validatePolicyRelease, policyBinding } from './policy-release.mjs';
+import { STEPUP_CONTRACT, PRODUCTION_CREDENTIAL_PIN } from './stepup-release.mjs';
 
 export function requireThat(value) {
  if (!value) throw new Error('denied');
@@ -44,6 +45,12 @@ async function signedOwner(request, env, keyResolver, seconds) {
  return { payload, token };
 }
 
+// Identity only: no Cloudflare MFA event, policy evidence, or session cutover claim.
+export async function verifySignedOwnerIdentity(request, env, keyResolver, seconds = Math.floor(Date.now() / 1000)) {
+ const { payload, token } = await signedOwner(request, env, keyResolver, seconds);
+ return Object.freeze({ sub: payload.sub, token, expires: payload.exp, identityContract: 'signed-owner-identity-v1' });
+}
+
 // Original signed-AMR contract remains a separate verifier.
 export async function verifyAccess(request, env, keyResolver, seconds = Math.floor(Date.now() / 1000)) {
  const { payload, token } = await signedOwner(request, env, keyResolver, seconds);
@@ -66,7 +73,7 @@ export async function verifyPolicyAccess(request, env, keyResolver, release, sec
 }
 
 const resolvers = new Map();
-export async function authenticate(request, env) {
+function remoteResolver(env) {
  const { issuer } = accessConfig(env);
  let resolver = resolvers.get(issuer);
  if (!resolver) {
@@ -75,6 +82,25 @@ export async function authenticate(request, env) {
   });
   resolvers.set(issuer, resolver);
  }
+ return resolver;
+}
+export async function authenticateOwnerIdentity(request, env) {
+ return verifySignedOwnerIdentity(request, env, remoteResolver(env));
+}
+// Production sender only: neither legacy mode nor an injected pin can supply
+// authority. The coordinator validates the code-owned pin's full record/binding.
+export async function authenticateStepupOwner(request, env) {
+ requireThat(env.MFA_CONTRACT === STEPUP_CONTRACT);
+ requireThat(PRODUCTION_CREDENTIAL_PIN);
+ requireThat(env.CANARY_OWNER_MAILBOX === 'fridman.greg@gmail.com');
+ return authenticateOwnerIdentity(request, env);
+}
+// Legacy compatibility only; never the default production sender verifier.
+export async function authenticate(request, env) {
+ // Exact production recipient restriction, never an environment-selected customer.
+ requireThat(env.CANARY_OWNER_MAILBOX === 'fridman.greg@gmail.com');
+ const resolver = remoteResolver(env);
+ if (env.MFA_CONTRACT === STEPUP_CONTRACT) return verifySignedOwnerIdentity(request, env, resolver);
  if (env.MFA_CONTRACT === POLICY_CONTRACT) return verifyPolicyAccess(request, env, resolver, PRODUCTION_POLICY_RELEASE);
  return verifyAccess(request, env, resolver);
 }

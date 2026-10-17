@@ -1,5 +1,7 @@
 # Task 10 isolated owner canary candidate — offline, no deployment
 
+See [WEBAUTHN.md](WEBAUTHN.md) for the additive enrollment/stepup implementation, verification results and remaining owner/release gates. Production dispatch remains false; the credential pin and exact final-message chat confirmation are null. Enrollment does not authorize email. The historical sections below describe the preceding UI/policy candidates.
+
 This UI continuation is isolated on branch
 `feature/studio-mail-desk-task10-owner-canary-ui`, at exact draft PR #26 base
 `2f72f54709d3c5053befe77162838012591bb4ec`. The underlying candidate preserves
