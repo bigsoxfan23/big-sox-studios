@@ -14,7 +14,11 @@ export function createEnrollment({ verify = authenticateOwnerIdentity, now = () 
    deny(url.origin === settings.origin && !url.search && !url.hash);
    if (request.method === 'GET' && Object.hasOwn(enrollmentAssets, url.pathname)) {
     deny(!request.headers.has('Origin') || request.headers.get('Origin') === settings.origin);
-    deny(!request.headers.has('Sec-Fetch-Site') || ['none', 'same-origin'].includes(request.headers.get('Sec-Fetch-Site')));
+    // Access/OAuth can return a cross-site top-level document navigation.
+    // Only the static root document gets this exception, after owner/origin checks.
+    const ownerNavigation = url.pathname === '/' && request.headers.get('Sec-Fetch-Site') === 'cross-site'
+     && request.headers.get('Sec-Fetch-Mode') === 'navigate' && request.headers.get('Sec-Fetch-Dest') === 'document';
+    deny(!request.headers.has('Sec-Fetch-Site') || ['none', 'same-origin'].includes(request.headers.get('Sec-Fetch-Site')) || ownerNavigation);
     const asset = enrollmentAssets[url.pathname];
     return new Response(asset.body, { headers: { ...stepupHeaders, 'Content-Type': asset.type } });
    }
