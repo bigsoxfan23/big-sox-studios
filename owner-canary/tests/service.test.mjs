@@ -9,8 +9,8 @@ test('full fixed snapshot, separate human transitions, dispatch only once, accep
  let r = await f.call('/preview');
  assert.equal(r.response.status, 201);
  assert.deepEqual(r.data.snapshot.payload, {
-  from: 'support@bigsoxstudios.com', subject: 'Big Sox Studios owner canary',
-  text: 'This is the single owner-approved Big Sox Studios transactional email test. No reply is required.', to: 'owner@personal.test'
+  from: 'support@bigsoxstudios.com', subject: 'Big Sox Studios — Outbound Email Verification',
+  text: 'This is a one-time test of the Big Sox Studios outbound email system.\n\nThe message verifies that support@bigsoxstudios.com can securely send email through Resend.\n\nNo customer tickets or customer messages are involved.\n\n— Big Sox Studios', to: 'owner@personal.test'
  });
  assert.match(r.response.headers.get('set-cookie'), /Secure; HttpOnly; SameSite=Strict; Path=\//);
  assert.equal(r.response.headers.get('cache-control'), 'no-store, private');
