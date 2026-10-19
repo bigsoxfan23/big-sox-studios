@@ -159,7 +159,7 @@ test('mobile layout hides inactive pane but keeps desktop two-column access',()=
 for (const policy of ['owner-self-v1','owner-reviewed-customers-v1']) test(`live UI ${policy} copy, exact destination confirmation and lost response no retry`,async()=>{
  const d=dom();let confirms=0,sends=0,confirmation;
  const c={id:crypto.randomUUID(),subject:'Exact subject <b>inert</b>',requester_name:'Requester',requester_email:'Customer@example.test',channel:'support',revision:0,draft:'Exact body <script>inert</script>',messages:[],deliveries:[]};
- const fetcher=async(path,o={})=>{
+ const fetcher=async(path)=>{
   if(path==='/api/session')return Response.json({csrf:'offline',sendMode:'live',replyPolicy:policy});
   if(path==='/api/cases')return Response.json([c]);
   if(path.endsWith('/draft'))return Response.json({...c,revision:1});
