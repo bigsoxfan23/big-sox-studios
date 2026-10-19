@@ -36,11 +36,11 @@ async function openCase(id) {
   current = { ...current, ...await api(`/api/cases/${id}/draft`, { revision:current.revision, body:$('draft').value }) };
   reviewed = await api(`/api/cases/${id}/review`, { revision:current.revision });
   $('envelope').textContent = `To: ${reviewed.to}\nFrom: ${reviewed.from}\nSubject: ${reviewed.subject}`;
-  $('preview').textContent = reviewed.body; $('send').textContent = reviewed.mode === 'live' ? 'Send reply' : 'Send simulated reply'; $('review-note').textContent = reviewed.mode === 'live' ? 'Ready. Confirmation sends this exact reply from support@bigsoxstudios.com. Subject shown exactly as it will be sent. Review expires in 10 minutes.' : 'Ready. Simulation only: no email will be sent. Review expires in 10 minutes.'; say('Reply ready for confirmation.'); $('approval').hidden = false; $('send').disabled = false; $('draft').disabled = true; $('review').disabled = true;
+  $('preview').textContent = reviewed.body; $('send').textContent = reviewed.mode === 'live' ? 'Send reply' : 'Send simulated reply'; $('review-note').textContent = reviewed.mode === 'live' ? `Ready. Confirmation sends this exact reply from support@bigsoxstudios.com. Subject shown exactly as it will be sent. Review expires in 10 minutes.${reviewed.policy === 'owner-reviewed-customers-v1' ? ' Envelope sender can be spoofed; inspect the exact To mailbox before confirming.' : ''}` : 'Ready. Simulation only: no email will be sent. Review expires in 10 minutes.'; say('Reply ready for confirmation.'); $('approval').hidden = false; $('send').disabled = false; $('draft').disabled = true; $('review').disabled = true;
  });
  $('cancel').onclick = () => { reviewed = null; $('approval').hidden = true; $('draft').disabled = false; $('review').disabled = false; };
  $('send').onclick = () => act(async () => {
-  if (!reviewed || !window.confirm(reviewed.mode === 'live' ? 'Send this exact reviewed reply now?' : 'Record this simulated reply? No email will be sent.')) return;
+  if (!reviewed || !window.confirm(reviewed.mode === 'live' ? `Send this exact reviewed reply to ${reviewed.to} now?` : 'Record this simulated reply? No email will be sent.')) return;
   const snapshot = reviewed; reviewed = null; $('send').disabled = true;
   let delivery;
   try {
@@ -59,4 +59,4 @@ async function act(fn) {
  finally { busy = false; document.body.removeAttribute('aria-busy'); }
 }
 $('refresh').onclick = () => act(queue);
-await act(async () => { const session = await api('/api/session'); csrf = session.csrf; sendMode = session.sendMode; $('mode-notice').textContent = sendMode === 'live' ? 'Real sending · support@bigsoxstudios.com → owner Gmail only. Provider acceptance does not confirm delivery.' : sendMode === 'mock' ? 'Simulated sending · Inbox can contain genuine inbound mail. Send records a simulation; no email is sent.' : 'Sending pending activation · Inbox and drafts remain available. Real sending is disabled.'; await queue(); say(sendMode === 'pending' ? 'Sending pending activation.' : 'Mail Desk ready.'); });
+await act(async () => { const session = await api('/api/session'); csrf = session.csrf; sendMode = session.sendMode; $('mode-notice').textContent = sendMode === 'live' ? (session.replyPolicy === 'owner-reviewed-customers-v1' ? 'Real customer replies · support@bigsoxstudios.com → exact forwarded requester. Envelope sender can be spoofed; inspect the exact To mailbox. Provider acceptance does not confirm delivery.' : 'Real sending · support@bigsoxstudios.com → owner Gmail only. Provider acceptance does not confirm delivery.') : sendMode === 'mock' ? 'Simulated sending · Inbox can contain genuine inbound mail. Send records a simulation; no email is sent.' : 'Sending pending activation · Inbox and drafts remain available. Real sending is disabled.'; await queue(); say(sendMode === 'pending' ? 'Sending pending activation.' : 'Mail Desk ready.'); });
