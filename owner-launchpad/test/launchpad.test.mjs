@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorker } from '../src/worker.mjs';
 import { b64 } from '../src/security.mjs';
+import { readFileSync } from 'node:fs';
 
 const encode = value => b64(new TextEncoder().encode(JSON.stringify(value)));
 const time = 1800000000000;
@@ -34,6 +35,17 @@ async function denied(response, status=401) {
  assert.equal(response.headers.get('Cache-Control'), 'no-store');
  assert.equal(response.headers.get('Location'), null);
 }
+
+test('offline deployment configuration pins actual protected Mail Desk and remains fail closed', () => {
+ const config = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+ assert.match(config, /^MAIL_DESK_URL = "https:\/\/bss-mail-desk-staging\.fridman-greg\.workers\.dev\/"$/m);
+ assert.match(config, /^ACCESS_ISSUER = ""$/m);
+ assert.match(config, /^ACCESS_AUDIENCE = ""$/m);
+ assert.match(config, /^APP_ORIGIN = ""$/m);
+ assert.match(config, /^workers_dev = false$/m);
+ assert.match(config, /^preview_urls = false$/m);
+ assert.doesNotMatch(config, /OWNER_EMAIL\s*=/m);
+});
 
 test('owner GET and HEAD: two exact destinations, no secrets or scripts; strict headers', async () => {
  const f = fixture(); const jwt = await token();

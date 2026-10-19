@@ -10,6 +10,6 @@ preview_urls = false
 ACCESS_ISSUER = ""
 ACCESS_AUDIENCE = ""
 APP_ORIGIN = ""
-MAIL_DESK_URL = ""
+MAIL_DESK_URL = "https://bss-mail-desk-staging.fridman-greg.workers.dev/"
 # OWNER_EMAIL must be supplied privately as a future secret binding.
 # JWT signing secrets do not belong here; verification uses public Access JWKS.
