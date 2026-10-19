@@ -17,7 +17,9 @@ export function prepareReply(intent, env) {
  requireThat(replyEnabled(env), 503, 'reply_preflight_rejected');
  requireThat(intent.sender === sender && mailbox(intent.recipient) && intent.recipient === owner, 403, 'reply_preflight_rejected');
  requireThat(typeof intent.id === 'string' && /^[a-f0-9-]{36}$/.test(intent.id), 400, 'reply_preflight_rejected');
+ // eslint-disable-next-line no-control-regex -- Reject control bytes in outbound email subject.
  requireThat(typeof intent.subject === 'string' && intent.subject.trim().length > 0 && encoder.encode(intent.subject).length <= 998 && !/[\x00-\x1f\x7f]/.test(intent.subject), 400, 'reply_preflight_rejected');
+ // eslint-disable-next-line no-control-regex -- Reject NUL in outbound plain-text body.
  requireThat(typeof intent.body === 'string' && intent.body.trim().length > 0 && intent.body.length <= 10000 && !/[\x00]/.test(intent.body), 400, 'reply_preflight_rejected');
  const body = JSON.stringify({ from: sender, to: [intent.recipient], subject: intent.subject, text: intent.body });
  requireThat(encoder.encode(body).length <= 45000, 413, 'reply_preflight_rejected');

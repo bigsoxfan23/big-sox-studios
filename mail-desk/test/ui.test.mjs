@@ -87,7 +87,7 @@ test('a fresh review restores Send after a definitely refused preflight and canc
  const d=dom();let reviews=0,sends=0;
  const c={id:crypto.randomUUID(),subject:'Owner test',requester_name:'Owner',requester_email:'owner@example.test',
   channel:'support',revision:1,draft:'Reply',messages:[],deliveries:[]};
- const fetcher=async(path,o={})=>{
+ const fetcher=async(path)=>{
   if(path==='/api/session') return Response.json({csrf:'offline',sendMode:'live'});
   if(path==='/api/cases') return Response.json([c]);
   if(path.endsWith('/draft')) return Response.json({...c,revision:c.revision+1});
