@@ -1,6 +1,6 @@
 import { authenticate, HttpError, requireThat, protectPost, sessionProof, readJson, mac, verifyMac, digest } from './security.mjs';
 import { stmt, audit, rateLimit, getCase, saveDraft, reserveReview, claimSend, finalize, now, reviewMode, bindReviewMode, replyStage } from './store.mjs';
-import { email } from './inbound.mjs';
+import { email, decodedSubject } from './inbound.mjs';
 import { prepareReply, sendReply, replyMode } from './reply.resend.mjs';
 import { stagingProvider } from './providers.mjs';
 import { runNotionSync } from './notion.sync.mjs';
@@ -54,7 +54,8 @@ export function createWorker({ fetcher = fetch, provider, simulation, replyTrans
     return json({ available: true, unresolved: row.count });
    }
    if (request.method === 'GET' && url.pathname === '/api/cases') {
-    return json((await stmt(env.DB, `SELECT id,channel,subject,requester_name,updated_at FROM cases ORDER BY updated_at DESC LIMIT 100`).all()).results);
+    const cases = (await stmt(env.DB, `SELECT id,channel,subject,requester_name,updated_at FROM cases ORDER BY updated_at DESC LIMIT 100`).all()).results;
+    return json(cases.map(c => ({ ...c, displaySubject: decodedSubject(c.subject) })));
    }
    const match = url.pathname.match(/^\/api\/cases\/([a-f0-9-]{36})(?:\/(draft|review|send))?$/);
    if (match) {
@@ -65,7 +66,7 @@ export function createWorker({ fetcher = fetch, provider, simulation, replyTrans
      const deliveries = (await stmt(env.DB, 'SELECT id,revision,status FROM outbound_intents WHERE case_id=? ORDER BY created_at,id', id).all()).results;
      for (const message of messages) { if (message.direction === 'outbound') message.mode = await reviewMode(env.DB, message.intent_id); delete message.intent_id; }
      for (const delivery of deliveries) { delivery.mode = await reviewMode(env.DB, delivery.id); if (delivery.mode === 'live') delivery.stage = await replyStage(env.DB, delivery.id); }
-     return json({ ...c, messages, deliveries });
+     return json({ ...c, displaySubject: decodedSubject(c.subject), messages, deliveries });
     }
     requireThat(request.method === 'POST' && action, 405, 'method_not_allowed');
     if (action === 'draft') {

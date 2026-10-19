@@ -10,7 +10,7 @@ function node(tag, text, className) { const el = document.createElement(tag); el
 async function queue() {
  const cases = await api('/api/cases'); $('queue').replaceChildren();
  for (const c of cases) {
-  const button = node('button', c.subject, 'queue-item'); button.type = 'button'; button.setAttribute('aria-current', String(c.id === current?.id));
+  const button = node('button', c.displaySubject || c.subject, 'queue-item'); button.type = 'button'; button.setAttribute('aria-current', String(c.id === current?.id));
   button.append(node('small', `${c.channel}@ · ${c.requester_name}`));
   button.onclick = () => act(() => openCase(c.id)); $('queue').append(button);
  }
@@ -19,7 +19,10 @@ async function queue() {
 async function openCase(id) {
  current = await api(`/api/cases/${id}`); reviewed = null;
  $('detail').replaceChildren($('case-template').content.cloneNode(true));
- $('subject').textContent = current.subject;
+ $('subject').textContent = current.displaySubject || current.subject;
+ $('maildesk-layout').setAttribute('data-view','case');
+ $('back-inbox').onclick = () => { $('maildesk-layout').setAttribute('data-view','inbox'); $('refresh').focus?.(); if (typeof window !== 'undefined' && window.matchMedia?.('(max-width:799px)')?.matches) window.scrollTo?.({top:0,behavior:'auto'}); };
+ if (typeof window !== 'undefined' && window.matchMedia?.('(max-width:799px)')?.matches) { $('back-inbox').focus?.(); window.scrollTo?.({top:0,behavior:'auto'}); }
  $('identity').textContent = `${current.requester_name} · ${current.requester_email} · ${current.channel}@bigsoxstudios.com`;
  for (const message of current.messages) {
   const block = node('article','','message'); block.append(node('small',message.direction === 'inbound' ? 'Received' : message.mode === 'live' ? 'Reply accepted by provider' : 'Simulated reply (no email sent)'), node('p',message.body)); $('thread').append(block);
@@ -33,7 +36,7 @@ async function openCase(id) {
   current = { ...current, ...await api(`/api/cases/${id}/draft`, { revision:current.revision, body:$('draft').value }) };
   reviewed = await api(`/api/cases/${id}/review`, { revision:current.revision });
   $('envelope').textContent = `To: ${reviewed.to}\nFrom: ${reviewed.from}\nSubject: ${reviewed.subject}`;
-  $('preview').textContent = reviewed.body; $('send').textContent = reviewed.mode === 'live' ? 'Send reply' : 'Send simulated reply'; $('review-note').textContent = reviewed.mode === 'live' ? 'Ready. Confirmation sends this exact reply from support@bigsoxstudios.com. Review expires in 10 minutes.' : 'Ready. Simulation only: no email will be sent. Review expires in 10 minutes.'; say('Reply ready for confirmation.'); $('approval').hidden = false; $('send').disabled = false; $('draft').disabled = true; $('review').disabled = true;
+  $('preview').textContent = reviewed.body; $('send').textContent = reviewed.mode === 'live' ? 'Send reply' : 'Send simulated reply'; $('review-note').textContent = reviewed.mode === 'live' ? 'Ready. Confirmation sends this exact reply from support@bigsoxstudios.com. Subject shown exactly as it will be sent. Review expires in 10 minutes.' : 'Ready. Simulation only: no email will be sent. Review expires in 10 minutes.'; say('Reply ready for confirmation.'); $('approval').hidden = false; $('send').disabled = false; $('draft').disabled = true; $('review').disabled = true;
  });
  $('cancel').onclick = () => { reviewed = null; $('approval').hidden = true; $('draft').disabled = false; $('review').disabled = false; };
  $('send').onclick = () => act(async () => {
