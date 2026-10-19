@@ -27,17 +27,24 @@ export function validateConfig(env) {
 export function createAuthenticator({ fetcher = fetch, now = () => Date.now() } = {}) {
  // Private to this verifier; tokens and owner identities are never cached.
  const cache = new Map();
- async function refresh(issuer, lastRefresh = -Infinity) {
-  cache.delete(issuer);
-  try {
-   const result = await load(issuer, lastRefresh); cache.set(issuer, result); return result;
-  } catch (error) {
+ function refresh(issuer, state, rotation = false) {
+  if (state.inFlight) return state.inFlight;
+  // Retire the previous set immediately. Every request joins this refresh,
+  // including requests for previously known keys during a rotation.
+  state.keys = new Map(); state.until = 0;
+  if (rotation) state.lastRefresh = now();
+  // Register the flight before invoking injected fetch code. Only this promise
+  // publishes state; timed-out transport/import work cannot roll it back later.
+  state.inFlight = Promise.resolve().then(() => load(issuer)).then(result => {
+   state.keys = result.keys; state.until = result.until;
+  }, error => {
    // Negative cache also bounds retries during an outage or unknown-key attack.
-   cache.set(issuer, { keys: new Map(), until: now() + 30000, lastRefresh: now() });
+   state.keys = new Map(); state.until = now() + 30000; state.lastRefresh = now();
    throw error;
-  }
+  }).finally(() => { state.inFlight = null; });
+  return state.inFlight;
  }
- async function load(issuer, lastRefresh = -Infinity) {
+ async function load(issuer) {
   const controller = new AbortController();
   let timer;
   try {
@@ -69,7 +76,7 @@ export function createAuthenticator({ fetcher = fetch, now = () => Date.now() } 
      requireThat(e >= 3 && e % 2 === 1 && exponent[0] !== 0);
      keys.set(jwk.kid, await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']));
     }
-    return { keys, until: now() + 300000, lastRefresh };
+    return { keys, until: now() + 300000 };
    };
    return await Promise.race([work(), new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('unauthorized')); }, 5000); })]);
   } finally { clearTimeout(timer); controller.abort(); }
@@ -90,13 +97,17 @@ export function createAuthenticator({ fetcher = fetch, now = () => Date.now() } 
    requireThat(['exp','nbf','iat'].every(k => Number.isSafeInteger(claims[k]) && claims[k] >= 0) && claims.exp > time && claims.nbf <= time && claims.iat <= time && claims.iat < claims.exp && claims.nbf < claims.exp);
    const signature = unb64(parts[2]);
    let cached = cache.get(env.ACCESS_ISSUER);
-   if (!cached || cached.until <= now()) {
-    cached = await refresh(env.ACCESS_ISSUER); // Never use stale keys on errors.
+   if (!cached) {
+    cached = { keys: new Map(), until: 0, lastRefresh: -Infinity, inFlight: null };
+    cache.set(env.ACCESS_ISSUER, cached);
    }
+   if (cached.inFlight) await cached.inFlight;
+   else if (cached.until <= now()) await refresh(env.ACCESS_ISSUER, cached);
    if (!cached.keys.has(header.kid) && now() - cached.lastRefresh >= 30000) {
-    cached.lastRefresh = now(); // Bound attacker-triggered rotation fetches.
-    cached = await refresh(env.ACCESS_ISSUER, cached.lastRefresh);
+    await refresh(env.ACCESS_ISSUER, cached, true);
    }
+   // Another waiter may have started a rotation after our first await.
+   if (cached.inFlight) await cached.inFlight;
    const key = cached.keys.get(header.kid); requireThat(key);
    requireThat(await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, encoder.encode(`${parts[0]}.${parts[1]}`)));
   } catch { throw new Error('unauthorized'); }

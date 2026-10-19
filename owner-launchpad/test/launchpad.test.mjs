@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorker } from '../src/worker.mjs';
-import { b64 } from '../src/security.mjs';
+import { b64, createAuthenticator } from '../src/security.mjs';
 import { readFileSync } from 'node:fs';
 
 const encode = value => b64(new TextEncoder().encode(JSON.stringify(value)));
@@ -32,9 +32,150 @@ function fixture(fetcher, config = env) {
 async function denied(response, status=401) {
  assert.equal(response.status, status); const body = await response.text();
  assert.ok(!body.includes('Mail Desk') && !body.includes(env.MAIL_DESK_URL) && !body.includes(env.OWNER_EMAIL));
+ assert.ok(!body.includes('PRIVATE_SENTINEL'));
  assert.equal(response.headers.get('Cache-Control'), 'no-store');
  assert.equal(response.headers.get('Location'), null);
 }
+function deferred() {
+ let resolve, reject;
+ const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+ return { promise, resolve, reject };
+}
+const drain = () => new Promise(resolve => setImmediate(resolve));
+function heldFetch() {
+ const started = deferred(), result = deferred();
+ return { started: started.promise, ...result, fetch: () => { started.resolve(); return result.promise; } };
+}
+
+test('24 valid-owner requests share cold and expired JWKS refreshes', async () => {
+ const jwt = await token(); let flight = heldFetch();
+ const f = fixture(() => flight.fetch());
+ for (const expectedCalls of [1, 2]) {
+  let completed = 0;
+  const requests = Array.from({length:24}, () => f.request(jwt).then(r => { completed++; return r; }));
+  await flight.started; await drain();
+  assert.equal(f.calls.length, expectedCalls); assert.equal(completed, 0);
+  flight.resolve(Response.json({keys:[first.jwk]}));
+  for (const response of await Promise.all(requests)) assert.equal(response.status, 200);
+  assert.equal((await f.request(jwt)).status, 200); assert.equal(f.calls.length, expectedCalls);
+  f.advance(300000); flight = heldFetch();
+ }
+});
+
+test('single flight covers streamed JWKS reading and isolates issuers', async () => {
+ const other = {...env, ACCESS_ISSUER:'https://other.cloudflareaccess.com'};
+ const jwt = await token(), otherJwt = await token({iss:other.ACCESS_ISSUER});
+ const started = deferred(); let body, calls = 0;
+ const authenticate = createAuthenticator({now:() => time, fetcher:async url => {
+  calls++;
+  if (url === `${other.ACCESS_ISSUER}/cdn-cgi/access/certs`) return Response.json({keys:[first.jwk]});
+  assert.equal(url, `${env.ACCESS_ISSUER}/cdn-cgi/access/certs`);
+  return new Response(new ReadableStream({start(controller) { body = controller; started.resolve(); }}));
+ }});
+ const request = jwt => new Request(env.APP_ORIGIN, {headers:{'Cf-Access-Jwt-Assertion':jwt}});
+ let completed = 0;
+ const requests = Array.from({length:24}, () => authenticate(request(jwt), env).then(() => { completed++; }));
+ await started.promise; await drain(); assert.equal(calls, 1); assert.equal(completed, 0);
+ await authenticate(request(otherJwt), other); assert.equal(calls, 2); assert.equal(completed, 0);
+ body.enqueue(new TextEncoder().encode(JSON.stringify({keys:[first.jwk]}))); body.close();
+ await Promise.all(requests); assert.equal(completed, 24); assert.equal(calls, 2);
+});
+
+for (const failure of ['network', 'invalid whole set']) test(`concurrent ${failure} failure retires keys and shares negative cache and recovery`, async () => {
+ const jwt = await token(); let flight;
+ const f = fixture(() => flight ? flight.fetch() : Response.json({keys:[first.jwk]}));
+ assert.equal((await f.request(jwt)).status, 200);
+ f.advance(300000); flight = heldFetch();
+ const requests = Array.from({length:24}, () => f.request(jwt));
+ await flight.started; await drain(); assert.equal(f.calls.length, 2);
+ if (failure === 'network') flight.reject(Error('PRIVATE_SENTINEL'));
+ else flight.resolve(Response.json({keys:[first.jwk, null]}));
+ for (const response of await Promise.all(requests)) await denied(response);
+ const unknown = await token({}, {kid:'unknown'});
+ f.advance(29999);
+ for (const response of await Promise.all(Array.from({length:24}, (_, i) => f.request(i % 2 ? jwt : unknown)))) await denied(response);
+ assert.equal(f.calls.length, 2);
+ f.advance(1); flight = heldFetch();
+ const recovery = Array.from({length:24}, () => f.request(jwt));
+ await flight.started; await drain(); assert.equal(f.calls.length, 3);
+ flight.resolve(Response.json({keys:[first.jwk]}));
+ for (const response of await Promise.all(recovery)) assert.equal(response.status, 200);
+ assert.equal(f.calls.length, 3);
+});
+
+test('concurrent rotation joins known and distinct unknown kids, removes old keys and preserves cooldown', async () => {
+ const old = await token(), rotated = await token({}, {}, second);
+ const unknowns = await Promise.all(Array.from({length:24}, (_, i) => token({}, {kid:`unknown-${i}`})));
+ let flight;
+ const f = fixture(() => flight ? flight.fetch() : Response.json({keys:[first.jwk]}));
+ assert.equal((await f.request(old)).status, 200); flight = heldFetch();
+ const rotation = Array.from({length:24}, () => f.request(rotated));
+ await flight.started;
+ let completed = 0;
+ const others = [old, ...unknowns].map(jwt => f.request(jwt).then(r => { completed++; return r; }));
+ await drain(); assert.equal(f.calls.length, 2); assert.equal(completed, 0);
+ flight.resolve(Response.json({keys:[second.jwk]}));
+ for (const response of await Promise.all(rotation)) assert.equal(response.status, 200);
+ for (const response of await Promise.all(others)) await denied(response);
+ f.advance(29999);
+ for (const response of await Promise.all(unknowns.map(jwt => f.request(jwt)))) await denied(response);
+ assert.equal(f.calls.length, 2);
+ f.advance(1); flight = heldFetch();
+ const retry = unknowns.map(jwt => f.request(jwt));
+ await flight.started; await drain(); assert.equal(f.calls.length, 3);
+ flight.resolve(Response.json({keys:[second.jwk]}));
+ for (const response of await Promise.all(retry)) await denied(response);
+ assert.equal((await f.request(rotated)).status, 200); assert.equal(f.calls.length, 3);
+});
+
+test('failed concurrent rotation denies previously known keys until negative cache expires', async () => {
+ const jwt = await token(), unknown = await token({}, {kid:'new'}); let flight;
+ const f = fixture(() => flight ? flight.fetch() : Response.json({keys:[first.jwk]}));
+ assert.equal((await f.request(jwt)).status, 200); flight = heldFetch();
+ const rotation = f.request(unknown); await flight.started;
+ const known = Array.from({length:24}, () => f.request(jwt));
+ await drain(); assert.equal(f.calls.length, 2);
+ flight.reject(Error('PRIVATE_SENTINEL'));
+ for (const response of await Promise.all([rotation, ...known])) await denied(response);
+ f.advance(29999); await denied(await f.request(jwt)); assert.equal(f.calls.length, 2);
+ f.advance(1); flight = undefined;
+ assert.equal((await f.request(jwt)).status, 200); assert.equal(f.calls.length, 3);
+});
+
+for (const recovery of ['success', 'failure']) for (const late of ['success', 'failure']) test(`timed-out shared refresh cannot overwrite newer ${recovery} with late ${late}`, async t => {
+ const old = await token(), rotated = await token({}, {}, second);
+ const stalled = heldFetch(); let signal;
+ const f = fixture((url, options) => {
+  if (f.calls.length === 1) { signal = options.signal; return stalled.fetch(); }
+  if (recovery === 'failure') throw Error('PRIVATE_SENTINEL');
+  return Response.json({keys:[second.jwk]});
+ });
+ t.mock.timers.enable({apis:['setTimeout']});
+ const requests = Array.from({length:24}, () => f.request(old));
+ await stalled.started; await drain(); assert.equal(f.calls.length, 1);
+ t.mock.timers.tick(4999); await drain(); assert.equal(signal.aborted, false);
+ t.mock.timers.tick(1);
+ for (const response of await Promise.all(requests)) await denied(response);
+ assert.equal(signal.aborted, true);
+ f.advance(29999); await denied(await f.request(rotated)); assert.equal(f.calls.length, 1);
+ f.advance(1);
+ const recovered = await f.request(rotated);
+ if (recovery === 'success') assert.equal(recovered.status, 200);
+ else await denied(recovered);
+ assert.equal(f.calls.length, 2);
+ if (late === 'success') stalled.resolve(Response.json({keys:[first.jwk]}));
+ else stalled.reject(Error('PRIVATE_SENTINEL'));
+ await drain();
+ if (recovery === 'failure') {
+  for (const response of await Promise.all([f.request(old), f.request(rotated)])) await denied(response);
+  assert.equal(f.calls.length, 2);
+  return;
+ }
+ assert.equal((await f.request(rotated)).status, 200);
+ // The recovered set's first unknown-kid refresh also returns only the new key.
+ await denied(await f.request(old)); assert.equal(f.calls.length, 3);
+ assert.equal((await f.request(rotated)).status, 200);
+});
 
 test('offline deployment configuration pins actual protected Mail Desk and remains fail closed', () => {
  const config = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
