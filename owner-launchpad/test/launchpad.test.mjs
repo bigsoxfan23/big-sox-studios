@@ -177,6 +177,21 @@ for (const recovery of ['success', 'failure']) for (const late of ['success', 'f
  assert.equal((await f.request(rotated)).status, 200);
 });
 
+test('approved production deployment config pins private owner-only Access app, with no public URL or secret in source', () => {
+ const config = readFileSync(new URL('../wrangler.production.toml', import.meta.url), 'utf8');
+ const declared = new Map([...config.matchAll(/^([A-Z_]+) = "([^"]*)"$/gm)].map(([,name,value]) => [name,value]));
+ assert.equal(config.match(/^name = "([^"]+)"$/m)?.[1], 'bss-owner-launchpad');
+ assert.equal(declared.get('ACCESS_ISSUER'), 'https://old-hill-995d.cloudflareaccess.com');
+ assert.equal(declared.get('ACCESS_AUDIENCE'), 'e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0');
+ assert.equal(declared.get('APP_ORIGIN'), 'https://owner.bigsoxstudios.com');
+ assert.equal(declared.get('MAIL_DESK_URL'), 'https://bss-mail-desk-staging.fridman-greg.workers.dev/');
+ assert.match(config, /^workers_dev = false$/m);
+ assert.match(config, /^preview_urls = false$/m);
+ assert.doesNotMatch(config, /^routes?\s*=/m);
+ assert.doesNotMatch(config, /^OWNER_EMAIL\s*=/m);
+ assert.equal([...declared.keys()].length, 4);
+});
+
 test('offline deployment configuration pins actual protected Mail Desk and remains fail closed', () => {
  const config = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
  assert.match(config, /^MAIL_DESK_URL = "https:\/\/bss-mail-desk-staging\.fridman-greg\.workers\.dev\/"$/m);
