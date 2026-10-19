@@ -273,3 +273,23 @@ immutable mock modes, policy signature separation, multiple consistent receipts,
 concurrency and terminal UNKNOWN. No implementation blocker remains. Independent
 review and any future owner-directed activation remain pending. These results do
 not establish real delivery or sender authentication.
+
+## Owner-approved controlled customer-routing test (October 19)
+
+The current customer policy is additionally restricted to the *single*
+pre-existing Outlook test address greg.fridman@outlook.com, with two separate
+required variables: MAILDESK_CUSTOMER_TEST_RECIPIENT exact match and
+MAILDESK_CUSTOMER_TEST_EXPIRES_AT strict epoch seconds expiring in <=48 hours.
+Use a roughly 24-hour test window. Missing, expired or wrong values fail closed;
+the immutable intent recipient must exactly match the allowed Outlook address.
+This temporary test gate does not authorize sending to arbitrary customer
+mailboxes. An atomic D1 claim additionally denies a second successful,
+dispatching or UNKNOWN send to the same recipient (including another case),
+so the controlled rollout has a one-send ceiling without retry risk. Existing owner-self-v1 Gmail mode remains available on rollback.
+
+Never submit a send automatically. Owner must receive the controlled test email
+from the Outlook account, confirm they own the recipient, and manually review
+and confirm the exact To/subject/body in the protected Mail Desk. Do not retry
+UNKNOWN. After the single acceptance test, restore owner-self-v1,
+MAILDESK_CUSTOMER_REPLIES=off and MAIlDESK_CUSTOMER_RECIPIENT_POLICY=off via
+a new versioned Cloudflare deployment; preserve existing D1/Access/Notion/secrets.
