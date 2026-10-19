@@ -24,7 +24,7 @@ test('untrusted subject, name, message and preview remain inert through full UI 
  const f=await fixture(t);await f.session();
  const attack='<img src=x onerror="globalThis.pwned=true"><script>globalThis.pwned=true</script>';
  await f.seed({subject:attack,requester_name:attack,body:attack});
- const d=dom();const context={document:d.document,fetch:async(path,options={})=>f.request(path,options.body,{headers:options.headers}),pwned:false};
+ const d=dom();const context={window:{confirm:()=>true},document:d.document,fetch:async(path,options={})=>f.request(path,options.body,{headers:options.headers}),pwned:false};
  await vm.runInNewContext(`(async()=>{${script}\n})()`,context);
  assert.equal(f.calls(),0);assert.equal(d.get('queue').children[0].textContent,attack);
  await d.get('queue').children[0].onclick();assert.equal(d.get('subject').textContent,attack);assert.equal(d.get('thread').children[0].children[1].textContent,attack);assert.equal(f.calls(),0);
@@ -50,11 +50,62 @@ test('Worker serves only authenticated static allowlist with CSP and no-store',a
  assert.equal((await f.request('/index.html')).status,404);assert.equal((await f.request('/secret.env')).status,404);
 });
 test('staging entry dependency graph cannot import future live adapter',async()=>{
- const visited=new Set();async function walk(path){if(visited.has(path))return;visited.add(path);const source=await readFile(new URL(`../src/${path}`,import.meta.url),'utf8');assert.ok(!source.includes('api.resend.com'));assert.ok(!source.includes('RESEND_API_KEY'));assert.ok(!/import\s*\(/.test(source));for(const match of source.matchAll(/from ['"]\.\/(.*?)['"]/g)) await walk(match[1]);}
- await walk('worker.mjs');assert.ok(!visited.has('resend.future.mjs'));
+ const visited=new Set();async function walk(path){if(visited.has(path))return;visited.add(path);const source=await readFile(new URL(`../src/${path}`,import.meta.url),'utf8');assert.ok(!/import\s*\(/.test(source));for(const match of source.matchAll(/from ['"]\.\/(.*?)['"]/g)) await walk(match[1]);}
+ await walk('worker.mjs');for (const name of ['worker.outbound.mjs','outbound.candidate.mjs','resend.future.mjs']) assert.ok(!visited.has(name));
+ assert.ok(visited.has('reply.resend.mjs'));
 });
 test('standalone staging config has closed defaults and protects all static assets',async()=>{
  const config=await readFile(new URL('../wrangler.staging.toml',import.meta.url),'utf8');
  for(const key of ['ACCESS_ISSUER','ACCESS_AUDIENCE','OWNER_EMAIL','APP_ORIGIN']) assert.match(config,new RegExp(`^${key} = ""$`,'m'));
  assert.match(config,/^name = "bss-mail-desk-staging"$/m);assert.match(config,/^run_worker_first = true$/m);assert.match(config,/^workers_dev = false$/m);assert.match(config,/^preview_urls = false$/m);assert.match(config,/^NOTION_SYNC_MODE = "off"$/m);assert.match(config,/^SEND_MODE = "mock"$/m);assert.match(config,/^ALLOW_REAL_SEND = "false"$/m);assert.match(config,/database_id = "[0-9a-f-]{36}"/);assert.doesNotMatch(config,/database_id = "00000000-0000-0000-0000-000000000000"/);assert.ok(!/^\s*(routes?|custom_domain|crons)\s*=/m.test(config));assert.ok(!/RESEND_API_KEY\s*=|NOTION_TOKEN\s*=|CSRF_SECRET\s*=/.test(config));
+});
+test('ordinary confirmation cancellation does not POST a send',async t=>{
+ const f=await fixture(t);await f.session();await f.seed();const d=dom();let confirms=0;
+ await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>{confirms++;return false;}},document:d.document,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
+ await d.get('queue').children[0].onclick();d.get('draft').value='Reply';await d.get('review').onclick();await d.get('send').onclick();assert.equal(confirms,1);assert.equal(f.calls(),0);
+});
+for(const outcome of ['UNKNOWN','dispatching','failed','sent','lost-response']) test(`live UI displays ${outcome} accurately and never retries a lost response`,async()=>{
+ const d=dom();let sends=0;const c={id:crypto.randomUUID(),subject:'Owner test',requester_name:'Owner',requester_email:'owner@example.test',channel:'support',revision:0,draft:'Reply',messages:[],deliveries:[]};
+ const fetcher=async(path,o={})=>{
+  if(path==='/api/session') return Response.json({csrf:'offline',sendMode:'live'});
+  if(path==='/api/cases') return Response.json([c]);
+  if(path.endsWith('/draft')) return Response.json({...c,revision:1});
+  if(path.endsWith('/review')) return Response.json({id:'review',mode:'live',from:'support@bigsoxstudios.com',to:c.requester_email,subject:c.subject,body:c.draft,approval:'offline'});
+  if(path.endsWith('/send')) {sends++;assert.equal(JSON.parse(o.body).confirmed,true);if(outcome==='lost-response') throw Error('offline interrupted');return Response.json({status:outcome,mode:'live',stage:'provider_accepted'});}
+  return Response.json(c);
+ };
+ await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>true},document:d.document,fetch:fetcher});
+ await d.get('queue').children[0].onclick();await d.get('review').onclick();assert.match(d.get('envelope').textContent,/From: support@bigsoxstudios.com/);assert.equal(d.get('send').textContent,'Send reply');
+ await d.get('send').onclick();const status=d.get('status').textContent;
+ if(outcome==='sent') assert.match(status,/accepted by provider \(not delivery confirmation\)/);
+ else {assert.doesNotMatch(status,/^accepted by provider/);assert.match(status,outcome==='failed'?/refused\/no send/:/never retry/);}
+ if(outcome==='lost-response') {await d.get('send').onclick();assert.equal(sends,1);}
+});
+
+
+test('a fresh review restores Send after a definitely refused preflight and cancellation',async()=>{
+ const d=dom();let reviews=0,sends=0;
+ const c={id:crypto.randomUUID(),subject:'Owner test',requester_name:'Owner',requester_email:'owner@example.test',
+  channel:'support',revision:1,draft:'Reply',messages:[],deliveries:[]};
+ const fetcher=async(path,o={})=>{
+  if(path==='/api/session') return Response.json({csrf:'offline',sendMode:'live'});
+  if(path==='/api/cases') return Response.json([c]);
+  if(path.endsWith('/draft')) return Response.json({...c,revision:c.revision+1});
+  if(path.endsWith('/review')) { reviews++; return Response.json({
+   id:'review'+reviews,mode:'live',from:'support@bigsoxstudios.com',to:c.requester_email,
+   subject:c.subject,body:c.draft,approval:'offline'
+  });}
+  if(path.endsWith('/send')) { sends++; return Response.json({error:'reply_preflight_rejected'},{status:503}); }
+  return Response.json(c);
+ };
+ await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>true},document:d.document,fetch:fetcher});
+ await d.get('queue').children[0].onclick();
+ await d.get('review').onclick();
+ assert.equal(d.get('send').disabled,false);
+ await d.get('send').onclick();assert.equal(sends,1);
+ assert.equal(d.get('send').disabled,true);
+ d.get('cancel').onclick();
+ await d.get('review').onclick();
+ assert.equal(reviews,2);
+ assert.equal(d.get('send').disabled,false,'new review must restore actionable Send after definite refusal');
 });

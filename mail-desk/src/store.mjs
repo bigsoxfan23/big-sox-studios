@@ -59,3 +59,23 @@ export async function recoverUncertain(db, cutoff = now() - 300) {
  // Never reclaim or resend a dispatch. Crash recovery only moves forward to UNKNOWN.
  await stmt(db, `UPDATE outbound_intents SET status='UNKNOWN',updated_at=? WHERE status='dispatching' AND updated_at<?`, now(), cutoff).run();
 }
+
+export async function reviewMode(db, id) {
+ const schema = await stmt(db, "SELECT name FROM sqlite_master WHERE type='table' AND name='reply_review_modes'").first();
+ if (!schema) return 'mock';
+ return (await stmt(db, 'SELECT mode FROM reply_review_modes WHERE intent_id=?', id).first())?.mode ?? 'mock';
+}
+export async function bindReviewMode(db, intent, mode) {
+ const schema = await stmt(db, "SELECT name FROM sqlite_master WHERE type='table' AND name='reply_review_modes'").first();
+ requireThat(schema || mode === 'mock', 503, 'reply_migration_required');
+ if (schema) {
+  await stmt(db, 'INSERT INTO reply_review_modes VALUES (?,?) ON CONFLICT(intent_id) DO NOTHING', intent.id, mode).run();
+  requireThat(await reviewMode(db, intent.id) === mode, 409, 'reply_mode_conflict');
+ }
+}
+
+export async function replyStage(db, id) {
+ const row = await stmt(db, "SELECT event FROM audit_events WHERE intent_id=? AND event LIKE 'reply_%' ORDER BY rowid DESC LIMIT 1", id).first();
+ const code = row?.event?.slice(6);
+ return /^(?:config_approved|preflight_rejected|fetch_started|fetch_rejected|response_http_[1-5][0-9]{2}|response_invalid|provider_accepted|provider_refused|dispatch_interrupted)$/.test(code) ? code : undefined;
+}

@@ -1,3 +1,5 @@
+> Historical proposal, retired by the owner for the sending workflow. Use [Simple replies](SIMPLE_REPLIES.md) on the existing protected Mail Desk. Preserve the old campaign and its UNKNOWN state; never retry it. PR #27 remains unchanged.
+
 # Task 10 — owner-only direct canary preparation, offline
 
 2026-10-16; base `20c4eb747ab1e856e3243651a1eaedfb556946c2`, continuation of

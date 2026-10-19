@@ -12,10 +12,15 @@ export function stagingProvider(env, simulation) {
  if (env.SEND_MODE !== 'mock') throw new Error('staging_send_disabled');
  const state = simulation === undefined ? null : simulations.get(simulation);
  if (simulation !== undefined && !state) throw Error('staging_provider_denied');
- return async intent => {
+ return async (intent, signal) => {
   if (state) {
    state.calls++;
-   await state.gate;
+   await new Promise((resolve, reject) => {
+    const abort = () => reject(Error('synthetic_aborted'));
+    if (signal?.aborted) return abort();
+    signal?.addEventListener('abort', abort, {once:true});
+    state.gate.then(() => { signal?.removeEventListener('abort', abort); resolve(); });
+   });
    if (state.outcome === 'throw') throw Error('synthetic_timeout');
    if (state.outcome === 'invalid') return {};
    if (state.outcome !== 'sent') return { status: state.outcome };

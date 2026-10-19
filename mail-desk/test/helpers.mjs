@@ -45,8 +45,8 @@ export async function fixture(t, options = {}) {
  env.ASSETS = { async fetch(req) { const path = new URL(req.url).pathname; const file = path === '/' ? 'index.html' : path.slice(1); return new Response(await readFile(new URL(`../public/${file}`,import.meta.url)), { headers:{ 'Content-Type':file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' } }); } };
  const simulation = offlineDelivery(options.simulation);
  let fetchCalls = 0;
- const worker = createWorker({ fetcher:async url => { fetchCalls++; if (url !== `${env.ACCESS_ISSUER}/cdn-cgi/access/certs`) throw new Error('Unexpected network'); return Response.json({ keys:[jwk] }); }, simulation: simulation.handle });
- const jwt = await token(); let cookie, csrf;
+ const worker = createWorker({ fetcher:async url => { fetchCalls++; if (url !== `${env.ACCESS_ISSUER}/cdn-cgi/access/certs`) throw new Error('Unexpected network'); return Response.json({ keys:[jwk] }); }, simulation: simulation.handle, replyTransport: options.replyTransport });
+ const jwt = await token({email:env.OWNER_EMAIL}); let cookie, csrf;
  async function request(path, data, custom = {}) {
   const h = { 'Cf-Access-Jwt-Assertion':jwt, ...(cookie ? { Cookie:cookie } : {}), ...(data === undefined ? {} : { Origin:origin, 'Content-Type':'application/json', 'X-CSRF-Token':csrf }), ...custom.headers };
   for (const key of Object.keys(h)) if (h[key] == null) delete h[key];
