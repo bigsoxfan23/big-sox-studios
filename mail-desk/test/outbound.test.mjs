@@ -126,6 +126,6 @@ test('transport is called without receiver; errors and provider bodies never lea
  assert.deepEqual(result,{status:'UNKNOWN'});assert.equal(calls,1);assert.deepEqual(logs,[]);
 });
 test('staging graph and migrations remain isolated from outbound rehearsal',async()=>{
- const visited=new Set();async function walk(file){if(visited.has(file))return;visited.add(file);const source=await readFile(new URL(`../src/${file}`,import.meta.url),'utf8');assert.doesNotMatch(source,/resend\.future|rehearseResend|api\.resend\.com/);for(const m of source.matchAll(/from ['"]\.\/(.*?)['"]/g))await walk(m[1]);}
+ const visited=new Set();async function walk(file){if(visited.has(file))return;visited.add(file);const source=await readFile(new URL(`../src/${file}`,import.meta.url),'utf8');assert.doesNotMatch(source,/resend\.future|rehearseResend|outbound\.candidate|worker\.outbound/);for(const m of source.matchAll(/from ['"]\.\/(.*?)['"]/g))await walk(m[1]);}
  await walk('worker.mjs');
 });
