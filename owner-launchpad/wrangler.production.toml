@@ -1,0 +1,15 @@
+# OWNER-APPROVED isolated launchpad deployment. No direct public Worker URL or previews.
+# Domain is not attached here: first deploy remains unroutable until Access is verified.
+# OWNER_EMAIL is provisioned only as an encrypted Cloudflare Worker secret.
+name = "bss-owner-launchpad"
+main = "src/worker.mjs"
+tsconfig = "tsconfig.json"
+compatibility_date = "2026-10-14"
+workers_dev = false
+preview_urls = false
+
+[vars]
+ACCESS_ISSUER = "https://old-hill-995d.cloudflareaccess.com"
+ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
+APP_ORIGIN = "https://owner.bigsoxstudios.com"
+MAIL_DESK_URL = "https://bss-mail-desk-staging.fridman-greg.workers.dev/"
