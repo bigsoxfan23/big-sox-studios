@@ -11,7 +11,7 @@ const headers = {
  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Strict-Transport-Security': 'max-age=31536000'
 };
 const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(value), { status, headers: { ...headers, 'Content-Type': 'application/json', ...extra } });
-const approvalValue = (i, mode = 'mock', policy = 'owner-self-v1') => JSON.stringify([policy === 'owner-reviewed-customers-v1' ? 'maildesk-customer-reply-v1' : 'maildesk-reply-v1',mode,i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
+const approvalValue = (i, mode = 'mock', policy = 'owner-self-v1') => JSON.stringify([policy === 'owner-reviewed-customers-v2' ? 'maildesk-customer-reply-v2' : policy === 'owner-reviewed-customers-v1' ? 'maildesk-customer-reply-v1' : 'maildesk-reply-v1',mode,i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
 const publicIntent = (i, mode) => ({ mode, id: i.id, caseId: i.case_id, revision: i.revision, to: i.recipient, from: i.sender, subject: i.subject, body: i.body, status: i.status, expires: i.approval_expires });
 async function requireInbound(db, id) {
  // Receipt linkage permits genuine existing support ingress; it does not claim
@@ -115,7 +115,7 @@ export function createWorker({ fetcher = fetch, provider, simulation, replyTrans
       requireThat(env.SEND_MODE === 'mock', 503, 'staging_send_disabled');
       send = stagingProvider(env, simulation);
      }
-     const claimed = await claimSend(env.DB, i, mode === 'live' && customerReplies(env));
+     const claimed = await claimSend(env.DB, i, mode === 'live' && customerReplies(env), mode === 'live' && replyPolicy(env) === 'owner-reviewed-customers-v2');
      if (!claimed) {
       const latest = await stmt(env.DB, 'SELECT status FROM outbound_intents WHERE id=?', i.id).first();
       requireThat(latest.status !== 'reserved', 409, 'revision_or_delivery_conflict');

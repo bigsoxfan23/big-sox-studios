@@ -12,6 +12,13 @@ export function replyPolicy(env) {
   && env.OWNER_EMAIL === owner && typeof env.RESEND_API_KEY === 'string' && /^re_[A-Za-z0-9_-]{20,200}$/.test(env.RESEND_API_KEY);
  if (!base) return 'off';
  if (env.MAILDESK_REPLY_ACTIVATION === 'owner-self-v1') return 'owner-self-v1';
+ // Permanent customer policy cannot inherit temporary-test configuration.
+ if (env.MAILDESK_REPLY_ACTIVATION === 'owner-reviewed-customers-v2'
+  && env.MAILDESK_CUSTOMER_REPLIES === 'enabled'
+  && env.MAILDESK_CUSTOMER_RECIPIENT_POLICY === 'exact-forwarded-requester-v2'
+  && env.MAILDESK_CUSTOMER_TEST_RECIPIENT === ''
+  && env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT === ''
+ ) return 'owner-reviewed-customers-v2';
  if (env.MAILDESK_REPLY_ACTIVATION === 'owner-reviewed-customers-v1'
   && env.MAILDESK_CUSTOMER_REPLIES === 'enabled'
   && env.MAILDESK_CUSTOMER_RECIPIENT_POLICY === 'exact-forwarded-requester-v1'
@@ -26,7 +33,7 @@ export function replyPolicy(env) {
  return 'off';
 }
 export const replyEnabled = env => replyPolicy(env) !== 'off';
-export const customerReplies = env => replyPolicy(env) === 'owner-reviewed-customers-v1';
+export const customerReplies = env => ['owner-reviewed-customers-v1','owner-reviewed-customers-v2'].includes(replyPolicy(env));
 export const replyMode = env => env.SEND_MODE === 'mock' ? 'mock' : replyEnabled(env) ? 'live' : 'pending';
 // Envelope evidence is routing evidence, never sender authentication.
 const customerMailbox = value => mailbox(value) && value.split('@')[0].length <= 64
@@ -35,7 +42,7 @@ const customerMailbox = value => mailbox(value) && value.split('@')[0].length <=
  && !/@bigsoxstudios\.com$/i.test(value);
 export function prepareReply(intent, env) {
  requireThat(replyEnabled(env), 503, 'reply_preflight_rejected');
- requireThat(intent.sender === sender && mailbox(intent.recipient) && (customerReplies(env) ? customerMailbox(intent.recipient) && intent.recipient === env.MAILDESK_CUSTOMER_TEST_RECIPIENT : intent.recipient === owner), 403, 'reply_preflight_rejected');
+ requireThat(intent.sender === sender && mailbox(intent.recipient) && (customerReplies(env) ? customerMailbox(intent.recipient) && (replyPolicy(env) === 'owner-reviewed-customers-v2' || intent.recipient === env.MAILDESK_CUSTOMER_TEST_RECIPIENT) : intent.recipient === owner), 403, 'reply_preflight_rejected');
  requireThat(typeof intent.id === 'string' && /^[a-f0-9-]{36}$/.test(intent.id), 400, 'reply_preflight_rejected');
  // eslint-disable-next-line no-control-regex -- Reject control bytes in outbound email subject.
  requireThat(typeof intent.subject === 'string' && intent.subject.trim().length > 0 && encoder.encode(intent.subject).length <= 998 && !/[\x00-\x1f\x7f]/.test(intent.subject), 400, 'reply_preflight_rejected');

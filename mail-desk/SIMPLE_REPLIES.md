@@ -1,5 +1,8 @@
 # Task 10: one Mail Desk reply flow
 
+Historical predecessor notes. The current unactivated permanent customer increment
+is documented in [the V2 handoff](TASK10_PERMANENT_CUSTOMER_REPLIES.md).
+
 Customer-policy increment against HEAD `5d25d2af803ded4916b5e39512bda2bc691bc4c7`
 (tree `f071893e04fc8d6ef3529096311bfefb11aac535`).
 The earlier owner release notes below describe the preserved owner flow; the final

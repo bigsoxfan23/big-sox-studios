@@ -6,8 +6,9 @@ once. The repository defaults to **simulated sending**, with real sends disabled
 Inbox cases can be genuine inbound email. The UI distinguishes simulation, pending
 activation, provider acceptance, refusal and uncertainty.
 
-[Simple replies: implementation, verification, rollout and rollback](SIMPLE_REPLIES.md)
-is the current Task 10 handoff. The former Owner Canary passkey/campaign workflow is
+[Permanent customer replies: policy, verification and safe release](TASK10_PERMANENT_CUSTOMER_REPLIES.md)
+is the current Task 10 handoff. [Simple replies](SIMPLE_REPLIES.md) preserves
+the predecessor owner and temporary Outlook release history. The former Owner Canary passkey/campaign workflow is
 retired as the proposed sender. PR #27, its terminal UNKNOWN campaign and the dormant
 `worker.outbound.mjs`, `outbound.candidate.mjs` and `resend.future.mjs` experiments
 remain historical and are not activated or imported.
@@ -16,12 +17,13 @@ This source change preserves the existing Email Routing/Gmail ingress, cases,
 drafts, APIs, D1 audit, Notion hooks and five-minute sync. It has not been deployed.
 No customer data, Notion, Access configuration, DNS or public website was changed.
 
-The only proposed real-send activation in this release is support@bigsoxstudios.com
-to fridman.greg@gmail.com on a genuine inbound support test case. It requires all
-explicit activation settings, migration 0005, the owner-only authenticated session,
-a valid Cloudflare Secret, signed session-bound review, CSRF and a manual final
-confirmation. No other aliases or customers are enabled. UNKNOWN attempts are
-permanently locked; idempotency never authorizes a retry.
+The permanent customer mode `owner-reviewed-customers-v2` is implemented but OFF.
+It permits only the literal valid requester of a consistently forwarded support
+case, with manual Review & Send confirmation for each message. The owner-self-v1
+and expiring Outlook-only customer v1 policies remain separate. UNKNOWN attempts
+stay locked; each customer approval expires after ten minutes. See the current
+handoff for exact future activation fields, encrypted-secret prerequisites and
+spoofed-envelope limitations. Existing live Mail Desk is unchanged by local work.
 
 Run offline with Node 22.13+ (tested on 22.22.1):
 
