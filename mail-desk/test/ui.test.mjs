@@ -109,3 +109,49 @@ test('a fresh review restores Send after a definitely refused preflight and canc
  assert.equal(reviews,2);
  assert.equal(d.get('send').disabled,false,'new review must restore actionable Send after definite refusal');
 });
+
+
+test('small-screen inbox switches to selected case and Back without losing draft or sending',async t=>{
+ const f=await fixture(t);await f.session();await f.seed({subject:'Phone test',body:'Inbound'});
+ const d=dom();let scrolling=0;const w={matchMedia:()=>({matches:true}),scrollTo:()=>{scrolling++;}};
+ await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,window:w,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
+ assert.equal(d.get('maildesk-layout').attributes['data-view'],undefined);
+ await d.get('queue').children[0].onclick();
+ assert.equal(d.get('maildesk-layout').attributes['data-view'],'case');
+ d.get('draft').value='Unsent owner draft';
+ d.get('back-inbox').onclick();
+ assert.equal(d.get('maildesk-layout').attributes['data-view'],'inbox');
+ assert.equal(d.get('draft').value,'Unsent owner draft');
+ assert.equal(f.calls(),0);
+ assert.equal(scrolling,2);
+});
+
+test('legacy RFC 2047 encoded subjects display decoded but exact raw storage and review stay unchanged',async t=>{
+ const f=await fixture(t);await f.session();
+ const raw='=?UTF-8?Q?BSS_Task_10_=E2=80=94_caf=C3=A9?=';
+ await f.seed({subject:raw,requester_name:'Owner'});
+ const listed=await (await f.request('/api/cases')).json();
+ assert.equal(listed[0].subject,raw);
+ assert.equal(listed[0].displaySubject,'BSS Task 10 — café');
+ const detail=await (await f.request('/api/cases/'+listed[0].id)).json();
+ assert.equal(detail.subject,raw);
+ assert.equal(detail.displaySubject,'BSS Task 10 — café');
+ const d=dom();await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
+ assert.equal(d.get('queue').children[0].textContent,'BSS Task 10 — café');
+ await d.get('queue').children[0].onclick();
+ assert.equal(d.get('subject').textContent,'BSS Task 10 — café');
+ d.get('draft').value='Owner reply';
+ await d.get('review').onclick();
+ assert.match(d.get('envelope').textContent,/Subject: =\?UTF-8\?Q\?BSS_Task_10_/);
+ assert.equal(f.calls(),0);
+});
+
+test('mobile layout hides inactive pane but keeps desktop two-column access',()=>{
+ assert.match(html,/id="maildesk-layout" data-view="inbox"/);
+ assert.match(html,/id="back-inbox"/);
+ assert.match(css,/main\[data-view="inbox"\] #detail\s*\{\s*display:none;/);
+ assert.match(css,/main\[data-view="case"\] aside\s*\{\s*display:none;/);
+ assert.match(css,/#back-inbox\s*\{\s*display:inline-flex;/);
+ assert.match(css,/@media \(min-width:800px\)/);
+ assert.doesNotMatch(script,/innerHTML|outerHTML|insertAdjacentHTML/);
+});

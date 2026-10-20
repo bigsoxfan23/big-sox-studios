@@ -193,3 +193,29 @@ failure. Running the unchanged behavioral suite with
 passed **709/709**; Owner Canary syntax and UI bundle checks passed. No historical
 manifest or Owner Canary file was modified. Independent review is still pending;
 these results are offline evidence, not live-send acceptance.
+
+## Mobile inbox and legacy subject polish
+
+On narrow screens the Mail Desk initially shows the Inbox; selecting a case switches
+to a focused thread/reply view with a Back to inbox control. This is a client-side
+view change, not a new route/session or permission. Unsent text remains in the
+open case until another case is selected; drafts are persisted only by Review reply.
+Desktop continues the two-pane inbox/thread layout. The reviewed exact recipient,
+subject and body remain the final authority before Send.
+
+Old imported subject lines containing RFC 2047 encoded words are decoded only
+for display on authenticated list/detail reads. Stored originals, Notion IDs,
+email threading, approval digests and outbound subject values are unchanged.
+For historical cases, the final Review reply subject may retain encoded words;
+never silently replace the signed outbound subject. No database backfill was run.
+
+## Customer replies: release gate (NOT enabled)
+
+Keep owner Gmail as the only allowed recipient until a separate focused security
+review and owner-directed rollout. Before opening customer recipients, verify the
+case is linked to real forwarded inbound support email, confirm the reply target
+through a trustworthy owner review (inbound From alone can be spoofed), maintain
+Access owner MFA+CSRF+immutable preview+at-most-once CAS, require per-reply human
+confirmation, and prove delivery/error states in an isolated allowlisted test.
+Do not broadly allow customer domains, auto-reply, silently retry UNKNOWN, or
+modify the original Owner Canary permanent UNKNOWN record.

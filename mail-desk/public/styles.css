@@ -2,3 +2,25 @@
 * { box-sizing:border-box; } body { margin:0; overflow-wrap:anywhere; } header { display:flex; align-items:center; gap:14px; padding:24px max(20px,4vw); border-bottom:1px solid #17202b22; } h1,h2,h3,p { margin:0 0 12px; } h1 { font:600 28px/1.2 Georgia,serif; margin:0; } h2 { font:600 24px/1.3 Georgia,serif; } .eyebrow { font-size:11px; letter-spacing:.15em; } .badge { margin-left:auto; border:1px solid #17202b33; border-radius:20px; padding:5px 12px; font-size:12px; } .notice { padding:12px 20px; background:#d9770614; font-size:13px; border-bottom:1px solid #d9770644; } main { display:grid; grid-template-columns:1fr; max-width:1280px; margin:auto; } aside, #detail { min-width:0; padding:24px 20px; } aside { border-bottom:1px solid #17202b22; } #queue { max-height:38vh; overflow-y:auto; } #envelope { white-space:pre-wrap; } .section-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; } .muted { color:#54606a; font-size:14px; } button { font:inherit; cursor:pointer; padding:10px 16px; border:1px solid var(--navy); border-radius:8px; color:var(--cream); background:var(--navy); min-height:44px; } button:hover { background:#344354; } button:focus-visible,textarea:focus-visible { outline:3px solid var(--orange); outline-offset:3px; } button:disabled { opacity:.55; cursor:wait; } .secondary,#refresh { background:transparent; color:var(--navy); } .queue-item { display:block; width:100%; text-align:left; margin:10px 0; background:#fff9; color:var(--navy); border:1px solid #17202b22; overflow-wrap:anywhere; } .queue-item:hover { background:#d9770615; } .queue-item[aria-current=true] { border-color:var(--orange); } .queue-item small { display:block; color:#54606a; } label { display:block; margin-bottom:8px; } textarea { width:100%; font:inherit; padding:14px; resize:vertical; border:1px solid #17202b55; border-radius:8px; background:#fff9; color:var(--navy); } .message { padding:16px; margin:16px 0; background:#fff9; border:1px solid #17202b22; border-radius:10px; } pre,.message p { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; } .actions { margin:16px 0; } #approval { border:1px solid var(--orange); padding:16px; border-radius:10px; } #approval button { margin:4px; } #status { padding:12px 20px; overflow-wrap:anywhere; } .empty { padding:40px 0; } #deliveries p { font-size:14px; overflow-wrap:anywhere; }
 @media (min-width:800px) { #queue { max-height:65vh; } main { grid-template-columns:320px minmax(0,1fr); } aside { border-right:1px solid #17202b22; border-bottom:0; min-height:75vh; } #detail { padding:32px; } }
 @media (max-width:420px) { header { padding:18px 16px; gap:10px; flex-wrap:wrap; } .badge { font-size:11px; } aside,#detail { padding:20px 16px; } h1 { font-size:24px; } }
+
+/* Simple phone inbox/detail view: selecting a case focuses the thread. Desktop retains both panes. */
+#back-inbox { display:none; }
+@media (max-width:799px) {
+ main[data-view="inbox"] #detail { display:none; }
+ main[data-view="case"] aside { display:none; }
+ main[data-view="case"] #detail { padding-top:12px; }
+ #back-inbox { display:inline-flex; align-items:center; justify-content:center; margin:0 0 16px; width:auto; min-height:44px; }
+ header { padding:14px 16px; gap:10px; }
+ header img { width:40px; height:40px; border-radius:10px; }
+ .badge { font-size:11px; margin-left:auto; }
+ .notice { padding:10px 16px; font-size:12px; line-height:1.45; }
+ aside { padding:16px; }
+ #queue { max-height:calc(100svh - 290px); overflow-y:auto; min-height:180px; }
+ .queue-item { margin:7px 0; padding:12px 14px; line-height:1.45; }
+ #detail { padding:16px; }
+ #detail .message { padding:12px; margin:12px 0; }
+ #draft { min-height:140px; height:26svh; max-height:260px; }
+ #approval { padding:12px; }
+ #approval button { margin:4px 3px 4px 0; }
+}
+@media (max-width:420px) { header { gap:8px; } .badge { padding:4px 8px; } }
