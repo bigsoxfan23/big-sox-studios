@@ -156,7 +156,7 @@ test('mobile layout hides inactive pane but keeps desktop two-column access',()=
  assert.doesNotMatch(script,/innerHTML|outerHTML|insertAdjacentHTML/);
 });
 
-for (const policy of ['owner-self-v1','owner-reviewed-customers-v1']) test(`live UI ${policy} copy, exact destination confirmation and lost response no retry`,async()=>{
+for (const policy of ['owner-self-v1','owner-reviewed-customers-v1','owner-reviewed-customers-v2']) test(`live UI ${policy} copy, exact destination confirmation and lost response no retry`,async()=>{
  const d=dom();let confirms=0,sends=0,confirmation;
  const c={id:crypto.randomUUID(),subject:'Exact subject <b>inert</b>',requester_name:'Requester',requester_email:'Customer@example.test',channel:'support',revision:0,draft:'Exact body <script>inert</script>',messages:[],deliveries:[]};
  const fetcher=async(path)=>{
@@ -169,9 +169,10 @@ for (const policy of ['owner-self-v1','owner-reviewed-customers-v1']) test(`live
  };
  await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:text=>{confirms++;confirmation=text;return true;}},document:d.document,fetch:fetcher});
  assert.match(d.get('mode-notice').textContent,policy==='owner-self-v1'?/owner Gmail only/:/Envelope sender can be spoofed/);
+ if(policy!=='owner-self-v1')assert.match(d.get('mode-notice').textContent,/Manual Review & Send confirmation required for every message/);
  await d.get('queue').children[0].onclick();await d.get('review').onclick();
  assert.equal(d.get('preview').textContent,c.draft);assert.ok(d.get('envelope').textContent.includes(c.subject));
- if(policy==='owner-reviewed-customers-v1')assert.match(d.get('review-note').textContent,/Envelope sender can be spoofed/);
+ if(policy!=='owner-self-v1')assert.match(d.get('review-note').textContent,/Envelope sender can be spoofed/);
  await d.get('send').onclick();await d.get('send').onclick();
  assert.equal(confirmation,`Send this exact reviewed reply to ${c.requester_email} now?`);
  assert.equal(confirms,1);assert.equal(sends,1);assert.match(d.get('status').textContent,/never retry/);
