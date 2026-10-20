@@ -1,6 +1,9 @@
 # Task 10: one Mail Desk reply flow
 
-Local implementation against `0da21986c227b43f6ead354f4dc2d270244c7cd2`.
+Customer-policy increment against HEAD `5d25d2af803ded4916b5e39512bda2bc691bc4c7`
+(tree `f071893e04fc8d6ef3529096311bfefb11aac535`).
+The earlier owner release notes below describe the preserved owner flow; the final
+customer section describes this local, unactivated increment.
 No deployment, live D1 migration, Cloudflare session, provider call, email, Notion write,
 Access/DNS edit, commit, push, or PR change was performed. PR #27 and the historical
 Owner Canary campaign (including terminal UNKNOWN) remain untouched.
@@ -20,13 +23,14 @@ contract is invented here.
 
 ## Safety and state
 
-The real adapter permits only support@bigsoxstudios.com → fridman.greg@gmail.com.
+The preserved `owner-self-v1` adapter policy permits only
+support@bigsoxstudios.com → fridman.greg@gmail.com.
 It requires a support case with forwarded inbound receipt/message linkage and no
 synthetic intake marker. Linkage is not proof of sender authentication: this is safe
-only for the fixed owner canary destination. Customer replies, other aliases,
-production deployment stage, broader recipient lists, Reply-To, CC/BCC, attachments,
-HTML and threading headers are outside this release. Customer expansion needs a
-separate owner decision and independent recipient/provenance review.
+only for the fixed owner canary destination. Customer replies use the separately gated policy documented below. Other aliases,
+production deployment stage, broader owner recipient lists, Reply-To, CC/BCC,
+attachments, HTML and threading headers remain unsupported. Customer activation
+needs a separate owner decision and independent recipient/provenance review.
 
 Session-bound CSRF, signed exact snapshot (including mode), database rate limits,
 unique case/revision and atomic compare-and-set remain. Migration 0005 adds only a
@@ -121,8 +125,8 @@ idempotency retention is limited; the permanent D1 claim provides our no-retry r
 5. Review and deploy the same worker with exactly `SEND_MODE="live"`,
    `ALLOW_REAL_SEND="true"`, `MAILDESK_REPLY_ACTIVATION="owner-self-v1"`, staging
    stage, the exact one-entry recipient list above and owner email equal to that
-   Gmail address. Preserve all other working configuration and resources. No
-   production stage or customer recipient is enabled by this implementation.
+   Gmail address. Preserve all other working configuration and resources. This
+   owner activation cannot enable customer recipients or a production stage.
 6. The **owner** sends a legitimate inbound test email from that Gmail to support,
    opens its resulting support case on the existing desk, types the test reply,
    reviews the displayed recipient/subject/body, clicks Send reply and confirms.
@@ -209,13 +213,63 @@ email threading, approval digests and outbound subject values are unchanged.
 For historical cases, the final Review reply subject may retain encoded words;
 never silently replace the signed outbound subject. No database backfill was run.
 
-## Customer replies: release gate (NOT enabled)
+## Customer replies: local implementation, activation OFF
 
-Keep owner Gmail as the only allowed recipient until a separate focused security
-review and owner-directed rollout. Before opening customer recipients, verify the
-case is linked to real forwarded inbound support email, confirm the reply target
-through a trustworthy owner review (inbound From alone can be spoofed), maintain
-Access owner MFA+CSRF+immutable preview+at-most-once CAS, require per-reply human
-confirmation, and prove delivery/error states in an isolated allowlisted test.
-Do not broadly allow customer domains, auto-reply, silently retry UNKNOWN, or
-modify the original Owner Canary permanent UNKNOWN record.
+The owner-self-v1 path and its exact Gmail allowlist are preserved. Existing live
+settings cannot activate customer recipients. This increment makes no deployment,
+D1/schema change, migration, secret read, live HTTP call, email, commit or push.
+Inbound forwarding, scheduled Notion sync and Access remain unchanged.
+
+The separate policy requires **all** of the following exact settings:
+
+- `MAILDESK_CUSTOMER_REPLIES="enabled"`
+- `MAILDESK_REPLY_ACTIVATION="owner-reviewed-customers-v1"`
+- `MAILDESK_CUSTOMER_RECIPIENT_POLICY="exact-forwarded-requester-v1"`
+- Existing base gates: staging, SEND_MODE live, ALLOW_REAL_SEND true, exact owner
+  email, valid-shaped Resend key and the unchanged one-entry owner Gmail allowlist.
+
+Repository customer flags are explicitly `off`. Do not expand the owner allowlist.
+Do not deploy the repository placeholder configuration over working live settings.
+Any later source-only deployment must retain owner-self-v1 and customer flags OFF.
+Customer activation remains a separate owner-directed action after independent
+review of code, offline evidence and the actual release configuration. No such
+activation or deployment is authorized by this local increment. Existing free
+resources only; $0 spend.
+
+At review and immediately before dispatch, the case must be support, its current
+requester must equal the immutable intent recipient exactly, and it must have no
+synthetic marker. Every incoming message must have receipt linkage. Every receipt
+associated with the case or its messages must link to an inbound message in that
+same case, target support@bigsoxstudios.com exactly, have forward_state forwarded,
+and have envelope_from equal to that one exact requester. Missing, ambiguous,
+cross-case, unforwarded and UNKNOWN evidence fails closed. The same evidence
+predicate is inside the durable atomic dispatch claim, closing the gap between
+preflight reads and the claim. There is no new D1 schema.
+
+Envelope From CAN BE SPOOFED. Forwarding and receipt linkage do not authenticate
+a sender or prove mailbox control. Header From and Reply-To cannot redirect the
+reply. The owner must inspect the exact displayed To/subject/body and confirm the
+To mailbox. The UI warns about spoofing and uses one normal confirmation containing
+the exact destination. It uses textContent for untrusted text. Owner mode retains
+the owner Gmail-only notice. Obvious postmaster, mailer-daemon, no-reply and own
+studio-domain loop destinations, malformed mailboxes and header injection fail.
+
+Customer reviews use a separate signed approval context; an owner review cannot
+become a customer send when settings change, and vice versa. Existing immutable
+mock/live mode rows and triggers are unchanged. The frozen transport capability is
+also bound to the policy. Each reply retains the same exact immutable snapshot,
+ten-minute expiry, CSRF/session binding, one durable CAS, bounded single provider
+attempt and permanent no-retry UNKNOWN handling. Provider acceptance does not
+prove delivery. Disabling customer gates closes new sends; it cannot recall an
+already started request. Never reset or retry an uncertain attempt.
+
+Local evidence: dependencies installed with
+`npm ci --prefix mail-desk --offline --ignore-scripts`; all network/provider
+exchanges in tests are mocked. Final `npm test --prefix mail-desk`: **600/600
+passed** (59 added security/UI tests, existing owner regression suite included).
+`npm run check --prefix mail-desk`, explicit customer-test syntax check and
+`git diff --check` passed. The suite also checks evidence changes after preflight,
+immutable mock modes, policy signature separation, multiple consistent receipts,
+concurrency and terminal UNKNOWN. No implementation blocker remains. Independent
+review and any future owner-directed activation remain pending. These results do
+not establish real delivery or sender authentication.

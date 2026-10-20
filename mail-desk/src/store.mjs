@@ -34,12 +34,32 @@ export async function reserveReview(db, id, revision, session) {
  requireThat(intent && intent.session_hash === session && intent.status === 'reserved' && intent.approval_expires > time, 409, 'review_conflict');
  await audit(db, 'reviewed', id, intent.id); return intent;
 }
-export async function claimSend(db, intent) {
+// Every receipt and every inbound message must have consistent forwarded linkage.
+// Shared by preflight and the atomic dispatch claim; no schema or sender-auth claim.
+const customerEvidence = `c.channel='support'
+ AND NOT EXISTS(SELECT 1 FROM inbound_dedupe d WHERE d.case_id=c.id)
+ AND EXISTS(SELECT 1 FROM messages m WHERE m.case_id=c.id AND m.direction='inbound')
+ AND NOT EXISTS(SELECT 1 FROM email_receipts r
+  LEFT JOIN email_receipt_messages rm ON rm.receipt_key=r.receipt_key
+  LEFT JOIN messages m ON m.id=rm.message_id
+  WHERE (r.case_id=c.id OR m.case_id=c.id) AND
+   (r.case_id<>c.id OR m.case_id IS NOT c.id OR m.direction IS NOT 'inbound'
+    OR r.envelope_from IS NOT c.requester_email OR r.envelope_to IS NOT 'support@bigsoxstudios.com'
+    OR r.forward_state IS NOT 'forwarded'))
+ AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.case_id=c.id AND m.direction='inbound'
+  AND NOT EXISTS(SELECT 1 FROM email_receipt_messages rm JOIN email_receipts r ON r.receipt_key=rm.receipt_key
+   WHERE rm.message_id=m.id AND r.case_id=c.id))`;
+export async function requireCustomerInbound(db, intent) {
+ const row = await stmt(db, `SELECT c.id FROM cases c WHERE c.id=? AND c.requester_email=? AND ${customerEvidence}`, intent.case_id, intent.recipient).first();
+ requireThat(row, 403, 'reply_inbound_required');
+}
+export async function claimSend(db, intent, customer = false) {
  const time = now();
  // One atomic compare-and-set: concurrent requests and old reviews cannot dispatch.
  return stmt(db, `UPDATE outbound_intents SET status='dispatching',updated_at=? WHERE id=? AND status='reserved'
  AND case_id=? AND revision=? AND recipient=? AND sender=? AND subject=? AND body=? AND session_hash=? AND approval_expires=?
  AND approval_expires>? AND EXISTS(SELECT 1 FROM cases c WHERE c.id=outbound_intents.case_id AND c.revision=outbound_intents.revision
+ AND ${customer ? customerEvidence : '1=1'}
  AND c.requester_email=outbound_intents.recipient AND c.subject=outbound_intents.subject AND c.draft=outbound_intents.body
  AND outbound_intents.sender=CASE c.channel WHEN 'members' THEN 'members@bigsoxstudios.com' WHEN 'support' THEN 'support@bigsoxstudios.com' WHEN 'hello' THEN 'hello@bigsoxstudios.com' END)
  AND NOT EXISTS(SELECT 1 FROM outbound_intents o WHERE o.case_id=outbound_intents.case_id AND o.id<>outbound_intents.id AND o.status IN ('dispatching','UNKNOWN')) RETURNING *`, time, intent.id, intent.case_id, intent.revision, intent.recipient, intent.sender, intent.subject, intent.body, intent.session_hash, intent.approval_expires, time).first();
