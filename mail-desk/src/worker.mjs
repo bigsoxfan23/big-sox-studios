@@ -1,5 +1,6 @@
 import { authenticate, HttpError, requireThat, protectPost, sessionProof, readJson, mac, verifyMac, digest } from './security.mjs';
 import { stmt, audit, rateLimit, getCase, saveDraft, reserveReview, claimSend, finalize, now } from './store.mjs';
+import { email } from './inbound.mjs';
 import { stagingProvider } from './providers.mjs';
 const headers = {
  'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
@@ -10,7 +11,7 @@ const json = (value, status = 200, extra = {}) => new Response(JSON.stringify(va
 const approvalValue = i => JSON.stringify([i.id,i.case_id,i.revision,i.recipient,i.sender,i.subject,i.body,i.session_hash,i.approval_expires]);
 const publicIntent = i => ({ id: i.id, caseId: i.case_id, revision: i.revision, to: i.recipient, from: i.sender, subject: i.subject, body: i.body, status: i.status, expires: i.approval_expires });
 export function createWorker({ fetcher = fetch, provider } = {}) {
- return { async fetch(request, env) {
+ return { email, async fetch(request, env) {
   let authed = false;
   try {
    // Authentication also covers unknown routes, assets, errors, and unsupported methods.
@@ -26,6 +27,13 @@ export function createWorker({ fetcher = fetch, provider } = {}) {
    if (request.method === 'GET' && url.pathname === '/api/session') {
     const session = await sessionProof(request, env, auth, true);
     return json({ csrf: session.csrf, sendMode: env.SEND_MODE === 'mock' ? 'mock' : 'disabled', notionSync: 'off', acceptance: 'pending owner Access and MFA review' }, 200, { 'Set-Cookie': session.cookie });
+   }
+   if (request.method === 'GET' && url.pathname === '/api/inbound-status') {
+    // Task9 staging may still have only 0001: absence is explicit, never a zero count.
+    const schema = await stmt(env.DB, "SELECT name FROM sqlite_master WHERE type='table' AND name='email_receipts'").first();
+    if (!schema) return json({ available: false, unresolved: null });
+    const row = await stmt(env.DB, "SELECT COUNT(*) AS count FROM email_receipts WHERE forward_state IN ('claimed','UNKNOWN')").first();
+    return json({ available: true, unresolved: row.count });
    }
    if (request.method === 'GET' && url.pathname === '/api/cases') {
     return json((await stmt(env.DB, `SELECT id,channel,subject,requester_name,updated_at FROM cases ORDER BY updated_at DESC LIMIT 100`).all()).results);

@@ -1,10 +1,13 @@
 # Big Sox Studios · Mail Desk staging
 
+Task 10 adds a **disabled-by-default** Email Routing handler, additive inbound/link migration and offline adapter models. Staging still has no inbound enable flag, live send path or Notion transport. See [Task 10 handoff and activation checklist](TASK10_HANDOFF.md) for current behavior, failure tradeoffs and deferred gates. The Task 9 description below is historical where superseded by this handoff.
+
 Isolated review build for Task #9. No Worker deployment, DNS, mail routes, inbound HTTP handler, public form, real mail, or live Notion integration. One isolated Cloudflare Free D1 database exists but remains empty pending migration approval. The staging entry point imports only a mock provider. Merely changing environment flags cannot activate Resend. No auto acknowledgements exist.
 
-Run with Node 22.13+ (tested on 22.22.1), without installing dependencies:
+Run with Node 22.13+ (tested on 22.22.1); Task 10 adds a locally pinned MIME dependency:
 
 ```sh
+npm ci --prefix mail-desk --ignore-scripts --no-audit --no-fund
 npm test --prefix mail-desk
 npm run check --prefix mail-desk
 ```

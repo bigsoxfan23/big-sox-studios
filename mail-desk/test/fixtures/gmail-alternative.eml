@@ -1,0 +1,17 @@
+From: Person <person@example.test>
+To: support@bigsoxstudios.com
+Subject: Membership question
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="gmail_fixture"
+
+--gmail_fixture
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello studio,=0AIs the caf=C3=A9 open?=0AThanks!
+--gmail_fixture
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><script>HTML_SECRET</script><body>HTML_ONLY</body></html>
+--gmail_fixture--

@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install pinned Mail Desk dependencies
+        run: npm ci --prefix mail-desk
       - name: Mail Desk Worker and D1 tests
         run: npm test --prefix mail-desk
       - name: JavaScript syntax checks
