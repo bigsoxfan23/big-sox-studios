@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './helpers.mjs';
 import { OfflineNotion, offlineUpsert, DATA_SOURCE, ACTIVITY_SOURCE, runMockSync } from '../src/notion.mjs';
-import { resendFuture } from '../src/resend.future.mjs';
+import { resendFuture, rehearseResend } from '../src/resend.future.mjs';
 const mockEnv={NOTION_SYNC_MODE:'mock'};
 async function setup(t) {
  const f=await fixture(t),id=await f.seed();const c=f.DB.sqlite.prepare('SELECT * FROM cases').get();const job={case_id:id,kind:'case_created'};
@@ -42,24 +42,24 @@ test('mock delivery executor receives only lifecycle-preserving patch',async t=>
  const {f,c}=await setup(t);await f.session();await f.send(c.id,await f.review(c.id));const plans=[];await runMockSync(f.DB,mockEnv,async p=>plans.push(p));
  assert.deepEqual(Object.keys(plans[1].properties),['Reply State']);assert.equal(plans[1].externalCaseId,c.id);assert.equal(plans[1].data_source_id,DATA_SOURCE);
 });
-const live={DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'offline-placeholder'};
+const live={DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'offline-placeholder',OUTBOUND_SENDER_ALLOWLIST:JSON.stringify(['support@bigsoxstudios.com']),OUTBOUND_RECIPIENT_ALLOWLIST:JSON.stringify(['person@example.test'])};
 const intent=()=>({id:crypto.randomUUID(),sender:'support@bigsoxstudios.com',recipient:'person@example.test',subject:'Re: test',body:'Human reviewed text',inReplyTo:'<parent@example.test>',references:['<root@example.test>']});
 const approval=i=>({...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60});
-test('future Resend uses manual redirects, locked plain text envelope, official key and reply metadata',async()=>{
- const i=intent();let calls=0;const result=await resendFuture(i,live,async(url,init)=>{calls++;assert.equal(init.redirect,'manual');assert.equal(init.headers['Idempotency-Key'],i.id);
- assert.deepEqual(JSON.parse(init.body),{from:i.sender,to:[i.recipient],subject:i.subject,text:i.body,headers:{'In-Reply-To':i.inReplyTo,References:'<root@example.test> <parent@example.test>'}});return Response.json({id:'stub'});},approval(i));assert.equal(result.status,'sent');assert.equal(calls,1);
+test('offline Resend rehearsal uses manual redirects, locked plain text envelope, official key and reply metadata',async()=>{
+ const i=intent();let calls=0;const result=await rehearseResend(i,live,async(url,init)=>{calls++;assert.equal(init.redirect,'manual');assert.equal(init.headers['Idempotency-Key'],i.id);
+ assert.deepEqual(JSON.parse(init.body),{from:i.sender,to:[i.recipient],subject:i.subject,text:i.body,headers:{'In-Reply-To':i.inReplyTo,References:'<root@example.test> <parent@example.test>'}});return Response.json({id:'stub'});});assert.equal(result.status,'sent');assert.equal(calls,1);
 });
 test('future Resend rejects missing/expired/unreviewed or mismatched approval before fetch',async()=>{
  const i=intent();let calls=0;const fetcher=async()=>{calls++;return Response.json({id:'stub'});};
  for(const a of [undefined,{...approval(i),humanApproved:false},{...approval(i),expires:undefined},{...approval(i),expires:0},{...approval(i),status:'UNKNOWN'}, {...approval(i),recipient:'other@example.test'}, {...approval(i),sender:'hello@bigsoxstudios.com'}, {...approval(i),body:'changed'}, {...approval(i),inReplyTo:'<forged@example.test>'}]) await assert.rejects(resendFuture(i,live,fetcher,a),/approval_required/);
  assert.equal(calls,0);
 });
-test('future Resend validates senders, single recipients and thread header injection',async()=>{
+test('offline Resend rehearsal validates senders, single recipients and thread header injection',async()=>{
  for(const change of [{sender:'SUPPORT@bigsoxstudios.com'},{sender:'support@evil.test'},{recipient:'a@example.test,b@example.test'},{recipient:'a@example.test\r\nBcc: b@example.test'},{inReplyTo:'<a@example.test>\r\nBcc: bad'}, {references:['invalid']},{subject:'bad\r\nX: injection'}]) {
-  const i={...intent(),...change};await assert.rejects(resendFuture(i,live,()=>{throw Error('unexpected fetch');},approval(i)),/invalid_/);
+  const i={...intent(),...change};await assert.rejects(rehearseResend(i,live,()=>{throw Error('unexpected fetch');}),/invalid_/);
  }
 });
-test('future Resend redirects and ambiguous outcomes return UNKNOWN after one attempt',async()=>{
- const i=intent();for(const status of [301,302,303,307,308,409,429,500]) {let calls=0;assert.equal((await resendFuture(i,live,async()=>{calls++;return new Response(null,{status,headers:{Location:'https://evil.example.test'}});},approval(i))).status,'UNKNOWN');assert.equal(calls,1);}
- for(const status of [400,401,403,404,422]) assert.equal((await resendFuture(i,live,async()=>new Response(null,{status}),approval(i))).status,'failed');
+test('offline Resend rehearsal redirects and ambiguous outcomes return UNKNOWN after one attempt',async()=>{
+ const i=intent();for(const status of [301,302,303,307,308,409,429,500]) {let calls=0;assert.equal((await rehearseResend(i,live,async()=>{calls++;return new Response(null,{status,headers:{Location:'https://evil.example.test'}});})).status,'UNKNOWN');assert.equal(calls,1);}
+ for(const status of [400,401,403,404,422]) assert.equal((await rehearseResend(i,live,async()=>new Response(null,{status}))).status,'failed');
 });

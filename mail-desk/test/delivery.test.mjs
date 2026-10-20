@@ -4,7 +4,7 @@ import { fixture, input } from './helpers.mjs';
 import { syntheticIntake } from '../src/intake.synthetic.mjs';
 import { recoverUncertain, now } from '../src/store.mjs';
 import { runMockSync, mapNotion, DATA_SOURCE, ACTIVITY_SOURCE, NOTION_VERSION } from '../src/notion.mjs';
-import { resendFuture } from '../src/resend.future.mjs';
+import { resendFuture, rehearseResend } from '../src/resend.future.mjs';
 
 test('duplicate and concurrent inbound creates exactly one opaque case and message',async t=>{
  const f=await fixture(t);const ids=await Promise.all(Array.from({length:10},()=>syntheticIntake(f.DB,input())));
@@ -19,12 +19,12 @@ test('loading, composing and reviewing never calls provider; send without approv
  const intent=f.DB.sqlite.prepare('SELECT * FROM outbound_intents').get();assert.equal(intent.status,'reserved');assert.equal(intent.sender,'members@bigsoxstudios.com');assert.equal(intent.recipient,'person@example.test');
 });
 test('duplicate and concurrent Send invokes provider once and persists all sent effects',async t=>{
- let unblock;const gate=new Promise(resolve=>{unblock=resolve;});const f=await fixture(t,{provider:async i=>{await gate;return {status:'sent',id:`mock-${i.id}`};}});
+ const f=await fixture(t,{simulation:{hold:true}});
  await f.session();const id=await f.seed();const r=await f.review(id);
  const requests=Array.from({length:12},()=>f.send(id,r));
  // Release after one dispatch entered the provider; keep concurrent claims overlapping.
  while(f.calls()===0) await new Promise(resolve=>setTimeout(resolve,1));
- assert.equal(f.DB.sqlite.prepare('SELECT status FROM outbound_intents').get().status,'dispatching');unblock();
+ assert.equal(f.DB.sqlite.prepare('SELECT status FROM outbound_intents').get().status,'dispatching');f.release();
  const responses=await Promise.all(requests);assert.ok(responses.every(x=>x.status===200));assert.equal(f.calls(),1);
  assert.equal((await (await f.send(id,r)).json()).status,'sent');assert.equal(f.calls(),1);
  assert.equal(f.DB.sqlite.prepare('SELECT count(*) n FROM messages WHERE direction=\'outbound\'').get().n,1);
@@ -47,16 +47,16 @@ test('recipient, sender and body changes invalidate signed approval',async t=>{
  const f=await fixture(t);await f.session();const id=await f.seed();const r=await f.review(id);f.DB.sqlite.prepare("UPDATE outbound_intents SET recipient='evil@example.test'").run();
  assert.equal((await f.send(id,r)).status,403);assert.equal(f.calls(),0);
 });
-for(const [label,provider] of [['timeout',async()=>{throw new DOMException('Synthetic timeout','TimeoutError');}],['ambiguous response',async()=>({})],['explicit uncertainty',async()=>({status:'UNKNOWN'})]]) {
+for(const [label,outcome] of [['timeout','throw'],['ambiguous response','invalid'],['explicit uncertainty','UNKNOWN']]) {
  test(`${label} persists UNKNOWN and never retries, including new drafts`,async t=>{
-  const f=await fixture(t,{provider});await f.session();const id=await f.seed();const r=await f.review(id);
+  const f=await fixture(t,{simulation:{outcome}});await f.session();const id=await f.seed();const r=await f.review(id);
   assert.equal((await (await f.send(id,r)).json()).status,'UNKNOWN');await f.send(id,r);assert.equal(f.calls(),1);
   assert.equal((await f.request(`/api/cases/${id}/draft`,{revision:r.revision,body:'try again'})).status,409);
   assert.equal((await f.request(`/api/cases/${id}/review`,{revision:r.revision})).status,409);await recoverUncertain(f.DB,now()+1);assert.equal(f.calls(),1);
   assert.equal(f.DB.sqlite.prepare('SELECT count(*) n FROM sync_jobs').get().n,1);
  });
 }
-test('failed intent is terminal for that revision and is not retried',async t=>{const f=await fixture(t,{provider:async()=>({status:'failed'})});await f.session();const id=await f.seed();const r=await f.review(id);assert.equal((await (await f.send(id,r)).json()).status,'failed');await f.send(id,r);assert.equal(f.calls(),1);});
+test('failed intent is terminal for that revision and is not retried',async t=>{const f=await fixture(t,{simulation:{outcome:'failed'}});await f.session();const id=await f.seed();const r=await f.review(id);assert.equal((await (await f.send(id,r)).json()).status,'failed');await f.send(id,r);assert.equal(f.calls(),1);});
 test('crash after dispatch claim never reclaims; offline recovery marks UNKNOWN',async t=>{
  const f=await fixture(t);await f.session();const id=await f.seed();const r=await f.review(id);
  f.DB.sqlite.prepare("UPDATE outbound_intents SET status='dispatching',updated_at=?").run(now()-1000);
@@ -98,15 +98,15 @@ test('future Resend adapter requires independent flags and never fetches in stag
  for(const env of [{},{DEPLOYMENT_STAGE:'staging',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'synthetic-placeholder'},{DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'false',RESEND_API_KEY:'synthetic-placeholder'}]) await assert.rejects(resendFuture(i,env,fetcher),/live_send_forbidden/);
  assert.equal(calls,0);
 });
-test('future adapter uses official stable idempotency key; ambiguous errors UNKNOWN',async()=>{
- const i={id:crypto.randomUUID(),sender:'hello@bigsoxstudios.com',recipient:'person@example.test',subject:'test',body:'<untrusted>'};const env={DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'synthetic-placeholder'};
- const result=await resendFuture(i,env,async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(init.headers['Idempotency-Key'],i.id);assert.equal(init.headers['Resend-Idempotency-Key'],i.id);assert.equal(JSON.parse(init.body).text,'<untrusted>');assert.ok(!('html' in JSON.parse(init.body)));return Response.json({id:'synthetic-provider-id'});}, {...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60});assert.equal(result.status,'sent');
- for(const response of [new Response('',{status:500}),new Response('',{status:429}),Response.json({}),new Response('invalid json')]) assert.equal((await resendFuture(i,env,async()=>response,{...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60})).status,'UNKNOWN');
- assert.equal((await resendFuture(i,env,async()=>{throw Error('timeout');},{...i,humanApproved:true,status:'dispatching',expires:Date.now()/1000+60})).status,'UNKNOWN');
+test('offline wire rehearsal uses official stable idempotency key; ambiguous errors UNKNOWN',async()=>{
+ const i={id:crypto.randomUUID(),sender:'hello@bigsoxstudios.com',recipient:'person@example.test',subject:'test',body:'<untrusted>'};const env={DEPLOYMENT_STAGE:'production',SEND_MODE:'live',ALLOW_REAL_SEND:'true',RESEND_API_KEY:'offline-placeholder',OUTBOUND_SENDER_ALLOWLIST:JSON.stringify(['hello@bigsoxstudios.com']),OUTBOUND_RECIPIENT_ALLOWLIST:JSON.stringify(['person@example.test'])};
+ const result=await rehearseResend(i,env,async(url,init)=>{assert.equal(url,'https://api.resend.com/emails');assert.equal(init.headers['Idempotency-Key'],i.id);assert.equal(init.headers['Resend-Idempotency-Key'],i.id);assert.equal(JSON.parse(init.body).text,'<untrusted>');assert.ok(!('html' in JSON.parse(init.body)));return Response.json({id:'synthetic-provider-id'});});assert.equal(result.status,'sent');
+ for(const response of [new Response('',{status:500}),new Response('',{status:429}),Response.json({}),new Response('invalid json')]) assert.equal((await rehearseResend(i,env,async()=>response)).status,'UNKNOWN');
+ assert.equal((await rehearseResend(i,env,async()=>{throw Error('timeout');})).status,'UNKNOWN');
 });
 test('actual unresolved dispatch hits watchdog, becomes UNKNOWN, and is never retried',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
- const f=await fixture(t,{provider:()=>new Promise(()=>{})});await f.session();const id=await f.seed();const r=await f.review(id);
+ const f=await fixture(t,{simulation:{hold:true}});await f.session();const id=await f.seed();const r=await f.review(id);
  const pending=f.send(id,r);while(f.calls()===0) await new Promise(resolve=>setImmediate(resolve));
  // Let the Promise.race timeout register after the provider callback.
  await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(10000);
