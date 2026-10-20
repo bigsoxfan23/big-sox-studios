@@ -1,10 +1,19 @@
+> Current sender release candidate: [SENDER-RELEASE.md](SENDER-RELEASE.md).
+> Exact owner chat consent is now source-owned and production dispatch is gated
+> by that exact configuration plus two fresh native WebAuthn proofs. This run
+> made code/test/doc changes only; it did not deploy or send. The sections below
+> are historical evidence and may describe superseded disabled/null gates.
+
 # Task 10 isolated owner canary candidate — offline, no deployment
 
-This is a separate service candidate on exact PR #25 base
-`ceb08a8351349f66d0fbe92ca1c4adc00d7d6e6e`. It implements one direct owner message,
+See [WEBAUTHN.md](WEBAUTHN.md) for the additive enrollment/stepup implementation, verification results and remaining owner/release gates. The public credential pin is immutable and owner-confirmed; current exact consent and release behavior are documented in SENDER-RELEASE.md. Enrollment does not authorize email. The historical sections below describe the preceding UI/policy candidates.
+
+This UI continuation is isolated on branch
+`feature/studio-mail-desk-task10-owner-canary-ui`, at exact draft PR #26 base
+`2f72f54709d3c5053befe77162838012591bb4ec`. The underlying candidate preserves
+its original PR #25 baseline manifest. It implements one direct owner message,
 with code, an unapplied isolated schema and adversarial offline tests. It has no
-inbound evidence dependency and cannot unlock customer replies. All existing
-tracked repository files, including the production reply 503 gate, are unchanged.
+inbound evidence dependency and cannot unlock customer replies. The legacy Mail Desk and production reply 503 gate remain unchanged.
 
 **Live dispatch is hard-disabled in the default Worker entrypoint.** No environment
 value overrides `dispatchAuthorized: false`. The committed Wrangler config also
@@ -21,9 +30,14 @@ push, branch update or merge occurred. Public documentation and package download
 were the only intended external reads. Existing Cloudflare ingress/routing,
 Notion sync, DNS, website and staging service are outside this implementation.
 
+The local policy-backed alternative is implemented but has **no release authority**:
+`PRODUCTION_POLICY_RELEASE` is `null`. See [POLICY-AUTH.md](POLICY-AUTH.md) for the
+exact contract, missing independent evidence and session-cutover gates. The
+currently deployed diagnostic source/config are unchanged by this implementation.
+
 ## Implementation and authority
 
-Only four runtime modules exist:
+The runtime modules are:
 
 - `auth.mjs`: pinned-account JWKS verification using exact lockfile-pinned
   `jose` 6.2.12. RS256 only; pinned issuer/audience, nonempty `kid`, required
@@ -34,7 +48,11 @@ Only four runtime modules exist:
   JWKS comes only from operator-configured
   `https://<ACCESS_TEAM_HOST>/cdn-cgi/access/certs`, never a request or JWT URL.
   jose rejects redirects, enforces key suitability and caches keys for five minutes.
-- `worker.mjs`: JSON-only protocol with fresh authentication for every request.
+- `policy-release.mjs`: bounded code-owned reviewed release schema and canonical
+  binding for the distinct `reviewed-policy-release-v1` assurance. Null denies;
+  no environment boolean or API token supplies evidence. Policy identities expire
+  at the earlier of token expiry and the reviewed evidence deadline.
+- `worker.mjs`: JSON protocol and private static UI with fresh authentication for every request.
   The singleton preview binds the exact Access token hash, principal and random
   HttpOnly session cookie; a changed JWT requires stopping, never adopting the
   old intention. Stage capabilities are server-signed HS256 JWTs with purpose,
@@ -42,6 +60,9 @@ Only four runtime modules exist:
   Durable capability hashes rotate at each transition. The signing secret is
   separate from the provider key and is never returned. No client envelope,
   content, approval boolean or MFA flag supplies authority.
+- `ui-assets.mjs`: generated literal bundle of the three reviewed files in
+  `public/`. Every asset is returned through the Worker verifier; there is no
+  platform static-assets binding or independently public file route.
 - `ledger.mjs` and `migrations/0001_canary.sql`: the only slot has `CHECK(id=1)`.
   Its campaign, full snapshot, digest, binding and expiry are immutable. Triggers
   enforce ordered transitions, immutable audit timestamps and no delete, replace,
@@ -67,10 +88,21 @@ No test code is imported into the production bundle.
 
 ## Owner protocol and permanent slot
 
-There is no UI in this candidate and no public page/health endpoint. A future
-reviewed same-origin browser interface must display the complete preview as text
-and provide separate review, approval and dispatch actions. Never auto-dispatch
-on approval. This milestone implements the underlying protocol only.
+The private UI is available only at authenticated `GET /`, `/app.js` and
+`/styles.css`, behind exactly the same signed Access/owner/MFA and configuration
+checks as JSON. The committed offline configuration denies **all** these routes;
+opening `public/index.html` directly is not a functional login or authority path.
+No public navigation or launchpad is added. See [UI-ACCEPTANCE.md](UI-ACCEPTANCE.md)
+for offline coverage, manual acceptance and the next owner gate.
+
+The UI loads status without mutation. It keeps capabilities only in page memory,
+requires separate preview → review → approve clicks, then an exact-message modal
+and a separate irreversible send click. Approval never sends. The default false
+`sendAuthority` disables all UI mutation controls; it cannot be overridden from
+the browser. An existing campaign, failed request, expired preview or changed
+session halts the UI. Reloading cannot recover a capability or create a new slot.
+No retry or reset control exists. The server remains the authority if browser
+controls are modified. Synthetic dispatch-enabled factories are used only by tests.
 
 | Request | Required JSON | Result |
 | --- | --- | --- |
@@ -85,7 +117,7 @@ same-origin`, `Content-Type: application/json`, and `X-Canary-Action` matching t
 path. Later stages also require the exact `__Host-canary` Secure/HttpOnly/
 SameSite=Strict/Path=/ cookie and signed capability. No CORS, OPTIONS, DELETE,
 reset, query-string override or service-token route exists. GET never creates
-sessions, intentions or cookies. Responses are JSON with no-store/private cache,
+sessions, intentions or cookies. JSON and asset responses use no-store/private cache,
 no-referrer, nosniff and frame-blocking CSP. All failures are generic and no runtime
 module logs credentials, tokens, raw provider responses or mailbox content.
 
@@ -114,7 +146,7 @@ not override the hard release block.
 | --- | --- |
 | `DEPLOYMENT_STAGE` | literal `production` |
 | `CANARY_SEND_ENABLED` | literal `owner-canary-v1-approved`; every other value denies |
-| `MFA_CONTRACT` | literal `signed-amr-mfa-v1`, only after reviewing actual signed evidence |
+| `MFA_CONTRACT` | `signed-amr-mfa-v1` with reviewed signed evidence, or `reviewed-policy-release-v1` with matching code-owned evidence (currently null; denies) |
 | `ACCESS_TEAM_HOST`, `ACCESS_AUD` | one reviewed account host ending exactly `.cloudflareaccess.com` and private app audience |
 | `OWNER_PRINCIPAL`, `OWNER_ACCESS_EMAIL` | exact signed subject and exact signed owner email; no case folding or alias inference |
 | `APP_ORIGIN` | one exact HTTPS origin with no path, credentials or trailing slash |
@@ -166,16 +198,15 @@ JWKS endpoint. The code follows that trust source and verifies additional claims
 describe Access/IdP MFA enforcement, but do not establish that this owner's actual
 app JWT supplies an independently verifiable `amr`. That has **not been demonstrated**.
 A configuration label or browser header is never proof. Missing signed `amr`,
-missing `nbf`, or incompatible lifetime leaves this candidate blocked. Do not
+missing `nbf`, or incompatible lifetime blocks signed-AMR authentication. Do not
 relax checks to make a synthetic fixture resemble real assurance.
 
-If the real assertion cannot supply the required signed MFA evidence, a separate
-reviewed design must validate independent IdP-signed step-up evidence (issuer,
-audience, signature, subject linkage, assurance/freshness, nonce/session binding
-and replay protection) and the actual enforced Access policy. That verifier does
-not exist here; no policy-only boolean fallback is implemented. Establishing the
-IdP/policy and reviewing actual signed claims is the next owner-dependent gate.
-Do not paste raw live assertions or secrets into Git or chat.
+If the real assertion cannot supply signed `amr:mfa`, the distinct policy-source
+contract can be considered only after the full evidence in [POLICY-AUTH.md](POLICY-AUTH.md)
+is independently established and reviewed. It does not attest to a particular MFA
+event or its timestamp. The code-owned production release is null, so this path
+denies today. No operator boolean, environment snapshot or request can enable it.
+Independent IdP-signed step-up remains a possible separate design, not implemented here.
 
 Every mutation verifies its assertion again, and epoch changes invalidate pending
 sessions. Signature checks alone cannot discover an IdP logout or revoked but
@@ -224,6 +255,7 @@ otherwise reports file wrappers instead of individual Node test cases.
 static tests hash those bytes and separately assert disabled config/import bounds.
 Never regenerate this manifest to conceal a protected-file modification.
 
-See [VALIDATION.md](VALIDATION.md) for the final commands, counts, bundle results
+See [UI-ACCEPTANCE.md](UI-ACCEPTANCE.md) for this continuation's results and
+[VALIDATION.md](VALIDATION.md) for the prior candidate's commands, counts, bundle results
 and explicit limits. A later reviewer must independently verify the hard block
-and deployment boundaries. All files in this directory remain uncommitted.
+and deployment boundaries. This continuation remains uncommitted; the prior candidate is part of the requested base.

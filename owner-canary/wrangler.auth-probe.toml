@@ -1,0 +1,15 @@
+# Disabled diagnostic stage of the SAME isolated owner-canary Worker.
+# Independently verify current Access and Worker settings BEFORE hostname attachment.
+name = "bss-owner-canary-offline-candidate"
+main = "src/auth-probe.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+routes = []
+
+[vars]
+AUTH_PROBE_ENABLED = ""
+APP_ORIGIN = ""
+ACCESS_TEAM_HOST = ""
+ACCESS_AUD = ""
+OWNER_ACCESS_EMAIL = ""

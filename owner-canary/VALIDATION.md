@@ -1,3 +1,9 @@
+> Current sender release candidate: [SENDER-RELEASE.md](SENDER-RELEASE.md).
+> Exact owner chat consent is now source-owned and production dispatch is gated
+> by that exact configuration plus two fresh native WebAuthn proofs. This run
+> made code/test/doc changes only; it did not deploy or send. The sections below
+> are historical evidence and may describe superseded disabled/null gates.
+
 # Offline validation — 2026-10-16
 
 Base and branch verified locally:

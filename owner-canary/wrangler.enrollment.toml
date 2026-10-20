@@ -1,0 +1,11 @@
+# Bundle only. Operational hostname/Access/D1 configuration requires later root review.
+name = "bss-owner-canary-enrollment-offline"
+main = "src/enrollment.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+routes = []
+
+[vars]
+DEPLOYMENT_STAGE = "offline"
+MFA_CONTRACT = "unverified"
