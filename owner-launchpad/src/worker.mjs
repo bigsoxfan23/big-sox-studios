@@ -36,7 +36,8 @@ export function createWorker(options = {}) {
    if (url.origin !== env.APP_ORIGIN || (request.headers.has('Origin') && request.headers.get('Origin') !== env.APP_ORIGIN)) return respond(403, 'Forbidden');
    await authenticate(request, env); // Includes assets, unknown paths, and methods.
    if (!['GET', 'HEAD'].includes(request.method)) return respond(405, 'Method not allowed', { Allow: 'GET, HEAD' });
-   if (url.pathname !== '/' || url.search) return respond(404, 'Not found');
+   if (url.pathname !== '/') return respond(404, 'Not found');
+   if (url.search) return respond(302, null, { Location: '/' });
    return respond(200, page(destination));
   } catch { return respond(401, 'Unauthorized'); }
  } };

@@ -1,5 +1,11 @@
 # Owner Launchpad — offline design and code handoff
 
+## Post-Access root-query fix evidence — October 20, 2026
+
+The root-query 404 guard now canonicalizes verified-owner GET/HEAD requests at `/` with a nonempty query to HTTP 302 with literal relative `Location: /`, an empty body and all existing no-store/security headers. This supersedes the earlier query-rejection description below. Full owner JWT verification, origin checks and method enforcement precede the redirect; unknown paths still return 404, including with queries. No request input is reflected or used as a redirect destination. Regression coverage uses only synthetic queries/tokens and includes XSS payloads, untrusted `redirect_url` destinations, clean follow-up requests, anonymous/invalid/nonowner/expired/forged JWT denial, HEAD bodies, unknown paths and origin/method restrictions.
+
+Local validation: `npm test --prefix owner-launchpad` **PASS, 72/72 tests**; `npm run check --prefix owner-launchpad` **PASS**; `git diff --check` **PASS**. Only `src/worker.mjs`, `test/launchpad.test.mjs` and this evidence section changed. No sensitive request queries or tokens were inspected or logged. No commit, push, deployment, configuration, secrets, Access or DNS changes were performed; live iPhone Safari acceptance remains unverified.
+
 **Published offline for review:** Separate [draft PR #22](https://github.com/bigsoxfan23/big-sox-studios/pull/22), branch `feature/studio-mail-desk-owner-launchpad`, review commit `6b350a34acfb0bddda58a29146c16e9d3364bad0` based on `f085940`. 58/58 security tests, syntax and Wrangler dry-run PASS; GitHub Validate PASS. **No deployment**, Cloudflare/DNS/Access/website changes, Mail Desk changes or merge occurred. All additions live in `owner-launchpad/`. No production records or credentials were used.
 
 ## What this is

@@ -254,13 +254,51 @@ test('JWKS network, invalid JSON, oversized response and timeout fail closed',as
  for(const fetcher of [()=>{throw Error('PRIVATE_SENTINEL');},()=>new Response('{bad'),()=>new Response('x'.repeat(65537)),()=>new Promise(()=>{})]) await denied(await fixture(fetcher).request(await token()));
 });
 
+test('verified owner root queries redirect to a fixed clean path with all security headers',async()=>{
+ const f=fixture(), jwt=await token();
+ const clean=await f.request(jwt);
+ const queries=['?return=synthetic','?redirect_url=https://evil.example.test/&x=%22%3E%3Cscript%3Ealert(1)%3C/script%3E','?redirect_url=//evil.example.test/','?redirect_url=%2Fadmin%2F'];
+ for(const query of queries) for(const method of ['GET','HEAD']) {
+  const response=await f.request(jwt,'/'+query,{method});
+  assert.equal(response.status,302);
+  assert.equal(response.headers.get('Location'),'/');
+  assert.equal(new URL(response.headers.get('Location'),env.APP_ORIGIN).href,env.APP_ORIGIN+'/');
+  assert.equal(await response.text(),'');
+  assert.deepEqual([...response.headers].filter(([name])=>name!=='location'),[...clean.headers]);
+  const next=await f.request(jwt,response.headers.get('Location'),{method});
+  assert.equal(next.status,200);
+  assert.equal(next.headers.get('Location'),null);
+  if(method==='HEAD') assert.equal(await next.text(),'');
+ }
+});
+test('root queries require full owner JWT verification and preserve origin and method checks',async()=>{
+ const path='/?redirect_url=https://evil.example.test/&x=%3Cscript%3Ealert(1)%3C/script%3E';
+ const forged=await token({}, {}, second);
+ for(const jwt of [undefined,'garbage',await token({email:'editor@example.test'}),await token({exp:seconds}),forged]) {
+  for(const method of ['GET','HEAD']) {
+   const response=await fixture().request(jwt,path,{method});
+   if(method==='HEAD') assert.equal(await response.clone().text(),'');
+   await denied(response);
+  }
+ }
+ const jwt=await token();
+ for(const method of ['POST','PUT','DELETE','OPTIONS','PATCH']) {
+  await denied(await fixture().request(undefined,path,{method}));
+  const response=await fixture().request(jwt,path,{method});
+  await denied(response,405); assert.equal(response.headers.get('Allow'),'GET, HEAD');
+ }
+ await denied(await fixture().request(jwt,path,{headers:{Origin:'https://evil.example.test'}}),403);
+ await denied(await fixture().request(jwt,'https://evil.example.test'+path),403);
+});
 test('every asset/path requires auth; authenticated unknown paths are 404; no reflections',async()=>{
  const jwt=await token();
- for(const path of ['/favicon.ico','/robots.txt','/style.css','/app.js','/admin/','/public/index.html','/cdn-cgi/access/certs','//evil.example.test/','/%3Cscript%3Ealert(1)%3C/script%3E','/?next=https://evil.example.test&x=%22%3E%3Cscript%3E']) {
+ for(const path of ['/favicon.ico','/robots.txt','/style.css','/app.js','/admin/','/public/index.html','/cdn-cgi/access/certs','//evil.example.test/','/%3Cscript%3Ealert(1)%3C/script%3E','/unknown?redirect_url=https://evil.example.test&x=%22%3E%3Cscript%3E']) {
   const expected = new URL(path,env.APP_ORIGIN).origin === env.APP_ORIGIN ? 401 : 403;
   await denied(await fixture().request(undefined,path),expected);
   await denied(await fixture().request(jwt,path),expected===403?403:404);
  }
+ const head=await fixture().request(jwt,'/unknown?redirect_url=https://evil.example.test',{method:'HEAD'});
+ await denied(head.clone(),404); assert.equal(await head.text(),'');
 });
 test('wrong request origin and Origin header fail before key fetch',async()=>{
  for(const [path,headers] of [['https://evil.example.test/',{}],['http://launchpad.example.test/',{}],['/',{Origin:'null'}],['/',{Origin:'https://evil.example.test'}]]) {const f=fixture();await denied(await f.request(await token(),path,{headers}),403);assert.equal(f.calls.length,0);}
