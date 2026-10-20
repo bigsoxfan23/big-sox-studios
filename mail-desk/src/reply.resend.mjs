@@ -14,7 +14,15 @@ export function replyPolicy(env) {
  if (env.MAILDESK_REPLY_ACTIVATION === 'owner-self-v1') return 'owner-self-v1';
  if (env.MAILDESK_REPLY_ACTIVATION === 'owner-reviewed-customers-v1'
   && env.MAILDESK_CUSTOMER_REPLIES === 'enabled'
-  && env.MAILDESK_CUSTOMER_RECIPIENT_POLICY === 'exact-forwarded-requester-v1') return 'owner-reviewed-customers-v1';
+  && env.MAILDESK_CUSTOMER_RECIPIENT_POLICY === 'exact-forwarded-requester-v1'
+  // This release authorizes only one owner-controlled external test mailbox,
+  // and automatically fails closed after its short time window.
+  && env.MAILDESK_CUSTOMER_TEST_RECIPIENT === 'greg.fridman@outlook.com'
+  && typeof env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT === 'string'
+  && /^[1-9][0-9]{9}$/.test(env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT)
+  && Number(env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT) > Math.floor(Date.now() / 1000)
+  && Number(env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT) <= Math.floor(Date.now() / 1000) + 48 * 3600
+ ) return 'owner-reviewed-customers-v1';
  return 'off';
 }
 export const replyEnabled = env => replyPolicy(env) !== 'off';
@@ -27,7 +35,7 @@ const customerMailbox = value => mailbox(value) && value.split('@')[0].length <=
  && !/@bigsoxstudios\.com$/i.test(value);
 export function prepareReply(intent, env) {
  requireThat(replyEnabled(env), 503, 'reply_preflight_rejected');
- requireThat(intent.sender === sender && mailbox(intent.recipient) && (customerReplies(env) ? customerMailbox(intent.recipient) : intent.recipient === owner), 403, 'reply_preflight_rejected');
+ requireThat(intent.sender === sender && mailbox(intent.recipient) && (customerReplies(env) ? customerMailbox(intent.recipient) && intent.recipient === env.MAILDESK_CUSTOMER_TEST_RECIPIENT : intent.recipient === owner), 403, 'reply_preflight_rejected');
  requireThat(typeof intent.id === 'string' && /^[a-f0-9-]{36}$/.test(intent.id), 400, 'reply_preflight_rejected');
  // eslint-disable-next-line no-control-regex -- Reject control bytes in outbound email subject.
  requireThat(typeof intent.subject === 'string' && intent.subject.trim().length > 0 && encoder.encode(intent.subject).length <= 998 && !/[\x00-\x1f\x7f]/.test(intent.subject), 400, 'reply_preflight_rejected');

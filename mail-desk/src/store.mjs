@@ -60,6 +60,9 @@ export async function claimSend(db, intent, customer = false) {
  AND case_id=? AND revision=? AND recipient=? AND sender=? AND subject=? AND body=? AND session_hash=? AND approval_expires=?
  AND approval_expires>? AND EXISTS(SELECT 1 FROM cases c WHERE c.id=outbound_intents.case_id AND c.revision=outbound_intents.revision
  AND ${customer ? customerEvidence : '1=1'}
+ AND ${customer ? `NOT EXISTS(SELECT 1 FROM outbound_intents prior
+  WHERE prior.recipient=outbound_intents.recipient AND prior.id<>outbound_intents.id
+  AND prior.status IN ('sent','dispatching','UNKNOWN'))` : '1=1'}
  AND c.requester_email=outbound_intents.recipient AND c.subject=outbound_intents.subject AND c.draft=outbound_intents.body
  AND outbound_intents.sender=CASE c.channel WHEN 'members' THEN 'members@bigsoxstudios.com' WHEN 'support' THEN 'support@bigsoxstudios.com' WHEN 'hello' THEN 'hello@bigsoxstudios.com' END)
  AND NOT EXISTS(SELECT 1 FROM outbound_intents o WHERE o.case_id=outbound_intents.case_id AND o.id<>outbound_intents.id AND o.status IN ('dispatching','UNKNOWN')) RETURNING *`, time, intent.id, intent.case_id, intent.revision, intent.recipient, intent.sender, intent.subject, intent.body, intent.session_hash, intent.approval_expires, time).first();

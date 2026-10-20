@@ -5,9 +5,9 @@ import { fixture } from './helpers.mjs';
 import { customerReplies, replyPolicy, prepareReply, sendReply } from '../src/reply.resend.mjs';
 import { claimSend } from '../src/store.mjs';
 const migration = await readFile(new URL('../migrations/0005_simple_replies.sql', import.meta.url), 'utf8');
-const owner = 'fridman.greg@gmail.com', customer = 'Customer@example.test';
+const owner = 'fridman.greg@gmail.com', customer = 'greg.fridman@outlook.com';
 const ownerEnv = { DEPLOYMENT_STAGE:'staging', SEND_MODE:'live', ALLOW_REAL_SEND:'true', MAILDESK_REPLY_ACTIVATION:'owner-self-v1', MAILDESK_RECIPIENT_ALLOWLIST:JSON.stringify([owner]), OWNER_EMAIL:owner, RESEND_API_KEY:'re_OFFLINE_SYNTHETIC_NOT_A_REAL_KEY_0000' };
-const env = { ...ownerEnv, MAILDESK_REPLY_ACTIVATION:'owner-reviewed-customers-v1', MAILDESK_CUSTOMER_REPLIES:'enabled', MAILDESK_CUSTOMER_RECIPIENT_POLICY:'exact-forwarded-requester-v1' };
+const env = { ...ownerEnv, MAILDESK_REPLY_ACTIVATION:'owner-reviewed-customers-v1', MAILDESK_CUSTOMER_REPLIES:'enabled', MAILDESK_CUSTOMER_RECIPIENT_POLICY:'exact-forwarded-requester-v1', MAILDESK_CUSTOMER_TEST_RECIPIENT:'greg.fridman@outlook.com', MAILDESK_CUSTOMER_TEST_EXPIRES_AT:String(Math.floor(Date.now()/1000)+3600) };
 const snapshot = recipient => ({ id:crypto.randomUUID(), sender:'support@bigsoxstudios.com', recipient, subject:'Exact subject', body:'Exact plain text <script>inert</script>' });
 async function setup(t, { settings = env, transport = async()=>Response.json({id:'11111111-1111-4111-8111-111111111111'}) } = {}) {
  let calls = 0; const seen = [];
@@ -81,7 +81,8 @@ for (const phase of ['review','dispatch']) test(`customer ${phase} rejects ambig
  assert.equal(response.status,403);assert.equal(f.wireCalls(),0);
 });
 test('synthetic case cannot get a live customer review',async t=>{
- const f=await setup(t);const c=await f.seed({channel:'support',requester_email:customer});
+ const f=await setup(t);const c=await f.seed({channel:'support',requester_email:'Synthetic@example.test'});
+ f.DB.sqlite.prepare('UPDATE cases SET requester_email=? WHERE id=?').run(customer,c);
  await assert.rejects(f.review(c),/reply_inbound_required/);assert.equal(f.wireCalls(),0);
 });
 test('atomic customer claim rechecks evidence after preflight',async t=>{
@@ -93,8 +94,9 @@ test('owner and customer review signatures cannot cross policies, including owne
  const f=await setup(t,{settings:ownerEnv});f.DB.sqlite.prepare('UPDATE cases SET requester_email=?').run(owner);f.DB.sqlite.prepare('UPDATE email_receipts SET envelope_from=?').run(owner);
  const r=await f.review(f.id);Object.assign(f.env,env);
  assert.equal((await f.send(r)).status,403);assert.equal(f.wireCalls(),0);
- const customerReview=await (await f.request(`/api/cases/${f.id}/review`,{revision:r.revision})).json();
- Object.assign(f.env,ownerEnv);assert.equal((await f.send(customerReview)).status,403);assert.equal(f.wireCalls(),0);
+ const customerReview=await f.request(`/api/cases/${f.id}/review`,{revision:r.revision});
+ assert.equal(customerReview.status,403); // An owner-Gmail case cannot gain a customer recipient.
+ Object.assign(f.env,ownerEnv);assert.equal(f.wireCalls(),0);
 });
 test('customer concurrent confirmations attempt at most one provider request',async t=>{
  let release;const gate=new Promise(r=>release=r);
@@ -145,4 +147,58 @@ test('repository customer defaults remain explicitly closed alongside the owner 
  assert.match(config,/^MAILDESK_CUSTOMER_RECIPIENT_POLICY = "off"$/m);
  assert.match(config,/^MAILDESK_REPLY_ACTIVATION = "off"$/m);
  assert.ok(config.includes(`MAILDESK_RECIPIENT_ALLOWLIST = '${JSON.stringify([owner])}'`));
+});
+
+test('controlled-test recipient and deadline gates are mandatory and fail closed',()=>{
+ const valid=env;
+ assert.equal(replyPolicy(valid),'owner-reviewed-customers-v1');
+ for (const changes of [
+  {MAILDESK_CUSTOMER_TEST_RECIPIENT:undefined},
+  {MAILDESK_CUSTOMER_TEST_RECIPIENT:'other@example.test'},
+  {MAILDESK_CUSTOMER_TEST_RECIPIENT:owner},
+  {MAILDESK_CUSTOMER_TEST_RECIPIENT:'GREG.FRIDMAN@OUTLOOK.COM'},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:undefined},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:''},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:'NaN'},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:'0'},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:String(Math.floor(Date.now()/1000)-1)},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:String(Math.floor(Date.now()/1000)+49*3600)},
+  {MAILDESK_CUSTOMER_TEST_EXPIRES_AT:'999999999999999999999'}
+ ]) {
+  const changed={...valid,...changes};
+  assert.equal(replyPolicy(changed),'off',JSON.stringify(changes));
+  assert.throws(()=>prepareReply(snapshot(customer),changed));
+ }
+ assert.throws(()=>prepareReply(snapshot('other@example.test'),valid));
+ assert.equal(replyPolicy(ownerEnv),'owner-self-v1');
+ assert.equal(replyPolicy({...ownerEnv,MAILDESK_CUSTOMER_TEST_EXPIRES_AT:'0'}),'owner-self-v1');
+});
+
+test('controlled-test expiry between review and Send never invokes provider',async t=>{
+ const f=await setup(t);
+ const reviewed=await f.review(f.id);
+ assert.equal(reviewed.mode,'live');
+ f.env.MAILDESK_CUSTOMER_TEST_EXPIRES_AT=String(Math.floor(Date.now()/1000)-1);
+ const r=await f.send(reviewed);
+ assert.equal(r.status,403);
+ assert.equal(f.wireCalls(),0);
+ assert.equal(f.DB.sqlite.prepare('SELECT status FROM outbound_intents WHERE id=?').get(reviewed.id).status,'reserved');
+});
+
+test('controlled-test provider preparation cannot retarget to a different mailbox',async()=>{
+ assert.throws(()=>prepareReply(snapshot('different@example.test'),env));
+ const p=prepareReply(snapshot(customer),env);
+ await assert.rejects(sendReply(p,{...env,MAILDESK_CUSTOMER_TEST_RECIPIENT:'different@example.test'},async()=>{},async()=>assert.fail('no transport')),/reply_preflight_rejected/);
+});
+
+test('controlled external test permits at most one successful provider send across revisions',async t=>{
+ const f=await setup(t);
+ const first=await f.review(f.id);
+ assert.equal((await (await f.send(first)).json()).status,'sent');
+ assert.equal(f.wireCalls(),1);
+ const second=await f.review(f.id,'Second controlled test should never dispatch');
+ const response=await f.send(second);
+ assert.equal(response.status,409);
+ assert.equal(f.wireCalls(),1);
+ assert.equal(f.DB.sqlite.prepare("SELECT COUNT(*) n FROM outbound_intents WHERE status='sent'").get().n,1);
 });
