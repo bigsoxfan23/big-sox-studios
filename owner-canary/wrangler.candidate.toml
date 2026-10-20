@@ -1,0 +1,13 @@
+# Offline bundle configuration. NO account, D1 binding, secret, route or hostname.
+name = "bss-owner-canary-offline-candidate"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+routes = []
+
+[vars]
+DEPLOYMENT_STAGE = "offline"
+CANARY_SEND_ENABLED = "false"
+MFA_CONTRACT = "unverified"
+# No triggers, cron, queues, service bindings, or existing ticket database.
