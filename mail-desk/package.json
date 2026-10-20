@@ -1,0 +1,7 @@
+{
+  "name": "bss-mail-desk-staging",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13 <23" },
+  "scripts": { "test": "node --test --experimental-test-isolation=none test/*.test.mjs", "check": "node --check src/worker.mjs && node --check public/app.js" }
+}
