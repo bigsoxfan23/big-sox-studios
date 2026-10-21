@@ -1,3 +1,4 @@
+import { requireFolders, reopenOnReceipt } from './folders.mjs';
 // Dormant Email Routing adapter. No HTTP intake, auto reply, raw storage, or logging.
 import { stmt, now, senders } from './store.mjs';
 import { digest } from './security.mjs';
@@ -100,6 +101,7 @@ export async function email(message, env, ctx) {
  if (!mailbox(forwardTo)) { reject(); return; }
  let claimed = false;
  try {
+  await requireFolders(env.DB);
   const to = typeof message.to === 'string' ? message.to.toLowerCase() : '';
   const channel = Object.keys(senders).find(k => senders[k] === to);
   if (!channel || !mailbox(message.from) || !Number.isSafeInteger(message.rawSize) || message.rawSize <= 0 || message.rawSize > MAX_RAW || message.canBeForwarded === false) { reject(); return; }
@@ -131,6 +133,7 @@ export async function email(message, env, ctx) {
    stmt(env.DB, `INSERT INTO messages SELECT ?,case_id,'inbound',?,?,NULL FROM email_receipts WHERE claim_token=?`, localMessageId, await plainPreview(raw, message.rawSize), time, token),
    ...(activitySchema ? [stmt(env.DB, `INSERT INTO email_receipt_messages SELECT receipt_key,? FROM email_receipts WHERE claim_token=?`, localMessageId, token)] : []),
    stmt(env.DB, `INSERT INTO sync_jobs(id,case_id,kind,next_attempt,created_at) SELECT ?,case_id,'case_created',?,? FROM email_receipts WHERE claim_token=? AND case_id=?`, crypto.randomUUID(), time, time, token, candidate),
+   reopenOnReceipt(env.DB, token, time),
    stmt(env.DB, `UPDATE cases SET updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM email_receipts WHERE claim_token=?)`, time, caseId, token)
   ]);
   const receipt = await stmt(env.DB, 'SELECT * FROM email_receipts WHERE receipt_key=?', key).first();

@@ -1,3 +1,4 @@
+import { syncFolders } from './folders.sync.mjs';
 import { stmt, now, senders, audit } from './store.mjs';
 import { LiveNotion, liveEnabled, syncStart } from './notion.live.mjs';
 
@@ -128,6 +129,7 @@ export async function runNotionSync(env, fetcher = fetch) {
     await deferCase(env.DB, c.id);
    }
   }
-  return { status: unresolved ? 'partial' : 'complete', processed: cases.length, activities, unresolved };
+  const folderSync = await syncFolders(env, fetcher);
+  return { folderSync, status: unresolved || folderSync.unresolved ? 'partial' : 'complete', processed: cases.length, activities, unresolved };
  } catch { return { status: 'unavailable', processed: 0, activities: 0, unresolved: 1 }; }
 }
