@@ -15,6 +15,11 @@ async function recordFailure(db, caseId, stage, error) {
    crypto.randomUUID(),event,caseId,now(),caseId,event).run();
  } catch { /* Diagnostics must never interfere with sync or lease cleanup. */ }
 }
+async function cleanupLease(db, c, token) {
+ try {
+  await stmt(db, `UPDATE case_folder_sync SET lease_token=NULL,lease_until=0,next_attempt=CASE WHEN EXISTS(SELECT 1 FROM case_folders WHERE case_id=? AND version=?) THEN ? ELSE 0 END WHERE case_id=? AND lease_token=?`,c.id,c.version,now()+300,c.id,token).run();
+ } catch (error) { await recordFailure(db,c.id,'cleanup',error); throw error; }
+}
 // A separate provisioned property and explicit operator gate. No schema writes.
 export async function syncFolders(env, fetcher = fetch) {
  if (!liveEnabled(env) || env.NOTION_MAIL_DESK_FOLDER_READY !== 'true') return {status:'off',processed:0};
@@ -56,9 +61,7 @@ export async function syncFolders(env, fetcher = fetch) {
    if (ack) processed++;
   } catch (error) { unresolved++; await recordFailure(db,c.id,stage,error); }
   finally {
-   try {
-    await stmt(db, `UPDATE case_folder_sync SET lease_token=NULL,lease_until=0,next_attempt=CASE WHEN EXISTS(SELECT 1 FROM case_folders WHERE case_id=? AND version=?) THEN ? ELSE 0 END WHERE case_id=? AND lease_token=?`,c.id,c.version,now()+300,c.id,token).run();
-   } catch (error) { await recordFailure(db,c.id,'cleanup',error); throw error; }
+   await cleanupLease(db,c,token);
   }
  }
  return {status:unresolved ? 'partial':'complete',processed,unresolved};
