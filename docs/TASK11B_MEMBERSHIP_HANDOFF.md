@@ -2,6 +2,8 @@
 
 Implementation date: 2026-10-21. Phase 2 BUILD only. No deployment is authorized by this document.
 
+Pre-deployment follow-up: see [dependency review](TASK11B_DEPENDENCY_REVIEW.md) for the resolved five development audit findings, compatible pinned lint stack, new root lockfile and Node/npm/CI verification. That report supersedes the historical dependency/no-lockfile caveats below. See [production deployment plan](TASK11B_PRODUCTION_DEPLOYMENT_PLAN.md) for exact-head approval gates, future configuration, costs, smoke tests and isolated recovery/rollback instructions. No resources or production configuration were changed by the follow-up.
+
 ## What visitors will see
 
 The existing Members page now links to **Request membership** at `/members/request/`. It retains the future invite-only positioning, planned benefits, disabled member sign-in, and existing studio branding. The new page uses the same cream, ink, accent, logo, navigation, and theme controls. A two-column form and explanation stack into one column below 48rem. Inputs have visible labels, useful autocomplete, keyboard focus outlines, large controls, and an announced result that receives focus.
