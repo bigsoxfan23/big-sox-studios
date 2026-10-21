@@ -17,7 +17,7 @@ function dom() {
   removeAttribute(k) {delete this.attributes[k];}
  }
  const get = id => { if(!elements.has(id)) elements.set(id,new Element('div')); return elements.get(id); };
- get('case-template').content={cloneNode:()=>{for(const id of ['subject','identity','thread','deliveries','draft','review','approval','envelope','preview','send','cancel']) elements.set(id,new Element('div'));return new Element('fragment');}};
+ get('case-template').content={cloneNode:()=>{for(const id of ['subject','identity','thread','deliveries','draft','review','approval','envelope','preview','send','cancel']) elements.set(id,new Element('div'));get('approval').hidden=true;return new Element('fragment');}};
  return { get, created, document:{ getElementById:get,createElement:tag=>new Element(tag),body:new Element('body') } };
 }
 test('untrusted subject, name, message and preview remain inert through full UI review/send',async t=>{
@@ -26,14 +26,14 @@ test('untrusted subject, name, message and preview remain inert through full UI 
  await f.seed({subject:attack,requester_name:attack,body:attack});
  const d=dom();const context={window:{confirm:()=>true},document:d.document,fetch:async(path,options={})=>f.request(path,options.body,{headers:options.headers}),pwned:false};
  await vm.runInNewContext(`(async()=>{${script}\n})()`,context);
- assert.equal(f.calls(),0);assert.equal(d.get('queue').children[0].textContent,attack);
- await d.get('queue').children[0].onclick();assert.equal(d.get('subject').textContent,attack);assert.equal(d.get('thread').children[0].children[1].textContent,attack);assert.equal(f.calls(),0);
+ assert.equal(f.calls(),0);assert.equal(d.get('queue').children[0].children[1].textContent,attack);
+ await d.get('queue').children[0].children[1].onclick();assert.equal(d.get('subject').textContent,attack);assert.equal(d.get('thread').children[0].children[1].textContent,attack);assert.equal(f.calls(),0);
  d.get('draft').value=attack;await d.get('review').onclick();assert.equal(d.get('preview').textContent,attack);assert.equal(d.get('approval').hidden,false);assert.equal(f.calls(),0);
  await d.get('send').onclick();assert.equal(f.calls(),1);assert.equal(context.pwned,false);assert.ok(d.created.every(el=>!['img','script','iframe'].includes(el.tag)));
 });
 test('UI edit invalidates review and cancel requires another review',async t=>{
  const f=await fixture(t);await f.session();await f.seed();const d=dom();await vm.runInNewContext(`(async()=>{${script}\n})()`,{document:d.document,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
- await d.get('queue').children[0].onclick();d.get('draft').value='draft';await d.get('review').onclick();d.get('cancel').onclick();await d.get('send').onclick();assert.equal(f.calls(),0);assert.equal(d.get('approval').hidden,true);
+ await d.get('queue').children[0].children[1].onclick();d.get('draft').value='draft';await d.get('review').onclick();d.get('cancel').onclick();await d.get('send').onclick();assert.equal(f.calls(),0);assert.equal(d.get('approval').hidden,true);
  d.get('draft').oninput();await d.get('send').onclick();assert.equal(f.calls(),0);
 });
 test('390px responsive style contract and accessible controls',()=>{
@@ -62,20 +62,20 @@ test('standalone staging config has closed defaults and protects all static asse
 test('ordinary confirmation cancellation does not POST a send',async t=>{
  const f=await fixture(t);await f.session();await f.seed();const d=dom();let confirms=0;
  await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>{confirms++;return false;}},document:d.document,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
- await d.get('queue').children[0].onclick();d.get('draft').value='Reply';await d.get('review').onclick();await d.get('send').onclick();assert.equal(confirms,1);assert.equal(f.calls(),0);
+ await d.get('queue').children[0].children[1].onclick();d.get('draft').value='Reply';await d.get('review').onclick();await d.get('send').onclick();assert.equal(confirms,1);assert.equal(f.calls(),0);
 });
 for(const outcome of ['UNKNOWN','dispatching','failed','sent','lost-response']) test(`live UI displays ${outcome} accurately and never retries a lost response`,async()=>{
  const d=dom();let sends=0;const c={id:crypto.randomUUID(),subject:'Owner test',requester_name:'Owner',requester_email:'owner@example.test',channel:'support',revision:0,draft:'Reply',messages:[],deliveries:[]};
  const fetcher=async(path,o={})=>{
   if(path==='/api/session') return Response.json({csrf:'offline',sendMode:'live'});
-  if(path==='/api/cases') return Response.json([c]);
+  if(path.startsWith('/api/cases?')) return Response.json({cases:[{...c,folder:'inbox',folderVersion:0}],counts:{inbox:1,archive:0,trash:0}});
   if(path.endsWith('/draft')) return Response.json({...c,revision:1});
   if(path.endsWith('/review')) return Response.json({id:'review',mode:'live',from:'support@bigsoxstudios.com',to:c.requester_email,subject:c.subject,body:c.draft,approval:'offline'});
   if(path.endsWith('/send')) {sends++;assert.equal(JSON.parse(o.body).confirmed,true);if(outcome==='lost-response') throw Error('offline interrupted');return Response.json({status:outcome,mode:'live',stage:'provider_accepted'});}
   return Response.json(c);
  };
  await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>true},document:d.document,fetch:fetcher});
- await d.get('queue').children[0].onclick();await d.get('review').onclick();assert.match(d.get('envelope').textContent,/From: support@bigsoxstudios.com/);assert.equal(d.get('send').textContent,'Send reply');
+ await d.get('queue').children[0].children[1].onclick();await d.get('review').onclick();assert.match(d.get('envelope').textContent,/From: support@bigsoxstudios.com/);assert.equal(d.get('send').textContent,'Send reply');
  await d.get('send').onclick();const status=d.get('status').textContent;
  if(outcome==='sent') assert.match(status,/accepted by provider \(not delivery confirmation\)/);
  else {assert.doesNotMatch(status,/^accepted by provider/);assert.match(status,outcome==='failed'?/refused\/no send/:/never retry/);}
@@ -89,7 +89,7 @@ test('a fresh review restores Send after a definitely refused preflight and canc
   channel:'support',revision:1,draft:'Reply',messages:[],deliveries:[]};
  const fetcher=async(path)=>{
   if(path==='/api/session') return Response.json({csrf:'offline',sendMode:'live'});
-  if(path==='/api/cases') return Response.json([c]);
+  if(path.startsWith('/api/cases?')) return Response.json({cases:[{...c,folder:'inbox',folderVersion:0}],counts:{inbox:1,archive:0,trash:0}});
   if(path.endsWith('/draft')) return Response.json({...c,revision:c.revision+1});
   if(path.endsWith('/review')) { reviews++; return Response.json({
    id:'review'+reviews,mode:'live',from:'support@bigsoxstudios.com',to:c.requester_email,
@@ -99,7 +99,7 @@ test('a fresh review restores Send after a definitely refused preflight and canc
   return Response.json(c);
  };
  await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:()=>true},document:d.document,fetch:fetcher});
- await d.get('queue').children[0].onclick();
+ await d.get('queue').children[0].children[1].onclick();
  await d.get('review').onclick();
  assert.equal(d.get('send').disabled,false);
  await d.get('send').onclick();assert.equal(sends,1);
@@ -116,7 +116,7 @@ test('small-screen inbox switches to selected case and Back without losing draft
  const d=dom();let scrolling=0;const w={matchMedia:()=>({matches:true}),scrollTo:()=>{scrolling++;}};
  await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,window:w,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
  assert.equal(d.get('maildesk-layout').attributes['data-view'],undefined);
- await d.get('queue').children[0].onclick();
+ await d.get('queue').children[0].children[1].onclick();
  assert.equal(d.get('maildesk-layout').attributes['data-view'],'case');
  d.get('draft').value='Unsent owner draft';
  d.get('back-inbox').onclick();
@@ -130,15 +130,15 @@ test('legacy RFC 2047 encoded subjects display decoded but exact raw storage and
  const f=await fixture(t);await f.session();
  const raw='=?UTF-8?Q?BSS_Task_10_=E2=80=94_caf=C3=A9?=';
  await f.seed({subject:raw,requester_name:'Owner'});
- const listed=await (await f.request('/api/cases')).json();
+ const {cases:listed}=await (await f.request('/api/cases')).json();
  assert.equal(listed[0].subject,raw);
  assert.equal(listed[0].displaySubject,'BSS Task 10 — café');
  const detail=await (await f.request('/api/cases/'+listed[0].id)).json();
  assert.equal(detail.subject,raw);
  assert.equal(detail.displaySubject,'BSS Task 10 — café');
  const d=dom();await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
- assert.equal(d.get('queue').children[0].textContent,'BSS Task 10 — café');
- await d.get('queue').children[0].onclick();
+ assert.equal(d.get('queue').children[0].children[1].textContent,'BSS Task 10 — café');
+ await d.get('queue').children[0].children[1].onclick();
  assert.equal(d.get('subject').textContent,'BSS Task 10 — café');
  d.get('draft').value='Owner reply';
  await d.get('review').onclick();
@@ -161,7 +161,7 @@ for (const policy of ['owner-self-v1','owner-reviewed-customers-v1','owner-revie
  const c={id:crypto.randomUUID(),subject:'Exact subject <b>inert</b>',requester_name:'Requester',requester_email:'Customer@example.test',channel:'support',revision:0,draft:'Exact body <script>inert</script>',messages:[],deliveries:[]};
  const fetcher=async(path)=>{
   if(path==='/api/session')return Response.json({csrf:'offline',sendMode:'live',replyPolicy:policy});
-  if(path==='/api/cases')return Response.json([c]);
+  if(path.startsWith('/api/cases?'))return Response.json({cases:[{...c,folder:'inbox',folderVersion:0}],counts:{inbox:1,archive:0,trash:0}});
   if(path.endsWith('/draft'))return Response.json({...c,revision:1});
   if(path.endsWith('/review'))return Response.json({id:'offline',mode:'live',policy,to:c.requester_email,from:'support@bigsoxstudios.com',subject:c.subject,body:c.draft,approval:'offline'});
   if(path.endsWith('/send')){sends++;throw Error('offline lost browser response');}
@@ -170,10 +170,37 @@ for (const policy of ['owner-self-v1','owner-reviewed-customers-v1','owner-revie
  await vm.runInNewContext(`(async()=>{${script}\n})()`,{window:{confirm:text=>{confirms++;confirmation=text;return true;}},document:d.document,fetch:fetcher});
  assert.match(d.get('mode-notice').textContent,policy==='owner-self-v1'?/owner Gmail only/:/Envelope sender can be spoofed/);
  if(policy!=='owner-self-v1')assert.match(d.get('mode-notice').textContent,/Manual Review & Send confirmation required for every message/);
- await d.get('queue').children[0].onclick();await d.get('review').onclick();
+ await d.get('queue').children[0].children[1].onclick();await d.get('review').onclick();
  assert.equal(d.get('preview').textContent,c.draft);assert.ok(d.get('envelope').textContent.includes(c.subject));
  if(policy!=='owner-self-v1')assert.match(d.get('review-note').textContent,/Envelope sender can be spoofed/);
  await d.get('send').onclick();await d.get('send').onclick();
  assert.equal(confirmation,`Send this exact reviewed reply to ${c.requester_email} now?`);
  assert.equal(confirms,1);assert.equal(sends,1);assert.match(d.get('status').textContent,/never retry/);
+});
+
+test('mobile whole-case controls, folder counts, selection and trash reply lock',async t=>{
+ const f=await fixture(t);await f.session();const id=await f.seed({subject:'<script>inert folder title</script>'});
+ const d=dom();await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,window:{matchMedia:()=>({matches:true}),scrollTo(){}},fetch:async(path,o={})=>f.request(path,o.body,{headers:o.headers})});
+ assert.equal(d.get('folder-inbox').textContent,'Inbox (1)');
+ await d.get('queue').children[0].children[1].onclick();d.get('draft').value='Reviewed';await d.get('review').onclick();assert.equal(d.get('approval').hidden,false);
+ d.get('draft').value='Unreviewed local edit';
+ await d.get('case-trash').onclick();assert.equal(d.get('approval').hidden,true);assert.equal(d.get('draft').disabled,true);assert.equal(d.get('review').disabled,true);assert.equal(d.get('folder-trash').textContent,'Trash (1)');assert.equal(f.calls(),0);
+ await d.get('case-restore').onclick();assert.equal(d.get('draft').value,'Unreviewed local edit');assert.equal(d.get('draft').disabled,false);assert.equal(d.get('case-restore').hidden,true);
+ d.get('back-inbox').onclick();d.get('select-all').checked=true;d.get('select-all').onchange();assert.equal(d.get('bulk-archive').disabled,false);
+ await d.get('bulk-archive').onclick();assert.equal(d.get('folder-archive').textContent,'Archive (1)');
+ await d.get('folder-archive').onclick();assert.equal(d.get('queue').children[0].children[1].textContent,'<script>inert folder title</script>');assert.equal(d.get('maildesk-layout').attributes['data-view'],'inbox');assert.equal(f.calls(),0);
+ assert.equal((await (await f.request('/api/cases/'+id)).json()).folder,'archive');
+});
+
+test('UI selection caps at 25, sends exact optimistic versions, and reports partial failures inertly',async()=>{
+ const d=dom(),cases=Array.from({length:26},(_,i)=>({id:'case'+i,subject:'Case '+i,channel:'support',folder:'inbox',folderVersion:i}));let payload;
+ await vm.runInNewContext('(async()=>{'+script+'\n})()',{document:d.document,fetch:async(path,o={})=>{
+  if(path==='/api/session')return Response.json({csrf:'offline',sendMode:'mock'});
+  if(path==='/api/cases/folder'){payload=JSON.parse(o.body);return Response.json({results:payload.cases.map((c,i)=>({...c,ok:i!==0,error:'<img onerror=attack>'}))});}
+  return Response.json({cases,counts:{inbox:26,archive:0,trash:0}});
+ }});
+ d.get('select-all').checked=true;d.get('select-all').onchange();
+ const check=d.get('queue').children[25].children[0].children[0];check.checked=true;check.onchange();assert.equal(check.checked,false);
+ await d.get('bulk-trash').onclick();assert.equal(payload.cases.length,25);assert.equal(payload.cases[24].version,24);assert.equal(payload.action,'trash');assert.match(d.get('status').textContent,/24 case\(s\) moved/);assert.match(d.get('status').textContent,/<img onerror=attack>/);
+ assert.match(css,/\.folder-actions button \{ min-height:44px;/);assert.match(html,/aria-label="Mail folders"/);
 });

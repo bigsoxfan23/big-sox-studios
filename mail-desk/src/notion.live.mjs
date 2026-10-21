@@ -42,9 +42,14 @@ async function boundedJson(response) {
 }
 export class LiveNotion {
  constructor(env, fetcher = fetch) { this.env = env; this.fetcher = fetcher; }
- async request(channel, path, body) {
+ async request(channel, path, body, method = 'POST') {
   if (!liveEnabled(this.env) || channel !== 'support') throw Error('notion_disabled');
-  if (path !== 'pages' && ![DATA_SOURCE, ACTIVITY_SOURCE].some(source => path === `data_sources/${source}/query`)) throw Error('notion_invalid_path');
+  const patchId = path.startsWith('pages/') ? path.slice(6) : null;
+  if (method === 'PATCH') {
+   if (!pageId(patchId) || Object.keys(body ?? {}).join() !== 'properties' || Object.keys(body.properties ?? {}).join() !== 'Mail Desk Folder' ||
+    Object.keys(body.properties['Mail Desk Folder'] ?? {}).join() !== 'select' || Object.keys(body.properties['Mail Desk Folder'].select ?? {}).join() !== 'name' ||
+    !['Inbox','Archive','Trash'].includes(body.properties['Mail Desk Folder'].select.name)) throw Error('notion_invalid_patch');
+  } else if (method !== 'POST' || (path !== 'pages' && ![DATA_SOURCE, ACTIVITY_SOURCE].some(source => path === `data_sources/${source}/query`))) throw Error('notion_invalid_path');
   const controller = new AbortController(); let timer;
   try {
    // Deadline covers transport AND streamed JSON, including a stalled injected fetch.
@@ -60,7 +65,7 @@ export class LiveNotion {
     const callFetch = this.fetcher;
     try {
      response = await callFetch(`https://api.notion.com/v1/${path}`, {
-      method: 'POST', redirect: 'manual', signal: controller.signal,
+      method, redirect: 'manual', signal: controller.signal,
       headers: { Authorization: `Bearer ${token}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
      });
@@ -121,6 +126,13 @@ export class LiveNotion {
    if (relation?.has_more === true || !Array.isArray(relation?.relation) || relation.relation.length !== 1 || relation.relation[0].id !== ticketId) throw Error('notion_activity_conflict');
   }
   return found;
+ }
+ async updateFolder(c, id, folder) {
+  const names = {inbox:'Inbox',archive:'Archive',trash:'Trash'};
+  if (!pageId(id) || !Object.hasOwn(names, folder)) throw Error('notion_invalid_patch');
+  const page = await this.request(c.channel, `pages/${id}`, {properties:{'Mail Desk Folder':select(names[folder])}}, 'PATCH');
+  if (page.object !== 'page' || !pageId(page.id) || page.id.replaceAll('-','').toLowerCase() !== id.replaceAll('-','').toLowerCase()) throw Error('notion_invalid_patch_response');
+  return page;
  }
  async createTicket(c) { return this.create(c.channel, ticketPayload(c)); }
  async createActivity(c, messageId, ticketId) { return this.create(c.channel, activityPayload(messageId, ticketId)); }

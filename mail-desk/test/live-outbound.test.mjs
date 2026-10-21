@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { fixture, token, jwk, origin } from './helpers.mjs';
+import { fixture, token, jwk, origin, folderMigration } from './helpers.mjs';
+import { moveFolders } from '../src/folders.mjs';
 import { b64 } from '../src/security.mjs';
 import { createOfflineOutbound, createProductionCandidate, recoverLiveUncertain } from '../src/outbound.candidate.mjs';
 import { parseVerifiedHeaders } from '../src/outbound.provenance.mjs';
 const migration = await readFile(new URL('../migrations/0004_outbound_approval.sql', import.meta.url), 'utf8');
+const migration5 = await readFile(new URL('../migrations/0005_simple_replies.sql', import.meta.url), 'utf8');
 const ingress = await crypto.subtle.generateKey('Ed25519', true, ['sign','verify']);
 const sender = 'support@bigsoxstudios.com', owner = 'owner@example.test';
 const rows = (f, table) => f.DB.sqlite.prepare(`SELECT * FROM ${table}`).all();
@@ -29,9 +31,11 @@ async function persist(f, captured, {e=captured.e, signature} = {}) {
  const serialized=JSON.stringify(e);
  f.DB.sqlite.prepare('INSERT INTO outbound_provenance VALUES (?,?,?,?,?,?)').run(captured.r.receipt_key,captured.m,'maildesk-ingress-v1',serialized,signature ?? await sign(serialized),Math.floor(Date.now()/1000));
 }
-async function setup(t, { response=()=>Response.json({id:'offline-acceptance'}), provenance=true, changes={}, migrate=true, env={}, claims={amr:['mfa']} }={}) {
- const f = await fixture(t,{notion:true});
+async function setup(t, { response=()=>Response.json({id:'offline-acceptance'}), provenance=true, changes={}, migrate=true, fullSchema=false, env={}, claims={amr:['mfa']} }={}) {
+ const f = await fixture(t,{notion:true,cleanup:false});
  if(migrate) f.DB.sqlite.exec(migration);
+ if(fullSchema) f.DB.sqlite.exec(migration5);
+ f.DB.sqlite.exec(folderMigration);
  const captured=await capture(f,{changes});
  if(provenance && migrate) await persist(f,captured);
  const id=captured.r.case_id;
@@ -51,7 +55,7 @@ async function setup(t, { response=()=>Response.json({id:'offline-acceptance'}),
  }
  async function session(){const r=await request('/api/live/session');const v=await r.json();cookie=r.headers.get('Set-Cookie')?.split(';')[0];csrf=v.csrf;return {r,v};}
  const route=action=>`/api/live/cases/${id}/${action}`;
- async function review(){const r=await request(route('review'),{revision:1});assert.equal(r.status,200,await r.clone().text());return r.json();}
+ async function review(revision=1){const r=await request(route('review'),{revision});assert.equal(r.status,200,await r.clone().text());return r.json();}
  async function approve(r){const res=await request(route('approve'),{intentId:r.id,approval:r.approval});assert.equal(res.status,200,await res.clone().text());return res.json();}
  const send=(a,headers={},worker=candidate)=>request(route('send'),{intentId:a.id,approval:a.approval},headers,worker);
  return {...f,captured,id,request,session,review,approve,send,route,make,calls:()=>calls,seen,fetcher};
@@ -304,3 +308,104 @@ test('zero-row finalization cannot persist an accepted thread or falsely report 
  assert.equal((await f.send(a)).status,503);assert.equal(rows(f,'live_outbound_reviews')[0].status,'dispatching');
  assert.equal(rows(f,'messages').filter(m=>m.direction==='outbound').length,0);await f.send(a);assert.equal(f.calls(),1);
 });
+
+// Genuine captured ingress, signed evidence, and the complete folder migration.
+async function moveCandidate(f, action) {
+ const {version}=f.DB.sqlite.prepare('SELECT version FROM case_folders WHERE case_id=?').get(f.id);
+ const result=await moveFolders(f.DB,{action,cases:[{id:f.id,version}]});
+ assert.equal(result.results[0].ok,true,JSON.stringify(result));
+ return f.DB.sqlite.prepare('SELECT revision FROM cases WHERE id=?').get(f.id).revision;
+}
+function removeCandidateFolder(f) {
+ f.DB.sqlite.prepare('DELETE FROM case_folder_sync WHERE case_id=?').run(f.id);
+ f.DB.sqlite.prepare('DELETE FROM case_folders WHERE case_id=?').run(f.id);
+}
+function removeFolderSchema(f) {
+ f.DB.sqlite.exec('DROP TRIGGER case_folder_initial; DROP TRIGGER case_folder_changed; DROP TRIGGER case_folder_transition; DROP TABLE case_folder_sync; DROP TABLE case_folders;');
+}
+
+test('offline candidate permits Archive only with current review and separate approval',async t=>{
+ const f=await setup(t,{fullSchema:true});await f.session();
+ const revision=await moveCandidate(f,'archive');
+ assert.equal((await f.request(f.route('review'),{revision:1})).status,409);
+ const r=await f.review(revision);
+ assert.equal((await f.send(r)).status,403);assert.equal(f.calls(),0);
+ const a=await f.approve(r);
+ assert.equal((await (await f.send(a)).json()).status,'sent');assert.equal(f.calls(),1);
+ assert.equal(rows(f,'case_folders')[0].folder,'archive');
+});
+
+test('offline approved reply cannot send from Trash or revive after Restore; fresh approval is required',async t=>{
+ const f=await setup(t,{fullSchema:true});await f.session();
+ const archivedRevision=await moveCandidate(f,'archive');
+ const r=await f.review(archivedRevision),a=await f.approve(r);
+ const immutable=rows(f,'live_outbound_reviews');
+ const trashRevision=await moveCandidate(f,'trash');
+ const denied=await f.request(f.route('review'),{revision:trashRevision});
+ assert.equal(denied.status,409);assert.equal((await denied.json()).error,'case_trashed');
+ assert.equal((await f.send(a)).status,409);assert.equal(f.calls(),0);
+ const restoredRevision=await moveCandidate(f,'restore');
+ assert.equal((await f.send(a)).status,409);
+ assert.equal((await f.request(f.route('approve'),{intentId:r.id,approval:r.approval})).status,409);
+ assert.equal((await f.request(f.route('review'),{revision:archivedRevision})).status,409);
+ assert.equal(f.calls(),0);assert.deepEqual(rows(f,'live_outbound_reviews'),immutable);
+ const fresh=await f.review(restoredRevision);
+ assert.notEqual(fresh.id,r.id);
+ assert.equal((await f.send(fresh)).status,403);
+ assert.equal((await f.send({...fresh,approval:a.approval})).status,403);assert.equal(f.calls(),0);
+ const approved=await f.approve(fresh);
+ assert.equal((await (await f.send(approved)).json()).status,'sent');assert.equal(f.calls(),1);
+ assert.deepEqual(rows(f,'live_outbound_reviews').find(i=>i.id===r.id),immutable[0]);
+});
+
+test('reserved offline review cannot be approved in Trash or after Restore',async t=>{
+ const f=await setup(t,{fullSchema:true});await f.session();const r=await f.review();
+ const immutable=rows(f,'live_outbound_reviews');
+ await moveCandidate(f,'trash');
+ const approve=()=>f.request(f.route('approve'),{intentId:r.id,approval:r.approval});
+ assert.equal((await approve()).status,409);
+ const revision=await moveCandidate(f,'restore');
+ assert.equal((await approve()).status,409);assert.equal(f.calls(),0);
+ assert.deepEqual(rows(f,'live_outbound_reviews'),immutable);
+ await f.approve(await f.review(revision));assert.equal(f.calls(),0);
+});
+
+for(const phase of ['review','approve','send']) for(const missing of ['folder row','0006 schema'])
+ test(`offline ${phase} fails closed without ${missing}`,async t=>{
+  const f=await setup(t,{fullSchema:true});await f.session();
+  const r=phase==='review'?null:await f.review();
+  const a=phase==='send'?await f.approve(r):r;
+  const immutable=rows(f,'live_outbound_reviews');
+  if(missing==='folder row')removeCandidateFolder(f);else removeFolderSchema(f);
+  const res=await f.request(f.route(phase),phase==='review'?{revision:1}:{intentId:a.id,approval:a.approval});
+  assert.equal(res.status,missing==='folder row'?409:503);
+  assert.equal((await res.json()).error,missing==='folder row'?'case_folder_unavailable':'folder_migration_required');
+  assert.equal(f.calls(),0);assert.deepEqual(rows(f,'live_outbound_reviews'),immutable);
+ });
+
+for(const phase of ['review','approve','send']) for(const race of ['trash','trash with stale revision','missing folder row'])
+ test(`atomic offline ${phase} rejects ${race} after preflight`,async t=>{
+  const f=await setup(t,{fullSchema:true});await f.session();
+  const r=phase==='review'?null:await f.review();
+  const a=phase==='send'?await f.approve(r):r;
+  const immutable=rows(f,'live_outbound_reviews');
+  const prepare=f.DB.prepare.bind(f.DB);let changed=false;
+  f.DB.prepare=sql=>{
+   const boundary=phase==='review'?sql.startsWith('INSERT INTO live_outbound_reviews'):sql.startsWith('UPDATE live_outbound_reviews SET status=');
+   if(boundary && !changed){
+    changed=true;
+    if(race==='missing folder row')removeCandidateFolder(f);
+    else {
+     // Fault injection isolates the folder predicate from revision invalidation.
+     // Ordinary Trash races still exercise both 0006 triggers.
+     if(race==='trash with stale revision')f.DB.sqlite.exec('DROP TRIGGER case_folder_changed');
+     f.DB.sqlite.prepare("UPDATE case_folders SET folder='trash',version=version+1,invalidated_revision=(SELECT revision+1 FROM cases WHERE id=case_id) WHERE case_id=?").run(f.id);
+    }
+   }
+   return prepare(sql);
+  };
+  const res=await f.request(f.route(phase),phase==='review'?{revision:1}:{intentId:a.id,approval:a.approval});
+  assert.equal(changed,true);assert.equal(res.status,409);assert.equal(f.calls(),0);
+  assert.deepEqual(rows(f,'live_outbound_reviews'),immutable);
+  assert.equal(rows(f,'messages').filter(m=>m.direction==='outbound').length,0);
+ });

@@ -1,3 +1,4 @@
+import { requireFolders, listFolder, moveFolders } from './folders.mjs';
 import { authenticate, HttpError, requireThat, protectPost, sessionProof, readJson, mac, verifyMac, digest } from './security.mjs';
 import { stmt, audit, rateLimit, getCase, saveDraft, reserveReview, claimSend, finalize, now, reviewMode, bindReviewMode, replyStage, requireCustomerInbound } from './store.mjs';
 import { email, decodedSubject } from './inbound.mjs';
@@ -54,12 +55,17 @@ export function createWorker({ fetcher = fetch, provider, simulation, replyTrans
     return json({ available: true, unresolved: row.count });
    }
    if (request.method === 'GET' && url.pathname === '/api/cases') {
-    const cases = (await stmt(env.DB, `SELECT id,channel,subject,requester_name,updated_at FROM cases ORDER BY updated_at DESC LIMIT 100`).all()).results;
-    return json(cases.map(c => ({ ...c, displaySubject: decodedSubject(c.subject) })));
+    const result = await listFolder(env.DB, url.searchParams.get('folder') ?? 'inbox');
+    result.cases = result.cases.map(c => ({...c,displaySubject:decodedSubject(c.subject)}));
+    return json(result);
+   }
+   if (url.pathname === '/api/cases/folder' && request.method === 'POST') {
+    return json(await moveFolders(env.DB, await readJson(request, ['action','cases'])));
    }
    const match = url.pathname.match(/^\/api\/cases\/([a-f0-9-]{36})(?:\/(draft|review|send))?$/);
    if (match) {
     const [, id, action] = match;
+    await requireFolders(env.DB);
     if (request.method === 'GET' && !action) {
      const c = await getCase(env.DB, id);
      const messages = (await stmt(env.DB, 'SELECT direction,body,created_at,intent_id FROM messages WHERE case_id=? ORDER BY created_at,id', id).all()).results;
@@ -94,6 +100,7 @@ export function createWorker({ fetcher = fetch, provider, simulation, replyTrans
      const i = await stmt(env.DB, 'SELECT * FROM outbound_intents WHERE id=? AND case_id=?', data.intentId, id).first();
      const mode = i ? await reviewMode(env.DB, i.id) : 'mock';
      requireThat(i && i.session_hash === proof.bound && await verifyMac(env.CSRF_SECRET, approvalValue(i, mode, replyPolicy(env)), data.approval), 403, 'approval_denied');
+     requireThat((await getCase(env.DB, id)).folder !== 'trash', 409, 'case_trashed');
      if (i.status !== 'reserved') return json({ id: i.id, status: i.status, mode, stage: mode === 'live' ? await replyStage(env.DB, i.id) : undefined });
      requireThat(i.approval_expires > now(), 409, 'approval_expired');
      requireThat(provider === undefined, 503, 'staging_provider_denied');

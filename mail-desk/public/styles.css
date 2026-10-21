@@ -24,3 +24,15 @@
  #approval button { margin:4px 3px 4px 0; }
 }
 @media (max-width:420px) { header { gap:8px; } .badge { padding:4px 8px; } }
+
+#folders,.folder-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+#folders button,.folder-actions button { flex:1 1 auto; padding:9px; font-size:14px; }
+#folders [aria-current=true] { outline:2px solid var(--orange); outline-offset:2px; }
+.queue-row { display:flex; align-items:stretch; gap:8px; min-width:0; }
+.queue-row .queue-item { min-width:0; flex:1; }
+.case-select { display:flex; align-items:center; justify-content:center; min-width:44px; margin:0; cursor:pointer; }
+input[type=checkbox] { width:22px; height:22px; accent-color:var(--navy); }
+input:focus-visible { outline:3px solid var(--orange); outline-offset:3px; }
+.select-all { display:flex; align-items:center; gap:10px; min-height:44px; font-size:14px; }
+[hidden] { display:none !important; }
+@media (max-width:799px) { #queue { max-height:none; } .folder-actions button { min-height:44px; } }

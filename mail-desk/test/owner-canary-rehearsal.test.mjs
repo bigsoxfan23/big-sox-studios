@@ -185,8 +185,9 @@ test('entire deployed source tree and configs exclude owner rehearsal', () => {
  assert.doesNotMatch(read('../wrangler.staging.toml'), /owner-canary-rehearsal|offline\//);
 });
 test('actual production source hashes and unconditional hard block preserved', () => {
+ // Candidate hash includes Cleanup A's folder guards; activation remains blocked.
  for (const [path, expected] of [
-  ['../src/outbound.candidate.mjs', '7623ff57f08348e0d0d1f3d2307e19147d5ca38b93bc7021251824f75147e1d2'],
+  ['../src/outbound.candidate.mjs', '9e28f7323f9fb8ac0cac52be24a1d2d83a0c3da1c4af69072db30920ea3ff20c'],
   ['../src/resend.future.mjs', 'c6ee94b26fe39157e58a265c805fb3cf1b300138dcb1d03ba3ead5e293410839']
  ]) assert.equal(createHash('sha256').update(read(path)).digest('hex'), expected);
  const code = read('../src/outbound.candidate.mjs');

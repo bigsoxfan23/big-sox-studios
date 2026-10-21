@@ -3,6 +3,7 @@
 import { requireThat } from './security.mjs';
 import { mailbox, messageId } from './inbound.mjs';
 import { stmt, senders } from './store.mjs';
+import { requireFolders } from './folders.mjs';
 export function parseVerifiedHeaders(pairs, envelopeFrom) {
  requireThat(Array.isArray(pairs) && pairs.length <= 100, 409, 'unsafe_headers');
  const headers = new Map(); let size = 0;
@@ -26,6 +27,10 @@ export function parseVerifiedHeaders(pairs, envelopeFrom) {
  return { parent, reply, refs };
 }
 export async function loadEligible(db, caseId, cutoff, verifyEvidence) {
+ await requireFolders(db);
+ const folder = await stmt(db, 'SELECT folder FROM case_folders WHERE case_id=?', caseId).first();
+ requireThat(folder, 409, 'case_folder_unavailable');
+ requireThat(folder.folder !== 'trash', 409, 'case_trashed');
  const c = await stmt(db, 'SELECT *,instr(draft,char(0)) AS draft_nul,instr(subject,char(0)) AS subject_nul FROM cases WHERE id=?', caseId).first();
  // Some SQLite bindings truncate returned TEXT at NUL; check the stored bytes in SQL.
  requireThat(c?.draft_nul === 0 && c?.subject_nul === 0, 409, 'unsafe_stored_text');

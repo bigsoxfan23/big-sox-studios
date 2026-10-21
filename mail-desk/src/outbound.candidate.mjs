@@ -57,6 +57,7 @@ async function transition(db, i, from, to) {
  WHERE id=? AND status=? AND snapshot_json=? AND session_hash=? AND approval_expires>?
  AND EXISTS(SELECT 1 FROM cases c JOIN messages m ON m.case_id=c.id
  WHERE c.id=live_outbound_reviews.case_id AND c.revision=live_outbound_reviews.revision
+ AND EXISTS(SELECT 1 FROM case_folders f WHERE f.case_id=c.id AND f.folder<>'trash')
  AND c.channel='support' AND c.requester_email=json_extract(snapshot_json,'$.recipient')
  AND c.subject=json_extract(snapshot_json,'$.subject') AND c.draft=json_extract(snapshot_json,'$.body')
  AND m.id=live_outbound_reviews.message_id AND m.direction='inbound'
@@ -114,7 +115,8 @@ function coordinator({ fetcher, verifyEvidence, send, offline }) {
     const s = snapshot(eligible, id, proof.bound, expires); validateContent(s); allowlists(env, s);
     await stmt(env.DB, `INSERT INTO live_outbound_reviews
      (id,case_id,receipt_key,message_id,revision,purpose,snapshot_json,session_hash,approval_expires,status,created_at,updated_at)
-     SELECT ?,c.id,?,?,?,?,?,?,?,'reserved',?,? FROM cases c WHERE c.id=? AND c.revision=? AND ${noConflict}
+     SELECT ?,c.id,?,?,?,?,?,?,?,'reserved',?,? FROM cases c WHERE c.id=? AND c.revision=?
+     AND EXISTS(SELECT 1 FROM case_folders f WHERE f.case_id=c.id AND f.folder<>'trash') AND ${noConflict}
      ON CONFLICT(case_id,revision) DO NOTHING`, id, s.receiptKey, s.messageId, data.revision, PURPOSE,
      JSON.stringify(s), proof.bound, expires, time, time, caseId, data.revision).run();
     const i = await stmt(env.DB, 'SELECT * FROM live_outbound_reviews WHERE case_id=? AND revision=?', caseId, data.revision).first();
