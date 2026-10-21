@@ -145,6 +145,80 @@ function notionServer(f,{patch=()=>Response.json({object:'page',id:f.page}),matc
  const calls=[];return {calls,fetcher:async(url,init)=>{const body=JSON.parse(init.body);calls.push({url,method:init.method,body});return init.method==='PATCH'?patch(body):Response.json({results:matches,has_more:false});}};
 }
 
+const folderErrors = f => f.DB.sqlite.prepare("SELECT * FROM audit_events WHERE event LIKE 'folder_sync_error_%' ORDER BY rowid").all();
+for (const [stage,status] of [['notion_query',403],['notion_patch',400]]) test(`folder diagnostic persists one ${stage} HTTP ${status} event across retries`,async t=>{
+ const f=await notionSetup(t),before=f.DB.sqlite.prepare('SELECT * FROM audit_events').all();
+ const privateText='customer-sensitive@example.test secret_fixture_token https://private.example.test/path';
+ let fail=true;const methods=[];
+ const fetcher=async(url,init)=>{
+  methods.push(init.method);
+  if(fail && (stage==='notion_query' || init.method==='PATCH')) return new Response(privateText,{status,headers:{'X-Private':privateText}});
+  return init.method==='PATCH' ? Response.json({object:'page',id:f.page}) : Response.json({results:[{object:'page',id:f.page}],has_more:false});
+ };
+ for(let attempt=0;attempt<3;attempt++) {
+  const time=Math.floor(Date.now()/1000);
+  assert.deepEqual(await syncFolders(f.env,fetcher),{status:'partial',processed:0,unresolved:1});
+  const queue=f.DB.sqlite.prepare('SELECT * FROM case_folder_sync').get();
+  assert.equal(queue.synced_version,-1);assert.equal(queue.lease_token,null);assert.equal(queue.lease_until,0);
+  assert.ok(queue.next_attempt>=time+300 && queue.next_attempt<=Math.floor(Date.now()/1000)+300);
+  const events=folderErrors(f);assert.equal(events.length,1);
+  assert.equal(events[0].event,`folder_sync_error_${stage}_notion_http_${status}`);
+  assert.equal(events[0].case_id,f.id);assert.equal(events[0].intent_id,null);
+  assert.deepEqual(f.DB.sqlite.prepare('SELECT * FROM audit_events ORDER BY rowid LIMIT ?').all(before.length),before);
+  const count=methods.length;assert.equal((await syncFolders(f.env,fetcher)).processed,0);assert.equal(methods.length,count);
+  f.DB.sqlite.exec('UPDATE case_folder_sync SET next_attempt=0');
+ }
+ assert.deepEqual(methods,stage==='notion_query'?['POST','POST','POST']:['POST','PATCH','POST','PATCH','POST','PATCH']);
+ assert.ok(!JSON.stringify(folderErrors(f)).includes(privateText));
+ // A later successful retry still patches Inbox and acknowledges version zero.
+ fail=false;assert.deepEqual(await syncFolders(f.env,fetcher),{status:'complete',processed:1,unresolved:0});
+ assert.equal(f.DB.sqlite.prepare('SELECT synced_version FROM case_folder_sync').get().synced_version,0);
+ assert.equal(folderErrors(f).length,1);
+});
+
+test('folder diagnostics allow only fixed categories, deduplicate per case and preserve prior errors',async t=>{
+ const f=await notionSetup(t);
+ for(const error of [new TypeError('secret-token customer@example.test https://private.test'),Error('notion_http_403 customer@example.test'),Error('notion_http_400\nsecret-token')]) {
+  for(let n=0;n<2;n++) {
+   f.DB.sqlite.exec('UPDATE case_folder_sync SET next_attempt=0');
+   assert.equal((await syncFolders(f.env,async()=>{throw error;})).status,'partial');
+  }
+ }
+ assert.deepEqual(folderErrors(f).map(r=>r.event),['folder_sync_error_notion_query_notion_transport_fetch_type','folder_sync_error_notion_query_notion_request_failed']);
+ // A second case with the same error gets its own durable event.
+ const {id}=await inbound(f,'second');
+ f.DB.sqlite.prepare("INSERT INTO notion_links VALUES (?,?,'linked',0)").run(id,crypto.randomUUID());
+ await syncFolders(f.env,async()=>{throw TypeError('private');});
+ assert.equal(folderErrors(f).filter(r=>r.case_id===id).length,1);
+ for(const marker of ['secret-token','customer@example.test','https://private']) assert.ok(!JSON.stringify(folderErrors(f)).includes(marker));
+});
+
+test('folder diagnostic storage failures do not interrupt retries or lease cleanup',async t=>{
+ const f=await notionSetup(t);
+ f.DB.sqlite.exec("CREATE TRIGGER fixture_audit_fail BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'secret-token'); END;");
+ for(let n=0;n<2;n++) {
+  assert.deepEqual(await syncFolders(f.env,async()=>new Response('private',{status:403})),{status:'partial',processed:0,unresolved:1});
+  const queue=f.DB.sqlite.prepare('SELECT * FROM case_folder_sync').get();assert.equal(queue.lease_token,null);assert.equal(queue.lease_until,0);assert.equal(queue.synced_version,-1);
+  f.DB.sqlite.exec('UPDATE case_folder_sync SET next_attempt=0');
+ }
+ assert.equal(folderErrors(f).length,0);
+ f.DB.sqlite.exec('DROP TRIGGER fixture_audit_fail');
+ await syncFolders(f.env,async()=>new Response('private',{status:403}));assert.equal(folderErrors(f).length,1);
+});
+
+for(const stage of ['version_check','db_ack','cleanup']) test(`folder diagnostic safely captures ${stage} storage failure`,async t=>{
+ const f=await notionSetup(t),prepare=f.DB.prepare.bind(f.DB);
+ f.DB.prepare=sql=>{
+  if((stage==='version_check' && sql.startsWith('SELECT f.version')) || (stage==='db_ack' && sql.startsWith('UPDATE case_folder_sync SET synced_version')) || (stage==='cleanup' && sql.startsWith('UPDATE case_folder_sync SET lease_token=NULL'))) throw Error('notion_http_403\nsecret-token customer@example.test');
+  return prepare(sql);
+ };
+ const s=notionServer(f);
+ if(stage==='cleanup') await assert.rejects(syncFolders(f.env,s.fetcher));
+ else assert.deepEqual(await syncFolders(f.env,s.fetcher),{status:'partial',processed:0,unresolved:1});
+ assert.deepEqual(folderErrors(f).map(r=>r.event),[`folder_sync_error_${stage}_other`]);
+ assert.equal(f.DB.sqlite.prepare('SELECT lease_until FROM case_folder_sync').get().lease_until===0,stage!=='cleanup');
+});
+
 test('dedicated Notion folder queue is idempotent, separate from Status/Notes and create',async t=>{
  const f=await notionSetup(t),s=notionServer(f);await moved(f,f.id,'archive');
  assert.equal((await syncFolders(f.env,s.fetcher)).processed,1);assert.equal((await syncFolders(f.env,s.fetcher)).processed,0);
@@ -168,8 +242,9 @@ test('Notion stale in-flight version stays queued; concurrent cron has a single 
  const f=await notionSetup(t);let release,entered;const ready=new Promise(r=>entered=r);
  const s=notionServer(f,{patch:async()=>{entered();await new Promise(r=>release=r);return Response.json({object:'page',id:f.page});}});
  const first=syncFolders(f.env,s.fetcher);await ready;
- assert.equal((await syncFolders(f.env,s.fetcher)).processed,0);await moved(f,f.id,'trash');release();await first;
+ assert.equal((await syncFolders(f.env,s.fetcher)).processed,0);await moved(f,f.id,'trash');release();assert.equal((await first).processed,0);
  assert.equal(f.DB.sqlite.prepare('SELECT synced_version FROM case_folder_sync').get().synced_version,-1);
+ assert.equal(folderErrors(f).length,0);
  const next=notionServer(f);await syncFolders(f.env,next.fetcher);assert.equal(next.calls[1].body.properties['Mail Desk Folder'].select.name,'Trash');
 });
 
