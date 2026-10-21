@@ -1,5 +1,6 @@
 ---
 import ThemeToggle from './ThemeToggle.astro';
+const {persistTheme=true}=Astro.props;
 const links=[['Projects','/projects'],['AI Agents','/ai-agents'],['Austin Favorites','/austin-favorites'],['About','/about'],['Newsletter','/newsletter']];
 ---
 <header class="site-header">
@@ -16,7 +17,7 @@ const links=[['Projects','/projects'],['AI Agents','/ai-agents'],['Austin Favori
         <li><a href="https://owner.bigsoxstudios.com/">Employee Sign In</a></li>
       </ul>
     </details>
-    <ThemeToggle/>
+    <ThemeToggle persistTheme={persistTheme}/>
     <details class="mobile-menu" data-header-menu>
       <summary aria-label="Navigation"><span></span><span></span></summary>
       <nav aria-label="Mobile navigation">
