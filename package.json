@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "validate": "npm run lint && npm run build",
     "test:membership": "node --test --experimental-test-isolation=none tests/membership-*.test.mjs",
-    "test:public": "node --test --experimental-test-isolation=none tests/public-sign-in.test.mjs"
+    "test:public": "node --test --experimental-test-isolation=none tests/public-sign-in.test.mjs",
+    "test:notify": "node --test --experimental-test-isolation=none membership-notify/test/*.test.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.0",
