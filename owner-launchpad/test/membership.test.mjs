@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createWorker} from '../src/worker.mjs';
 import {b64} from '../src/security.mjs';
+import {sweep} from '../../membership/common.mjs';
 import {database,seed,TIME,DAY} from '../../tests/membership-fixtures.mjs';
 const envBase={ACCESS_ISSUER:'https://synthetic.cloudflareaccess.com',ACCESS_AUDIENCE:'synthetic-audience',OWNER_EMAIL:'owner@example.test',APP_ORIGIN:'https://owner.example.test',MAIL_DESK_URL:'https://mail.example.test/',MEMBERSHIP_CSRF_KEY:'c'.repeat(32)};
 const pair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
@@ -102,4 +103,29 @@ test('audit failure rolls back owner decision and note atomically',async()=>{
  const f=fixture(),id=seed(f.storage),form=await f.form();
  f.storage.sqlite.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;");
  const r=await f.post(id,fields(form),{headers:{Cookie:form.cookie}});assert.equal(r.status,503);assert.equal(f.storage.rows()[0].status,'pending');assert.equal(f.storage.rows()[0].revision,1);assert.equal(f.storage.rows()[0].owner_note,'');
+});
+
+test('annual review boundary retains invite-ready details; only explicit owner withdrawal starts clearing',async()=>{
+ const f=fixture();
+ seed(f.storage,{status:'approved',created:TIME-365*DAY+1});
+ seed(f.storage,{status:'approved',created:TIME-365*DAY});
+ const id=seed(f.storage,{status:'approved',created:TIME-800*DAY,note:'Keep for annual review'});
+ await sweep(f.env,TIME);
+ const form=await f.form();
+ assert.equal((form.html.match(/Annual owner review due/g)||[]).length,2);
+ assert.match(form.html,/Keep for annual review/);
+ assert.ok(f.storage.rows().every(row=>row.status==='approved' && row.revision===1));
+ // Saving the annual review note retains approval and emits no status event.
+ assert.equal((await f.post(id,fields(form,{status:'approved',note:'Annual review complete: retain'}),{headers:{Cookie:form.cookie}})).status,303);
+ assert.equal(f.storage.sqlite.prepare("SELECT count(*) AS n FROM membership_notify_outbox WHERE kind='status'").get().n,0);
+ const closeForm=await f.form();
+ assert.equal((await f.post(id,fields(closeForm,{revision:'2',status:'revoked'}),{headers:{Cookie:closeForm.cookie}})).status,303);
+ const events=f.storage.sqlite.prepare("SELECT * FROM membership_notify_outbox WHERE kind='status'").all();
+ assert.equal(events.length,1);assert.equal(events[0].application_id,id);
+ await sweep(f.env,TIME+30*DAY-1);
+ assert.equal(f.storage.rows().find(row=>row.id===id).email,'visitor@example.test');
+ await sweep(f.env,TIME+30*DAY);
+ const closed=f.storage.rows().find(row=>row.id===id);
+ assert.equal(closed.status,'revoked');assert.equal(closed.closed_at,TIME);
+ for(const key of ['name','email','reason','owner_note'])assert.equal(closed[key],null);
 });

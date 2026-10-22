@@ -35,6 +35,7 @@ export function db(env) { requireThat(env.MEMBERSHIP_DB?.prepare,503); return en
 export async function sweep(env, time) {
  const database = db(env);
  // At most 100 rows per category per invocation. Repeat daily until caught up.
+ // Approved/invite-ready requests are retained for annual owner review only.
  await database.batch([
   database.prepare(`UPDATE membership_requests SET status='expired', closed_at=?, updated_at=?, revision=revision+1
    WHERE id IN (SELECT id FROM membership_requests WHERE status='pending' AND created_at<=? ORDER BY created_at LIMIT 100)`)

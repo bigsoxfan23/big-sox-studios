@@ -5,6 +5,8 @@ export const DAY = 86400000;
 export function database() {
  const sqlite = new DatabaseSync(':memory:');
  sqlite.exec(readFileSync(new URL('../membership/migrations/0001_membership.sql',import.meta.url),'utf8'));
+ sqlite.exec(readFileSync(new URL('../membership/migrations/0002_notifications.sql',import.meta.url),'utf8'));
+ sqlite.exec(readFileSync(new URL('../membership/migrations/0003_notification_provider_check.sql',import.meta.url),'utf8'));
  let writes = 0;
  const wrap = (sql,values=[]) => ({
   bind(...args) { return wrap(sql,args); },
