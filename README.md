@@ -16,16 +16,18 @@ Projects, experiments, and useful ideas across AI, travel, tech, and everyday li
 
 ## Local development
 
-Requirements: Node.js 22+ and npm.
+Requirements: Node.js 24.22.0 (see `.nvmrc`) and npm 10.9.4.
 
 ```bash
-npm install
+npm ci --include=dev --include=optional
 npm run dev
 ```
 
 Validation: `npm run check`, `npm run lint`, `npm run build`, or `npm run validate`. Production output is `dist/`.
 
 ## Deployment
+
+Task 11b deployment requires the separate owner approval gates in [the production deployment plan](docs/TASK11B_PRODUCTION_DEPLOYMENT_PLAN.md). The original setup notes below are historical; do not enable preview builds or deploy the membership changes from these notes alone.
 
 The repository is prepared for an asset-only Cloudflare Worker using `wrangler.toml`.
 

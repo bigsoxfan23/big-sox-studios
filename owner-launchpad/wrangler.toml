@@ -13,3 +13,11 @@ APP_ORIGIN = ""
 MAIL_DESK_URL = "https://bss-mail-desk-staging.fridman-greg.workers.dev/"
 # OWNER_EMAIL must be supplied privately as a future secret binding.
 # JWT signing secrets do not belong here; verification uses public Access JWKS.
+
+# FUTURE OPERATOR-ONLY binding after deployment approval. Same NEW database as public API.
+# [[d1_databases]]
+# binding = "MEMBERSHIP_DB"
+# database_name = "bss-membership-requests"
+# database_id = "REPLACE_WITH_NEW_DATABASE_ID"
+# migrations_dir = "../membership/migrations"
+# MEMBERSHIP_CSRF_KEY: independent random secret, >=32 characters; operator supplies later.

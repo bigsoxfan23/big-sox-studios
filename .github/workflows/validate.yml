@@ -8,11 +8,24 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASTRO_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm install
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Use compatible npm without a global install
+        run: |
+          npm install --prefix "$RUNNER_TEMP/task11b-tools" npm@10.9.4
+          echo "$RUNNER_TEMP/task11b-tools/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: npm ci --include=dev --include=optional
+      - run: npm audit --include=dev
+      - run: npm audit --omit=dev
       - run: npm run validate
-      - run: node --test tests/public-sign-in.test.mjs
+      - run: npm run test:membership
+      - run: npm run test:public
+      - run: npm test --prefix owner-launchpad
+      - run: npm run check --prefix owner-launchpad

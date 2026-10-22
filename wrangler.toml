@@ -1,9 +1,31 @@
 name = "big-sox-studios"
+main = "membership/worker.mjs"
+workers_dev = false
+preview_urls = false
 compatibility_date = "2026-09-29"
 
 [assets]
+binding = "ASSETS"
+run_worker_first = ["/api/membership/*"]
 directory = "./dist"
 not_found_handling = "404-page"
 html_handling = "auto-trailing-slash"
 
 [previews]
+
+# Proposed namespace only; operator must confirm a unique account namespace before deployment.
+[[ratelimits]]
+name = "REQUEST_LIMITER"
+namespace_id = "110011"
+simple = { limit = 6, period = 60 }
+
+# OPERATOR ONLY after separate deployment approval. Never bind existing D1.
+[[d1_databases]]
+binding = "MEMBERSHIP_DB"
+database_name = "bss-membership-requests"
+database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
+migrations_dir = "membership/migrations"
+# Secrets: EMAIL_HMAC_KEY, RATE_HMAC_KEY, TURNSTILE_SECRET_KEY
+
+[triggers]
+crons = ["17 4 * * *"]

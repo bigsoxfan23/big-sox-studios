@@ -203,11 +203,11 @@ test('offline deployment configuration pins actual protected Mail Desk and remai
  assert.doesNotMatch(config, /OWNER_EMAIL\s*=/m);
 });
 
-test('owner GET and HEAD: two exact destinations, no secrets or scripts; strict headers', async () => {
+test('owner GET and HEAD: existing destinations plus membership, no secrets or scripts; strict headers', async () => {
  const f = fixture(); const jwt = await token();
  const response = await f.request(jwt); assert.equal(response.status,200);
  const html = await response.text();
- assert.deepEqual([...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]), ['https://bigsoxstudios.com/admin/', env.MAIL_DESK_URL]);
+ assert.deepEqual([...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]), ['https://bigsoxstudios.com/admin/', env.MAIL_DESK_URL, '/membership/requests/']);
  for (const secret of [jwt, env.OWNER_EMAIL, env.ACCESS_AUDIENCE, env.ACCESS_ISSUER]) assert.ok(!html.includes(secret));
  assert.ok(!html.includes('<script') && !html.includes('<form') && !html.includes('src='));
  for (const [name,value] of Object.entries({ 'cache-control':'no-store','referrer-policy':'no-referrer','x-content-type-options':'nosniff','strict-transport-security':'max-age=31536000' })) assert.equal(response.headers.get(name),value);

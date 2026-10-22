@@ -13,3 +13,9 @@ ACCESS_ISSUER = "https://old-hill-995d.cloudflareaccess.com"
 ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
 APP_ORIGIN = "https://owner.bigsoxstudios.com"
 MAIL_DESK_URL = "https://bss-mail-desk-staging.fridman-greg.workers.dev/"
+
+[[d1_databases]]
+binding = "MEMBERSHIP_DB"
+database_name = "bss-membership-requests"
+database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
+migrations_dir = "../membership/migrations"

@@ -1,0 +1,66 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '';
+const configured = /^[A-Za-z0-9_-]{10,100}$/.test(sitekey) && !/^(?:[123]x|REPLACE|PLACEHOLDER)/i.test(sitekey);
+---
+<BaseLayout persistTheme={false} title="Request Membership" description="Say hello and ask Greg to consider you for future invite-only studio membership.">
+ <section class="request container" aria-labelledby="request-title">
+  <a href="/members/">← Explore membership</a>
+  <p class="eyebrow">BIG SOX STUDIOS / A FRIENDLY HELLO</p>
+  <h1 id="request-title">Good company starts<br/>with <span>a hello.</span></h1>
+  <p class="intro">Tell Greg a little about yourself. Future membership is invite-only, and Greg personally reviews each request. The portal is not open. Members sign-in is coming soon.</p>
+  <div class="request-grid">
+   <form id="membership-request" method="post" action="/api/membership/requests" aria-describedby="privacy email-help" data-configured={String(configured)}>
+    <label for="request-name">Your name</label>
+    <input id="request-name" name="name" autocomplete="name" maxlength="100" required />
+    <label for="request-email">Email address</label>
+    <input id="request-email" name="email" type="email" autocomplete="email" maxlength="254" aria-describedby="email-help" required />
+    <p id="email-help" class="hint">Please proofread your email carefully. It is not verified here, and we won’t send a confirmation email.</p>
+    <label for="request-reason">How do you know the studio, and what interests you about membership?</label>
+    <textarea id="request-reason" name="reason" maxlength="500" rows="5" aria-describedby="reason-help" required></textarea>
+    <p id="reason-help" class="hint">Up to 500 characters in a single paragraph. Please leave out sensitive personal information.</p>
+    <p id="privacy" class="hint">Your name, email, and answer are stored privately for Greg’s review. Pending requests expire after 90 days. Personal details are cleared 30 days after rejection, withdrawal, or expiration; invite-ready requests stay until Greg closes them, with annual review. A protected email fingerprint remains to prevent duplicate requests. To request removal, email <a href="mailto:support@bigsoxstudios.com">support@bigsoxstudios.com</a>; Greg will verify the request with you first. Cloudflare Turnstile provides the security check.</p>
+    <label class="ack"><input name="acknowledgement" type="checkbox" required /><span>I acknowledge this privacy notice and understand this is a request for consideration. No account, access, invitation, or email is created or sent by submitting.</span></label>
+    {configured ? <div class="cf-turnstile" data-sitekey={sitekey} data-action="membership_request" data-size="flexible"></div> : <p class="unavailable">Requests are temporarily unavailable while the security check is configured. Please return later.</p>}
+    <button id="request-submit" type="submit" disabled={!configured}>Send membership request <span aria-hidden="true">↗</span></button>
+    <p id="request-result" role="status" aria-live="polite" tabindex="-1"></p>
+    <noscript><p>JavaScript and the security check are required to submit this form.</p></noscript>
+   </form>
+   <aside aria-label="What happens next"><p class="eyebrow">PERSONAL, NEVER AUTOMATIC</p><h2>A small studio.<br/>A human decision.</h2><p>Greg reviews requests personally. You may only hear back if he eventually invites you.</p><p>Submitting creates no account and sends no email. An invitation is not guaranteed, and the members portal is not open yet.</p><span class="stamp">FUTURE INVITE-ONLY MEMBERSHIP</span></aside>
+  </div>
+ </section>
+ {configured && <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>}
+</BaseLayout>
+<script>
+ const form = document.querySelector('#membership-request');
+ const button = document.querySelector('#request-submit');
+ const result = document.querySelector('#request-result');
+ let submitting = false;
+ if (form instanceof HTMLFormElement) form.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!(button instanceof HTMLButtonElement) || !(result instanceof HTMLElement) || submitting || form.dataset.configured !== 'true' || !form.reportValidity()) return;
+  const data = new FormData(form);
+  const token = data.get('cf-turnstile-response');
+  if (typeof token !== 'string' || !token) { result.textContent = 'Please complete the security check before sending.'; result.focus(); return; }
+  submitting = true; button.disabled = true; result.textContent = 'Sending your request…';
+  try {
+   const response = await fetch('/api/membership/requests', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({name:data.get('name'),email:data.get('email'),reason:data.get('reason'),acknowledgement:data.get('acknowledgement') === 'on',token})});
+   if (!response.ok) throw new Error('request failed');
+   const body = await response.json();
+   if (typeof body.message !== 'string') throw new Error('invalid response');
+   result.textContent = body.message;
+   form.reset();
+   button.textContent = 'Request received';
+  } catch {
+   result.textContent = 'We could not confirm your request. Your details are still here. Please wait a minute, refresh the security check, and try again.';
+   button.disabled = false;
+  } finally {
+   submitting = false;
+   const turnstile = Reflect.get(window, 'turnstile');
+   turnstile?.reset(); result.focus();
+  }
+ });
+</script>
+<style>
+.request{padding-block:3rem 6rem;max-width:74rem}.request>a{text-underline-offset:.3rem}.eyebrow{margin-top:2.5rem}h1{font-size:clamp(2.8rem,7vw,5.7rem);font-weight:950;line-height:1;letter-spacing:-.065em;margin:1rem 0 1.5rem}h1 span{color:var(--accent)}.intro{max-width:44rem;font-size:1.15rem;color:var(--muted);line-height:1.7}.request-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:clamp(1.5rem,5vw,4rem);margin-top:2.5rem}form{background:var(--surface-strong);border:1px solid var(--border);border-radius:1.5rem;padding:clamp(1.1rem,4vw,2.5rem);min-width:0}label{display:block;font-weight:800;line-height:1.5;margin-bottom:.6rem}input:not([type=checkbox]),textarea{width:100%;box-sizing:border-box;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--muted);border-radius:.6rem;padding:.85rem;margin-bottom:1.2rem}textarea{resize:vertical}input:focus-visible,textarea:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.hint{font-size:.88rem;line-height:1.65;color:var(--muted);margin:0 0 1.5rem;overflow-wrap:anywhere}.ack{display:flex;align-items:flex-start;gap:.75rem;font-size:.9rem;font-weight:600}.ack input{flex-shrink:0;width:1.3rem;height:1.3rem;margin-top:.2rem;accent-color:var(--accent)}button{width:100%;margin-top:1.2rem;border:0;border-radius:999px;background:var(--text);color:var(--bg);padding:1rem;font:inherit;font-weight:850;cursor:pointer;min-height:48px}button:disabled{opacity:.65;cursor:default}aside{padding:1rem}aside h2{font-size:clamp(2rem,4vw,3rem);line-height:1.1}aside p{line-height:1.7;color:var(--muted)}.stamp{display:block;border-top:1px solid var(--border);padding-top:1.5rem;margin-top:2rem;font-size:.8rem;font-weight:850;letter-spacing:.08em}#request-result{line-height:1.6;overflow-wrap:anywhere}.unavailable{border:1px solid var(--border);padding:1rem;line-height:1.6}@media(max-width:48rem){.request-grid{grid-template-columns:1fr}aside{padding:0 1rem}.request{padding-top:2rem}}
+</style>
