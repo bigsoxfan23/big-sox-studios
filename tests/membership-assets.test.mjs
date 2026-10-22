@@ -23,7 +23,7 @@ test('request CSP permits exactly the existing inline theme code, Turnstile fram
 test('members page links to form and preserves future invite-only and coming-soon sign-in',()=>{
  const html=read('dist/members/index.html');assert.match(html,/href="\/members\/request\/"/);assert.ok(!html.includes("There isn't an online application"));assert.match(html,/future invite-only/);assert.match(html,/Member Sign In <small[^>]*>Coming Soon/);
 });
-test('Wrangler preserves static routing and binds production membership to the dedicated D1 without cron; owner review stays unbound',()=>{
+test('Wrangler preserves static routing and dedicated production D1 with daily public retention cron; owner configs have no cron and review stays unbound',()=>{
  const config=read('wrangler.toml');assert.match(config,/run_worker_first = \["\/api\/membership\/\*"\]/);assert.match(config,/not_found_handling = "404-page"/);assert.match(config,/html_handling = "auto-trailing-slash"/);assert.match(config,/binding = "ASSETS"/);assert.match(config,/simple = \{ limit = 6, period = 60 \}/);
  for(const productionConfig of [config,read('owner-launchpad/wrangler.production.toml')]) {
   const bindings=[...productionConfig.matchAll(/^\[\[d1_databases\]\][^\S\n]*\n([\s\S]*?)(?=^\s*\[|$(?![\s\S]))/gm)];
@@ -33,8 +33,11 @@ test('Wrangler preserves static routing and binds production membership to the d
   assert.match(binding,/^database_name = "bss-membership-requests"$/m);
   assert.match(binding,/^database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"$/m);
   assert.doesNotMatch(binding,/bss-owner-canary|bss-mail-desk-staging/);
-  assert.ok(!/^\[triggers\]/m.test(productionConfig));
  }
+ const triggers=[...config.matchAll(/^\[triggers\][^\S\n]*\n([\s\S]*?)(?=^\s*\[|$(?![\s\S]))/gm)];
+ assert.equal(triggers.length,1);
+ assert.equal(triggers[0][1].trim(),'crons = ["17 4 * * *"]');
+ for(const ownerConfig of ['owner-launchpad/wrangler.production.toml','owner-launchpad/wrangler.toml'])assert.doesNotMatch(read(ownerConfig),/^\[triggers\]/m);
  assert.ok(!/^\[\[d1_databases\]\]/m.test(read('owner-launchpad/wrangler.toml')));
  assert.equal(read('dist/admin/index.html'),read('public/admin/index.html'));
 });

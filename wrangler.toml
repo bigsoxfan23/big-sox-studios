@@ -26,4 +26,6 @@ database_name = "bss-membership-requests"
 database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
 migrations_dir = "membership/migrations"
 # Secrets: EMAIL_HMAC_KEY, RATE_HMAC_KEY, TURNSTILE_SECRET_KEY
-# No production cron enabled. Proposed later: [triggers] crons = ["17 4 * * *"]
+
+[triggers]
+crons = ["17 4 * * *"]
