@@ -1,7 +1,7 @@
 import { ORIGIN, clean, db, hmac, readBody, requireThat, sameSite, secret, sweep } from './common.mjs';
 const SUCCESS = 'Thank you. Greg personally reviews membership requests. No account has been created and no email has been sent. You may only hear back if Greg eventually invites you. The members portal is not open yet.';
 const headers = {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"};
-export function createWorker({fetcher = fetch, now = () => Date.now()} = {}) {
+export function createWorker({fetcher = fetch, now = () => Date.now(), logFailure = step => console.error('membership_request_5xx',step)} = {}) {
  return {
   async fetch(request, env) {
    const url = new URL(request.url);
@@ -9,46 +9,66 @@ export function createWorker({fetcher = fetch, now = () => Date.now()} = {}) {
    const respond = (status, message, extra={}) => new Response(request.method === 'HEAD' ? null : JSON.stringify({message}),{status,headers:{...headers,...extra}});
    if (url.pathname !== '/api/membership/requests' || url.search) return respond(404,'Not found');
    if (request.method !== 'POST') return respond(405,'Method not allowed',{Allow:'POST'});
+   let step = 'request_policy';
    try {
     sameSite(request,ORIGIN);
     requireThat(request.headers.get('Content-Type')?.split(';')[0].trim() === 'application/json',415);
+    step = 'configuration';
     const database = db(env); secret(env.EMAIL_HMAC_KEY); secret(env.RATE_HMAC_KEY); secret(env.TURNSTILE_SECRET_KEY);
     requireThat(typeof env.REQUEST_LIMITER?.limit === 'function',503);
     // Only CF's edge header is accepted, never X-Forwarded-For. Direct origins must remain disabled.
     const ip = request.headers.get('CF-Connecting-IP');
     requireThat(ip && (validIPv4(ip) || validIPv6(ip)),403);
+    step = 'ip_rate_limit';
     const key = await hmac(env.RATE_HMAC_KEY, `membership-ip:${ip.toLowerCase()}`);
     requireThat((await env.REQUEST_LIMITER.limit({key})).success === true,429);
+    step = 'request_body';
     const raw = await readBody(request);
+    step = 'input_validation';
     let data; try { data = JSON.parse(raw); } catch { requireThat(false); }
     requireThat(data && typeof data === 'object' && !Array.isArray(data));
     const name = clean(data.name,100), email = clean(data.email,254).toLowerCase(), reason = clean(data.reason,500);
     requireThat(/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(email));
     requireThat(email.split('@')[0].length <= 64 && !email.startsWith('.') && !email.includes('..') && !email.includes('.@'));
     requireThat(data.acknowledgement === true);
+    step = 'email_rate_limit';
     const emailRateKey = await hmac(env.RATE_HMAC_KEY, `membership-email-rate:${email}`);
     requireThat((await env.REQUEST_LIMITER.limit({key:emailRateKey})).success === true,429);
     requireThat(typeof data.token === 'string' && /^[A-Za-z0-9_.-]{1,2048}$/.test(data.token));
     // Every otherwise admissible submission, including duplicates, consumes Siteverify.
+    step = 'siteverify_fetch';
     const response = await fetcher('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-     method:'POST',redirect:'error',signal:AbortSignal.timeout(5000),
+     // workerd rejects redirect:'error'; manual plus status 200 rejects redirects
+     // without forwarding the secret/token to a Location target.
+     method:'POST',redirect:'manual',signal:AbortSignal.timeout(5000),
      body:new URLSearchParams({secret:env.TURNSTILE_SECRET_KEY,response:data.token})
     });
+    step = 'siteverify_status';
     requireThat(response.status === 200,503);
     let verdict;
-    try { verdict = JSON.parse(await readBody(response,16384)); } catch { requireThat(false,503); }
+    step = 'siteverify_body';
+    try {
+     const body = await readBody(response,16384);
+     step = 'siteverify_json';
+     verdict = JSON.parse(body);
+    } catch { requireThat(false,503); }
+    step = 'siteverify_verdict';
     requireThat(verdict && typeof verdict === 'object',503);
     const age = now() - Date.parse(verdict.challenge_ts);
     requireThat(verdict.success === true && verdict.hostname === 'bigsoxstudios.com' && verdict.action === 'membership_request' && Number.isFinite(age) && age >= 0 && age < 300000,400);
+    step = 'email_hash';
     const emailHash = await hmac(env.EMAIL_HMAC_KEY,`membership-email:v1:${email}`);
     const time = now();
     // Conflict does nothing: submitted identity is unverified and cannot change a decision.
+    step = 'database_insert';
     const inserted = await database.prepare(`INSERT INTO membership_requests(id,email_hash,name,email,reason,created_at,updated_at)
      VALUES(?,?,?,?,?,?,?) ON CONFLICT(email_hash) DO NOTHING`).bind(crypto.randomUUID(),emailHash,name,email,reason,time,time).run();
     requireThat(inserted.success === true,503);
     return respond(200,SUCCESS);
    } catch (error) {
     const status = [400,403,413,415,429,503].includes(error.status) ? error.status : 503;
+    // Only fixed source-defined steps reach logging. Never pass error or request data.
+    if (status === 503) { try { logFailure(step); } catch { /* Logging cannot affect the response. */ } }
     return respond(status,status === 429 ? 'Too many attempts. Please wait a minute and try again.' : 'We could not confirm your request. Please check your details, refresh the security check, and try again.',status === 429 ? {'Retry-After':'60'} : {});
    }
   },
