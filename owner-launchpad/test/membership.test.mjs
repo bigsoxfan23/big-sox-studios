@@ -25,6 +25,38 @@ function fixture() {
  }};
 }
 const fields=(form,extras={})=>({csrf:form.csrf,revision:'1',status:'approved',note:'Synthetic owner note',...extras});
+test('only authenticated queue GET uses same-origin referrer policy for Safari form navigation',async()=>{
+ const f=fixture();seed(f.storage);
+ const queue=await f.request();assert.equal(queue.status,200);assert.equal(queue.headers.get('Referrer-Policy'),'same-origin');
+ assert.match(await queue.text(),/<form method="post" action="\/membership\/requests\/[a-f0-9-]{36}\/decision">/);
+ for(const [path,options,status] of [
+  ['/',{},200],
+  ['/membership/requests/',{method:'HEAD'},200],
+  ['/membership/requests/',{jwt:null},401],
+  ['/membership/requests/',{headers:{Origin:'null'}},403],
+  ['/membership/requests/',{method:'POST'},405],
+  ['/membership/requests/?before=invalid',{},400],
+  ['/membership/debug',{},404],
+ ]) {
+  const response=await f.request(path,options);assert.equal(response.status,status);assert.equal(response.headers.get('Referrer-Policy'),'no-referrer');
+ }
+ delete f.env.MEMBERSHIP_CSRF_KEY;
+ const unavailable=await f.request();assert.equal(unavailable.status,503);assert.equal(unavailable.headers.get('Referrer-Policy'),'no-referrer');
+});
+for(const [name,origin,site] of [
+ ['null Origin','null','same-origin'],
+ ['absent Origin',undefined,'same-origin'],
+ ['cross-site Origin','https://evil.example.test','same-origin'],
+ ['cross-site Fetch-Site',envBase.APP_ORIGIN,'cross-site'],
+]) test(`authenticated decision with valid CSRF rejects ${name} without mutation`,async()=>{
+ const f=fixture(),id=seed(f.storage),form=await f.form();
+ const headers={Cookie:form.cookie,'Sec-Fetch-Site':site,'Content-Type':'application/x-www-form-urlencoded'};
+ if(origin!==undefined)headers.Origin=origin;
+ const response=await f.request(`/membership/requests/${id}/decision`,{method:'POST',headers,body:new URLSearchParams(fields(form))});
+ assert.equal(response.status,403);assert.equal(response.headers.get('Referrer-Policy'),'no-referrer');
+ if(origin!==undefined && origin!==envBase.APP_ORIGIN)assert.equal(await response.text(),'Forbidden');
+ const row=f.storage.rows()[0];assert.equal(row.status,'pending');assert.equal(row.revision,1);assert.equal(row.owner_note,'');assert.equal(f.storage.audit().length,1);assert.equal(f.storage.writes,0);
+});
 test('owner queue requires exact authenticated owner and rejects anonymous, forged, wrong audience/nonowner',async()=>{
  const f=fixture();const forgedPair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
  for(const jwt of [null,'bad',await token({aud:'other'}),await token({email:'other@example.test'}),await token({},forgedPair.privateKey)]) {
