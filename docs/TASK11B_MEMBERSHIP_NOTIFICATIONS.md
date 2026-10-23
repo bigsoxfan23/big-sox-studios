@@ -1,5 +1,7 @@
 # Task 11b membership notifications — offline implementation
 
+The separate [long-term owner Free candidate](TASK11B_LONGTERM_OWNER_FREE.md) adds a hard-disabled alternative policy. It requires fresh owner approval before changing the live expiry; the temporary policy described below remains supported. No release action is authorized by that candidate.
+
 This supersedes the implementation stop in NOTIFY_PREFLIGHT_BLOCKERS only for local coding/testing, as expressly authorized by the owner. The provider/resource blockers remain. No deployment, remote migration, secret provisioning, Notion write, email, push, merge, account or invitation is authorized by this document.
 
 ## Architecture and immutable intake
