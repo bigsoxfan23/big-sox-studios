@@ -2,13 +2,28 @@ import { createProviders, MANUAL, OWNER, SENDER } from './providers.mjs';
 const DAY = 86400000;
 const categories = new Set(['configuration','notion_read','notion_unknown','notion_conflict','notion_update','resend_unknown','resend_refused','storage']);
 const timestamp = value => typeof value==='string' && /^[1-9]\d{12}$/.test(value) ? Number(value) : 0;
+// Release attestation is an operator assertion, never a provider usage/scope check.
+const FREE_ATTESTATION = 'resend-free-sending-only-no-overages-v1';
 export function emailReady(env,time) {
  const until=timestamp(env.PROVIDER_VERIFIED_UNTIL_MS),start=timestamp(env.NOTIFY_START_MS);
- const limit=Number(env.PROVIDER_DAILY_LIMIT);
- return env.EMAIL_ENABLED==='true' && env.OWNER_EMAIL===OWNER && env.SENDER_EMAIL===SENDER &&
-  until>time && until<=time+DAY && start>0 && start<=time &&
-  typeof env.PROVIDER_DAILY_LIMIT==='string' && /^(?:[1-9]|10)$/.test(env.PROVIDER_DAILY_LIMIT) && limit<=10 &&
-  typeof env.RESEND_API_KEY==='string' && /^[\x21-\x7e]{12,1024}$/.test(env.RESEND_API_KEY);
+ const common=env.EMAIL_ENABLED==='true' && env.OWNER_EMAIL===OWNER && env.SENDER_EMAIL===SENDER &&
+  start>0 && start<=time && typeof env.RESEND_API_KEY==='string' && /^[\x21-\x7e]{12,1024}$/.test(env.RESEND_API_KEY);
+ if(!common) return false;
+ if(env.PERMANENT_OWNER_FREE_MODE==='true') {
+  const attested=timestamp(env.PERMANENT_OWNER_FREE_ATTESTED_AT_MS);
+  return env.PROVIDER_VERIFIED_UNTIL_MS==='0' && env.PROVIDER_DAILY_LIMIT==='0' &&
+   env.PERMANENT_OWNER_FREE_DAILY_LIMIT==='1' && env.PERMANENT_OWNER_FREE_MONTHLY_LIMIT==='15' &&
+   env.PERMANENT_OWNER_FREE_ATTESTATION===FREE_ATTESTATION && attested>=start && attested<=time;
+ }
+ // Missing/false retains the original temporary path. Every other value fails closed.
+ if(env.PERMANENT_OWNER_FREE_MODE!==undefined && env.PERMANENT_OWNER_FREE_MODE!=='false') return false;
+ return until>time && until<=time+DAY &&
+  typeof env.PROVIDER_DAILY_LIMIT==='string' && /^(?:[1-9]|10)$/.test(env.PROVIDER_DAILY_LIMIT) && Number(env.PROVIDER_DAILY_LIMIT)<=10;
+}
+function utcBudget(time) {
+ const date=new Date(time);
+ return {day:Math.floor(time/DAY),monthStart:Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),1)/DAY,
+  monthEnd:Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1)/DAY};
 }
 export function createWorker({fetcher=fetch,now=()=>Date.now(),logFailure=category=>console.error('membership_notify',category),timeout=5000}={}) {
  const log=category=>{try {logFailure(categories.has(category)?category:'storage');} catch { /* Fixed categories only. */ }};
@@ -94,10 +109,18 @@ export function createWorker({fetcher=fetch,now=()=>Date.now(),logFailure=catego
       // Atomic quota reservation also protects persistence uncertainty before
       // intent recording. A used reservation is never automatic retry authority.
       category='storage';
-      const day=Math.floor(now()/DAY);
+      const permanent=env.PERMANENT_OWNER_FREE_MODE==='true';
+      const {day,monthStart,monthEnd}=utcBudget(now());
       // Reservation and dispatch intent commit together. A failed transaction
       // leaves NEW safely resumable; after commit UNKNOWN forbids every retry.
       const reserved=await d.batch([
+       permanent ? sql(`INSERT INTO membership_notify_send_attempts(application_id,utc_day)
+        SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM membership_notify_send_attempts WHERE utc_day=?)
+        AND (SELECT COUNT(*) FROM (SELECT 1 FROM membership_notify_send_attempts
+         WHERE utc_day>=? AND utc_day<? LIMIT 15))<15
+        AND EXISTS(SELECT 1 FROM membership_notify_cases WHERE application_id=? AND email_state='NEW'
+         AND suppress_email=0 AND lease_token=? AND lease_until>?)
+        ON CONFLICT(application_id) DO NOTHING`,job.application_id,day,day,monthStart,monthEnd,job.application_id,token,now()) :
        sql(`INSERT INTO membership_notify_send_attempts(application_id,utc_day)
         SELECT ?,? WHERE (SELECT COUNT(*) FROM membership_notify_send_attempts WHERE utc_day=?)<?
         AND EXISTS(SELECT 1 FROM membership_notify_cases WHERE application_id=? AND email_state='NEW'
@@ -106,11 +129,17 @@ export function createWorker({fetcher=fetch,now=()=>Date.now(),logFailure=catego
         Number(env.PROVIDER_DAILY_LIMIT),job.application_id,token,now()),
        sql(`UPDATE membership_notify_cases SET email_state='UNKNOWN' WHERE application_id=? AND email_state='NEW'
         AND suppress_email=0 AND lease_token=? AND lease_until>?
-        AND EXISTS(SELECT 1 FROM membership_notify_send_attempts WHERE application_id=?)`,job.application_id,token,now(),job.application_id)
+        AND EXISTS(SELECT 1 FROM membership_notify_send_attempts WHERE application_id=?)
+        ${permanent?'AND changes()=1':''}`,job.application_id,token,now(),job.application_id)
       ]);
       if(reserved.length!==2 || reserved.some(result=>result.success!==true)) throw Error('storage reservation failed');
       if(reserved[1].meta.changes!==1) {
        category='configuration';throw Object.assign(Error('daily budget unavailable'),{waiting:true});
+      }
+      // No await between the final policy/day check and dispatch. If reservation
+      // crossed midnight or config changed, preserve UNKNOWN; never reuse intent.
+      if(permanent && (env.PERMANENT_OWNER_FREE_MODE!=='true' || !emailReady(env,now()) || Math.floor(now()/DAY)!==day)) {
+       category='configuration';throw Error('reserved dispatch window changed');
       }
       category='resend_unknown';
       try { await providers.send(job.application_id); }

@@ -56,6 +56,7 @@ function setup() {
  const row=id=>d.sqlite.prepare('SELECT * FROM membership_notify_cases WHERE application_id=?').get(id);
  const jobs=()=>d.sqlite.prepare('SELECT * FROM membership_notify_outbox').all();
  return {d,env,calls,pages,control,worker,run,tick,effects,row,jobs,logs,
+  setTime:value=>{time=value;},
   advance:ms=>{time+=ms;env.PROVIDER_VERIFIED_UNTIL_MS=String(time+DAY);},
   restart:()=>createWorker(options).run(env)};
 }
@@ -402,4 +403,147 @@ for(const gate of ['NOTIFY_ENABLED','NOTION_ENABLED','unconfigured','invalid sch
  const plan=s.d.sqlite.prepare("EXPLAIN QUERY PLAN SELECT id FROM membership_notify_outbox WHERE state='done' AND occurred_at<=? ORDER BY occurred_at,id LIMIT 100").all(TIME);
  assert.ok(plan.some(row=>row.detail.includes('membership_notify_completed_age')));
  assert.ok(plan.every(row=>!row.detail.includes('TEMP B-TREE')));
+});
+
+// Synthetic assertions only. Scope/plan are release attestations, not key introspection.
+function permanentSetup(time=TIME) {
+ const s=setup();s.setTime(time);
+ Object.assign(s.env,{PERMANENT_OWNER_FREE_MODE:'true',PROVIDER_VERIFIED_UNTIL_MS:'0',PROVIDER_DAILY_LIMIT:'0',
+  PERMANENT_OWNER_FREE_DAILY_LIMIT:'1',PERMANENT_OWNER_FREE_MONTHLY_LIMIT:'15',
+  PERMANENT_OWNER_FREE_ATTESTATION:'resend-free-sending-only-no-overages-v1',
+  PERMANENT_OWNER_FREE_ATTESTED_AT_MS:String(time-1),NOTIFY_START_MS:String(time-2)});
+ return s;
+}
+const emails=s=>s.calls.filter(c=>c.url.endsWith('/emails'));
+function reserveFixture(s,day) {
+ // Historical durable attempts, with no pending jobs; include any outcome in budgets.
+ const id=crypto.randomUUID();
+ s.d.sqlite.prepare("INSERT INTO membership_notify_cases(application_id,created_at,email_state) VALUES(?,?,'REFUSED')").run(id,day*DAY);
+ s.d.sqlite.prepare('INSERT INTO membership_notify_send_attempts(application_id,utc_day) VALUES(?,?)').run(id,day);
+ return id;
+}
+test('permanent eligibility after original expiry; no usage API, fixed owner payload, durable idempotency',async()=>{
+ const s=permanentSetup();const id=seed(s.d);
+ assert.equal(emailReady({...s.env,PERMANENT_OWNER_FREE_MODE:'false',PROVIDER_VERIFIED_UNTIL_MS:String(TIME-1)},TIME),false);
+ assert.equal(emailReady(s.env,TIME),true);await s.run();await s.restart();
+ assert.equal(s.row(id).email_state,'SENT');assert.equal(emails(s).length,1);
+ assert.equal(emails(s)[0].init.headers['Idempotency-Key'],`membership-notify-v1-${id}`);
+ assert.deepEqual(emails(s)[0].body.to,[OWNER]);assert.equal(emails(s)[0].body.from,SENDER);
+ assert.ok(s.calls.every(c=>!c.url.includes('/usage')));
+ s.d.sqlite.exec("DELETE FROM membership_notify_outbox WHERE state='done'");
+ s.d.sqlite.prepare("INSERT INTO membership_notify_outbox(application_id,kind,revision,occurred_at) VALUES(?,'submitted',1,?)").run(id,TIME);
+ await s.restart();assert.equal(emails(s).length,1);
+});
+const badPermanentConfigs=[
+ ['PERMANENT_OWNER_FREE_MODE',undefined],['PERMANENT_OWNER_FREE_MODE','false'],['PERMANENT_OWNER_FREE_MODE','TRUE'],
+ ['PERMANENT_OWNER_FREE_MODE','1'],['PERMANENT_OWNER_FREE_MODE',''],
+ ['PERMANENT_OWNER_FREE_DAILY_LIMIT',undefined],['PERMANENT_OWNER_FREE_DAILY_LIMIT','0'],['PERMANENT_OWNER_FREE_DAILY_LIMIT','2'],
+ ['PERMANENT_OWNER_FREE_DAILY_LIMIT','01'],['PERMANENT_OWNER_FREE_DAILY_LIMIT',1],
+ ['PERMANENT_OWNER_FREE_MONTHLY_LIMIT',undefined],['PERMANENT_OWNER_FREE_MONTHLY_LIMIT','0'],['PERMANENT_OWNER_FREE_MONTHLY_LIMIT','16'],
+ ['PERMANENT_OWNER_FREE_MONTHLY_LIMIT','015'],['PERMANENT_OWNER_FREE_MONTHLY_LIMIT',15],
+ ['PERMANENT_OWNER_FREE_ATTESTATION',''],['PERMANENT_OWNER_FREE_ATTESTATION','full-access'],
+ ['PERMANENT_OWNER_FREE_ATTESTED_AT_MS','0'],['PERMANENT_OWNER_FREE_ATTESTED_AT_MS',String(TIME+1)],
+ ['PERMANENT_OWNER_FREE_ATTESTED_AT_MS',String(TIME-3)],
+ ['PROVIDER_DAILY_LIMIT','1'],['PROVIDER_VERIFIED_UNTIL_MS',String(TIME+3600000)],
+ ['RESEND_API_KEY',undefined],['RESEND_API_KEY','bad key'],['RESEND_API_KEY',''],
+ ['OWNER_EMAIL','synthetic@example.test'],['SENDER_EMAIL','synthetic@example.test'],
+ ['NOTIFY_START_MS','0'],['NOTIFY_START_MS',String(TIME+1)],['EMAIL_ENABLED','false']
+];
+for(const [field,value] of badPermanentConfigs)test(`permanent rejects ${field}=${String(value)} while Notion/status remains independent`,async()=>{
+ const s=permanentSetup();s.env[field]=value;const id=seed(s.d,{created:field==='NOTIFY_START_MS' && value===String(TIME+1)?TIME+1:TIME});await s.run();
+ assert.equal(emailReady(s.env,TIME),false);assert.equal(emails(s).length,0);assert.equal(s.row(id).email_state,'NEW');
+ assert.equal(s.row(id).notion_state,'LINKED');assert.equal(s.jobs()[0].attempts,0);
+ s.d.sqlite.prepare("UPDATE membership_requests SET status='expired',revision=revision+1,updated_at=? WHERE id=?").run(TIME,id);
+ await s.run();assert.equal(s.pages.get(id).properties.Status.select.name,'Closed');
+ assert.equal(s.jobs().find(j=>j.kind==='status').state,'done');
+ assert.equal(s.d.sqlite.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts').get().n,0);
+});
+test('permanent daily limit across distinct applications, overlap and restart; waits do not consume retries',async()=>{
+ const s=permanentSetup();const ids=Array.from({length:4},()=>seed(s.d));
+ await Promise.all(Array.from({length:8},()=>s.restart()));
+ for(let i=0;i<4;i++)await s.run();
+ assert.equal(emails(s).length,1);assert.equal(ids.filter(id=>s.row(id).email_state==='NEW').length,3);
+ assert.ok(s.jobs().every(j=>j.attempts===0));
+ s.setTime(TIME+DAY);await s.restart();assert.equal(emails(s).length,2);
+});
+for(const boundary of ['2026-12-31T23:59:59.999Z','2027-01-31T23:59:59.999Z','2028-02-29T23:59:59.999Z','2028-02-28T23:59:59.999Z'])test(`permanent UTC budget edges ${boundary}`,async()=>{
+ const time=Date.parse(boundary),s=permanentSetup(time),day=Math.floor(time/DAY);
+ const date=new Date(time),start=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),1)/DAY;
+ // Prior month never counts; 14 current-month attempts allow exactly one more.
+ for(let i=1;i<=20;i++)reserveFixture(s,start-i);
+ for(let i=0;i<14;i++)reserveFixture(s,start+i);
+ const first=seed(s.d,{created:time});await s.run();assert.equal(s.row(first).email_state,'SENT');
+ const nextTime=time+1;s.setTime(nextTime);
+ const second=seed(s.d,{created:nextTime});await s.run();
+ const rollover=new Date(nextTime).getUTCMonth()!==date.getUTCMonth();
+ assert.equal(s.row(second).email_state,rollover?'SENT':'NEW');
+ assert.equal(emails(s).length,rollover?2:1);
+ // All timestamps were partitioned by UTC, including year and leap-day rollover.
+ assert.equal(s.d.sqlite.prepare('SELECT utc_day FROM membership_notify_send_attempts WHERE application_id=?').get(first).utc_day,day);
+});
+test('permanent exhausted month waits, still closes status, resumes at next UTC month without new attestation',async()=>{
+ const time=Date.parse('2028-01-30T12:00:00Z'),s=permanentSetup(time),start=Date.parse('2028-01-01T00:00:00Z')/DAY;
+ for(let i=0;i<15;i++)reserveFixture(s,start+i);
+ const id=seed(s.d,{created:time});await s.run();assert.equal(emails(s).length,0);
+ s.setTime(time+DAY);await s.run();assert.equal(s.row(id).email_state,'NEW');
+ s.d.sqlite.prepare("UPDATE membership_requests SET status='rejected',revision=revision+1,updated_at=? WHERE id=?").run(time,id);
+ await s.run();assert.equal(s.pages.get(id).properties.Status.select.name,'Closed');
+ s.setTime(Date.parse('2028-02-01T00:00:00Z'));await s.restart();assert.equal(s.row(id).email_state,'SENT');
+ assert.equal(s.jobs()[0].attempts,0);
+});
+for(const status of [400,401,403,422,429,500,'timeout','malformed'])test(`permanent provider exhaustion/refusal/UNKNOWN ${status} never retries`,async()=>{
+ const s=permanentSetup();const id=seed(s.d);
+ s.control.send=()=>status==='timeout'?new Promise(()=>{}):status==='malformed'?json({}):new Response(null,{status});
+ await s.run();s.setTime(TIME+32*DAY);await s.restart();
+ assert.equal(s.row(id).email_state,[400,401,403,422,429].includes(status)?'REFUSED':'UNKNOWN');
+ assert.equal(emails(s).length,1);assert.equal(s.d.sqlite.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts').get().n,1);
+});
+test('permanent historical/manual suppression remains irreversible',async()=>{
+ const s=permanentSetup();const id=seed(s.d,{created:TIME-3});await s.run();
+ assert.equal(s.row(id).email_state,'SUPPRESSED');assert.equal(emails(s).length,0);
+ s.d.sqlite.prepare("INSERT INTO membership_notify_outbox(application_id,kind,revision,occurred_at) VALUES(?,'adopt',1,0)").run(MANUAL);
+ s.pages.set(MANUAL,page(MANUAL));await s.run();assert.equal(s.row(MANUAL).email_state,'SUPPRESSED');
+ assert.equal(emails(s).length,0);
+});
+for(const mode of ['rollback','lost-ack','midnight','config-change'])test(`permanent transaction safety ${mode}`,async()=>{
+ const time=Date.parse('2028-12-31T23:59:59.999Z'),s=permanentSetup(time),id=seed(s.d,{created:time});
+ const batch=s.d.batch;
+ if(mode==='rollback')s.d.sqlite.exec("CREATE TRIGGER fail_free_intent BEFORE UPDATE OF email_state ON membership_notify_cases WHEN NEW.email_state='UNKNOWN' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;");
+ else s.d.batch=async statements=>{
+  const result=await batch(statements);
+  if(mode==='lost-ack')throw Error('synthetic lost ack');
+  if(mode==='midnight')s.setTime(time+1);
+  if(mode==='config-change')s.env.PERMANENT_OWNER_FREE_MODE='false';
+  return result;
+ };
+ await s.run();assert.equal(emails(s).length,0);
+ assert.equal(s.row(id).email_state,mode==='rollback'?'NEW':'UNKNOWN');
+ s.d.batch=batch;
+ if(mode==='rollback')s.d.sqlite.exec('DROP TRIGGER fail_free_intent');
+ s.env.PERMANENT_OWNER_FREE_MODE='true';s.setTime(time+2*DAY);await s.restart();
+ assert.equal(emails(s).length,mode==='rollback'?1:0);
+});
+test('permanent never treats an existing reservation as fresh dispatch authority',async()=>{
+ const s=permanentSetup();const id=seed(s.d);
+ s.d.sqlite.prepare('INSERT INTO membership_notify_send_attempts(application_id,utc_day) VALUES(?,?)').run(id,Math.floor(TIME/DAY)-1);
+ await s.run();assert.equal(emails(s).length,0);assert.equal(s.row(id).email_state,'NEW');
+});
+test('temporary six-hour attestation remains separately supported and expires; invalid mode fails closed',async()=>{
+ const s=setup();s.env.PROVIDER_VERIFIED_UNTIL_MS=String(TIME+6*3600000);
+ for(const flag of [undefined,'false'])assert.equal(emailReady({...s.env,PERMANENT_OWNER_FREE_MODE:flag},TIME),true);
+ assert.equal(emailReady({...s.env,PERMANENT_OWNER_FREE_MODE:'TRUE'},TIME),false);
+ const first=seed(s.d);await s.run();assert.equal(s.row(first).email_state,'SENT');
+ s.setTime(TIME+6*3600000);const second=seed(s.d,{created:TIME+6*3600000});await s.run();
+ assert.equal(s.row(second).email_state,'NEW');assert.equal(emails(s).length,1);
+});
+test('permanent range/equality queries use existing covering day index without temporary sorting',()=>{
+ const s=permanentSetup();
+ for(const [query,values] of [
+  ['SELECT 1 FROM membership_notify_send_attempts WHERE utc_day=?',[1]],
+  ['SELECT COUNT(*) FROM (SELECT 1 FROM membership_notify_send_attempts WHERE utc_day>=? AND utc_day<? LIMIT 15)',[1,32]]
+ ]) {
+  const plan=s.d.sqlite.prepare('EXPLAIN QUERY PLAN '+query).all(...values);
+  assert.ok(plan.some(row=>row.detail.includes('membership_notify_send_day')));
+  assert.ok(plan.every(row=>!row.detail.includes('TEMP B-TREE')));
+ }
 });
