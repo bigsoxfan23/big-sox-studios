@@ -72,6 +72,8 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Membership requests · Owner desk</title><style>${css}</style></head><body><main><a href="/">← Owner desk</a><h1>Membership requests</h1><p>Unverified applicant details. Invite-ready is an application decision only. Saving never creates an account, authorizes access, sends an invitation, or sends email. Approval withdrawn does not revoke any member account.</p><p>Newest first · 20 per page. Terminal decisions cannot be reopened. For an invited or otherwise closed application, withdraw its approval here; manage any account separately through the future authorized process.</p>${items || '<p>No requests.</p>'}${next}<details><summary>Recent private audit (20 events)</summary><ul>${auditHTML || '<li>No events.</li>'}</ul></details></main></body></html>`;
   const hash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(css)))));
   return respond(200,html,{'Set-Cookie':`${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900`,
+   // Preserve same-origin form POST Origin in Safari without cross-site referrers.
+   ...(request.method==='GET' ? {'Referrer-Policy':'same-origin'} : {}),
    'Content-Security-Policy':`default-src 'none'; script-src 'none'; style-src 'sha256-${hash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`});
  } catch(error) {
   const status = [400,403,409,413,415].includes(error.status) ? error.status : 503;
