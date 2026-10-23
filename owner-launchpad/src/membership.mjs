@@ -1,9 +1,16 @@
 import { DAY, clean, db, escapeHTML as e, hmac, readBody, requireThat, sameSite, secret } from '../../membership/common.mjs';
 const BASE = '/membership/requests/';
 const COOKIE = '__Host-bss-membership-csrf';
+const views = Object.freeze({
+ pending: {label:'Pending',statuses:['pending'],predicate:'status IN (?)',empty:'No pending applications.'},
+ 'invite-ready': {label:'Invite-ready',statuses:['approved'],predicate:'status IN (?)',empty:'No invite-ready applications.'},
+ history: {label:'History',statuses:['rejected','revoked','expired'],predicate:'status IN (?,?,?)',empty:'No rejected, withdrawn, or expired applications.'},
+});
+const viewForStatus = status => status==='pending' ? 'pending' : status==='approved' ? 'invite-ready' : 'history';
+const viewURL = view => view==='pending' ? BASE : `${BASE}?view=${view}`;
 const labels = {pending:'Pending',approved:'Invite-ready',rejected:'Rejected',revoked:'Approval withdrawn',expired:'Expired'};
 const transitions = {pending:['approved','rejected'],approved:['revoked'],rejected:[],revoked:[],expired:[]};
-const css = 'body{font:1rem system-ui;background:#fbf6ea;color:#17243b;margin:0}main{max-width:900px;margin:auto;padding:24px}article{border:1px solid #96948e;border-radius:12px;padding:20px;margin:24px 0;overflow-wrap:anywhere}p{line-height:1.6;white-space:pre-wrap}label{display:block;margin:12px 0}textarea{display:block;width:100%;box-sizing:border-box;min-height:90px}button,a{min-height:44px;padding:8px;display:inline-block;color:inherit}button{cursor:pointer}input,select,textarea,button{font:inherit}a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #a14325;outline-offset:3px}';
+const css = 'body{font:1rem system-ui;background:#fbf6ea;color:#17243b;margin:0}main{max-width:900px;margin:auto;padding:24px}article{border:1px solid #96948e;border-radius:12px;padding:20px;margin:24px 0;overflow-wrap:anywhere}p{line-height:1.6;white-space:pre-wrap}label{display:block;margin:12px 0}textarea{display:block;width:100%;box-sizing:border-box;min-height:90px}button,a{min-height:44px;padding:8px;display:inline-block;color:inherit}nav{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0}nav a{box-sizing:border-box;min-height:44px;padding:12px;border:1px solid #96948e;border-radius:8px}nav a[aria-current=page]{background:#17243b;color:#fbf6ea;font-weight:700}button{cursor:pointer}input,select,textarea,button{font:inherit}a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #a14325;outline-offset:3px}';
 function equal(a,b) { if (a.length !== b.length) return false; let diff=0; for(let i=0;i<a.length;i++) diff|=a.charCodeAt(i)^b.charCodeAt(i); return diff===0; }
 async function session(request, env) { return hmac(env.MEMBERSHIP_CSRF_KEY,`session:${request.headers.get('Cf-Access-Jwt-Assertion')}`); }
 async function issue(request, env, now) {
@@ -49,15 +56,18 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
    // D1 meta.changes may include trigger writes; RETURNING identifies the
    // conditional application update itself without relying on that counter.
    requireThat(updated?.id===decision[1],409);
-   return respond(303,null,{Location:BASE});
+   return respond(303,null,{Location:viewURL(viewForStatus(status))});
   }
   const params = url.searchParams;
-  requireThat([...params.keys()].every(k=>k==='before') && params.getAll('before').length<=1);
+  requireThat([...params.keys()].every(k=>k==='before' || k==='view') && ['before','view'].every(k=>params.getAll(k).length<=1));
+  const view = params.has('view') ? params.get('view') : 'pending';
+  requireThat(Object.hasOwn(views,view));
+  const selected = views[view];
   const cursor = params.get('before'); let time = Number.MAX_SAFE_INTEGER, id = 'z';
-  if (cursor) { requireThat(/^\d{13}\.[a-f0-9-]{36}$/.test(cursor)); const parts=cursor.split('.'); time=Number(parts[0]); id=parts[1]; }
+  if (params.has('before')) { requireThat(/^\d{13}\.[a-f0-9-]{36}$/.test(cursor)); const parts=cursor.split('.'); time=Number(parts[0]); id=parts[1]; }
   const rows = await database.prepare(`SELECT id,name,email,reason,owner_note,status,revision,created_at,pii_cleared_at
-   FROM membership_requests WHERE created_at<? OR (created_at=? AND id<?) ORDER BY created_at DESC,id DESC LIMIT 21`).bind(time,time,id).all();
-  const recentAudit = await database.prepare('SELECT request_id,event,from_status,to_status,revision,occurred_at FROM audit_events ORDER BY occurred_at DESC,id DESC LIMIT 20').all();
+   FROM membership_requests WHERE ${selected.predicate} AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT 21`).bind(...selected.statuses,time,time,id).all();
+  const recentAudit = await database.prepare(`SELECT request_id,event,from_status,to_status,revision,occurred_at FROM audit_events WHERE request_id IN (SELECT id FROM membership_requests WHERE ${selected.predicate}) ORDER BY occurred_at DESC,id DESC LIMIT 20`).bind(...selected.statuses).all();
   const auditHTML = recentAudit.results.map(event=>`<li>${e(event.request_id)} · ${e(new Date(event.occurred_at).toISOString())} · ${e(event.event)} · ${e(labels[event.from_status] || 'New request')} → ${e(labels[event.to_status])} · revision ${e(event.revision)}</li>`).join('');
   const token = await issue(request,env,now());
   const items = rows.results.slice(0,20).map(row=>`<article><h2>${e(row.name || 'Details removed')} · ${e(labels[row.status])}</h2>
@@ -68,8 +78,9 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
    <label>Private owner note (500 characters)<textarea name="note" maxlength="500">${e(row.owner_note)}</textarea></label>
    <button type="submit">Save review</button></form>`}</article>`).join('');
   const last = rows.results[19];
-  const next = rows.results.length>20 ? `<a href="${BASE}?before=${last.created_at}.${e(last.id)}">Older requests →</a>` : '';
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Membership requests · Owner desk</title><style>${css}</style></head><body><main><a href="/">← Owner desk</a><h1>Membership requests</h1><p>Unverified applicant details. Invite-ready is an application decision only. Saving never creates an account, authorizes access, sends an invitation, or sends email. Approval withdrawn does not revoke any member account.</p><p>Newest first · 20 per page. Terminal decisions cannot be reopened. For an invited or otherwise closed application, withdraw its approval here; manage any account separately through the future authorized process.</p>${items || '<p>No requests.</p>'}${next}<details><summary>Recent private audit (20 events)</summary><ul>${auditHTML || '<li>No events.</li>'}</ul></details></main></body></html>`;
+  const next = rows.results.length>20 ? `<a href="${BASE}?view=${view}&amp;before=${last.created_at}.${e(last.id)}">Older requests →</a>` : '';
+  const navigation = `<nav aria-label="Membership request views">${Object.entries(views).map(([key,value])=>`<a href="${viewURL(key)}"${key===view ? ' aria-current="page"' : ''}>${value.label}</a>`).join('')}</nav>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${selected.label} membership requests · Owner desk</title><style>${css}</style></head><body><main><a href="/">← Owner desk</a><h1>Membership requests</h1><p>Unverified applicant details. Invite-ready is an application decision only. Saving never creates an account, authorizes access, sends an invitation, or sends email. Approval withdrawn does not revoke any member account.</p><p>Newest first · 20 per page. Terminal decisions cannot be reopened. For an invited or otherwise closed application, withdraw its approval here; manage any account separately through the future authorized process.</p>${navigation}<h2>${selected.label}</h2>${items || `<p>${selected.empty}</p>`}${next}<details><summary>Recent private audit for this view (20 events)</summary><ul>${auditHTML || '<li>No events.</li>'}</ul></details></main></body></html>`;
   const hash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(css)))));
   return respond(200,html,{'Set-Cookie':`${COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900`,
    // Preserve same-origin form POST Origin in Safari without cross-site referrers.
