@@ -16,6 +16,12 @@ migrations_dir = "../membership/migrations"
 NOTIFY_ENABLED = "false"
 NOTION_ENABLED = "false"
 EMAIL_ENABLED = "false"
+# Requires fresh owner approval and documented release attestation before enabling.
+PERMANENT_OWNER_FREE_MODE = "false"
+PERMANENT_OWNER_FREE_DAILY_LIMIT = "0" # Only literal 1 is accepted in permanent mode.
+PERMANENT_OWNER_FREE_MONTHLY_LIMIT = "0" # Only literal 15 is accepted.
+PERMANENT_OWNER_FREE_ATTESTATION = ""
+PERMANENT_OWNER_FREE_ATTESTED_AT_MS = "0"
 PROVIDER_VERIFIED_UNTIL_MS = "0"
 NOTIFY_START_MS = "0"
 PROVIDER_DAILY_LIMIT = "0" # Future verified shared-account allotment, max 10/day.
