@@ -90,3 +90,107 @@ for(const permanent of [false,true])test(`real workerd/D1 (${permanent?'permanen
   }
  } finally {await mf.dispose();}
 });
+
+// Execute the production batch SQL directly against workerd D1: no provider
+// probe or application lease-acquisition CAS can serialize these contenders.
+const workerSource=readFileSync(new URL('../worker.mjs',import.meta.url),'utf8');
+const reservationSql=workerSource.match(/permanent \? sql\(`([^`]+)`/)[1];
+const intentSql=workerSource.match(/sql\(`(UPDATE membership_notify_cases SET email_state='UNKNOWN'[^`]+)`/)[1]
+ .replace("${permanent?'AND changes()=1':''}",'AND changes()=1');
+async function reservationDatabase(check) {
+ const mf=new Miniflare(convertV4MiniflareOptions({
+  log:new NoOpLog(),compatibilityDate:'2026-09-29',name:'reservation-only-offline-test',
+  d1Databases:['SYNTHETIC_DB'],modules:[{type:'ESModule',path:'entry.mjs',contents:"export default {fetch(){return new Response('offline');}}"}],
+  outboundService:()=>{throw Error('external requests forbidden');}
+ }));
+ try {
+  const d=await mf.getD1Database('SYNTHETIC_DB');
+  await d.batch([...statements('../../membership/migrations/0001_membership.sql'),...statements('../../membership/migrations/0002_notifications.sql')].map(s=>d.prepare(s)));
+  await d.prepare('DELETE FROM membership_notify_outbox').run();
+  await d.prepare('DELETE FROM membership_notify_cases').run();
+  await check(d);
+ } finally {await mf.dispose();}
+}
+const reservationTime=Date.parse('2028-01-01T12:00:00Z');
+const utcDay=time=>Math.floor(time/86400000);
+async function newReservationCase(d) {
+ const id=crypto.randomUUID();
+ await d.prepare('INSERT INTO membership_notify_cases(application_id,created_at,lease_token,lease_until) VALUES(?,?,?,?)')
+  .bind(id,reservationTime,id,reservationTime+3600000).run();
+ return id;
+}
+function reserveBatch(d,id,day,monthStart,monthEnd) {
+ return d.batch([
+  d.prepare(reservationSql).bind(id,day,day,monthStart,monthEnd,id,id,reservationTime),
+  d.prepare(intentSql).bind(id,id,reservationTime,id)
+ ]);
+}
+async function expectReservations(d,count) {
+ assert.equal((await d.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts').first()).n,count);
+ assert.equal((await d.prepare("SELECT count(*) AS n FROM membership_notify_cases WHERE email_state='UNKNOWN'").first()).n,count);
+}
+test('direct workerd/D1 daily reservation cap: ten rounds of eight distinct competing batches',async()=>{
+ await reservationDatabase(async d=>{
+  const start=utcDay(Date.UTC(2028,0,1)),end=utcDay(Date.UTC(2028,1,1));
+  for(let round=0;round<10;round++) {
+   const ids=await Promise.all(Array.from({length:8},()=>newReservationCase(d)));
+   const results=await Promise.all(ids.map(id=>reserveBatch(d,id,start+round,start,end)));
+   assert.ok(results.every(batch=>batch.every(r=>r.success===true)));
+   assert.equal(results.filter(batch=>batch[0].meta.changes===1).length,1);
+   assert.equal(results.filter(batch=>batch[1].meta.changes===1).length,1);
+   for(const batch of results)assert.equal(batch[0].meta.changes,batch[1].meta.changes);
+   assert.equal((await d.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts WHERE utc_day=?').bind(start+round).first()).n,1);
+   await expectReservations(d,round+1);
+  }
+ });
+});
+test('direct workerd/D1 monthly reservation cap: ten rounds of eight competing batches on distinct UTC days',async()=>{
+ await reservationDatabase(async d=>{
+  for(let round=0;round<10;round++) {
+   const start=utcDay(Date.UTC(2028,round,1)),end=utcDay(Date.UTC(2028,round+1,1));
+   // Fourteen actual successful batches on distinct days leave one monthly slot.
+   for(let day=0;day<14;day++) {
+    const id=await newReservationCase(d);
+    const batch=await reserveBatch(d,id,start+day,start,end);
+    assert.deepEqual(batch.map(r=>r.meta.changes),[1,1]);
+   }
+   const ids=await Promise.all(Array.from({length:8},()=>newReservationCase(d)));
+   const results=await Promise.all(ids.map((id,i)=>reserveBatch(d,id,start+14+i,start,end)));
+   assert.ok(results.every(batch=>batch.every(r=>r.success===true)));
+   assert.equal(results.filter(batch=>batch[0].meta.changes===1).length,1);
+   assert.equal(results.filter(batch=>batch[1].meta.changes===1).length,1);
+   for(const batch of results)assert.equal(batch[0].meta.changes,batch[1].meta.changes);
+   assert.equal((await d.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts WHERE utc_day>=? AND utc_day<?').bind(start,end).first()).n,15);
+   const later=await newReservationCase(d);
+   assert.deepEqual((await reserveBatch(d,later,start+25,start,end)).map(r=>r.meta.changes),[0,0]);
+   await expectReservations(d,(round+1)*15);
+  }
+ });
+});
+test('direct workerd/D1 changes()=1 rejects old same-application reservation despite available quota',async()=>{
+ await reservationDatabase(async d=>{
+  const start=utcDay(Date.UTC(2028,0,1)),end=utcDay(Date.UTC(2028,1,1));
+  const id=await newReservationCase(d);
+  await d.prepare('INSERT INTO membership_notify_send_attempts(application_id,utc_day) VALUES(?,?)').bind(id,start-1).run();
+  const batch=await reserveBatch(d,id,start,start,end);
+  assert.deepEqual(batch.map(r=>r.meta.changes),[0,0]);
+  assert.equal((await d.prepare('SELECT email_state FROM membership_notify_cases WHERE application_id=?').bind(id).first()).email_state,'NEW');
+  assert.equal((await d.prepare('SELECT utc_day FROM membership_notify_send_attempts WHERE application_id=?').bind(id).first()).utc_day,start-1);
+  assert.equal((await d.prepare('SELECT count(*) AS n FROM membership_notify_send_attempts').first()).n,1);
+  const fresh=await newReservationCase(d);
+  assert.deepEqual((await reserveBatch(d,fresh,start,start,end)).map(r=>r.meta.changes),[1,1]);
+ });
+});
+test('direct workerd/D1 transaction rolls back reservation when UNKNOWN intent update fails',async()=>{
+ await reservationDatabase(async d=>{
+  const start=utcDay(Date.UTC(2028,0,1)),end=utcDay(Date.UTC(2028,1,1));
+  const id=await newReservationCase(d);
+  await d.prepare("CREATE TRIGGER synthetic_fail_intent BEFORE UPDATE OF email_state ON membership_notify_cases WHEN NEW.email_state='UNKNOWN' BEGIN SELECT RAISE(ABORT,'synthetic intent failure'); END").run();
+  await assert.rejects(reserveBatch(d,id,start,start,end),/synthetic intent failure/);
+  await expectReservations(d,0);
+  assert.equal((await d.prepare('SELECT email_state FROM membership_notify_cases WHERE application_id=?').bind(id).first()).email_state,'NEW');
+  await d.prepare('DROP TRIGGER synthetic_fail_intent').run();
+  assert.deepEqual((await reserveBatch(d,id,start,start,end)).map(r=>r.meta.changes),[1,1]);
+  await expectReservations(d,1);
+ });
+});
