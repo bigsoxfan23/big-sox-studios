@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
+import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
 import assert from 'node:assert/strict';
 import {createWorker} from '../src/worker.mjs';
 import {b64} from '../src/security.mjs';
@@ -17,8 +19,8 @@ function fixture() {
  const storage=database(),env={...envBase,MEMBERSHIP_DB:storage}; let clock=TIME;
  const worker=createWorker({now:()=>clock,fetcher:async()=>Response.json({keys:[jwk]})});
  const request=(path='/membership/requests/',{jwt=owner,headers={},...options}={})=>worker.fetch(new Request(new URL(path,env.APP_ORIGIN),{...options,headers:{...(jwt?{'Cf-Access-Jwt-Assertion':jwt}:{}),...headers}}),env);
- return {storage,env,request,advance:ms=>{clock+=ms;},async form() {
-  const r=await request();const html=await r.text();
+ return {storage,env,request,advance:ms=>{clock+=ms;},async form(view='pending') {
+  const r=await request(`/membership/requests/?view=${view}`);const html=await r.text();
   return {csrf:html.match(/name="csrf" value="([^"]+)"/)?.[1],cookie:r.headers.get('Set-Cookie')?.split(';')[0],html};
  },async post(id,fields,options={}) {
   return request(`/membership/requests/${id}/decision`,{method:'POST',...options,headers:{Origin:env.APP_ORIGIN,'Sec-Fetch-Site':'same-origin','Content-Type':'application/x-www-form-urlencoded',...options.headers},body:new URLSearchParams(fields)});
@@ -77,7 +79,7 @@ test('queue escapes applicant fields and owner notes; signed HttpOnly host cooki
 });
 test('valid double-submit owner/session CSRF changes status and note with atomic audit',async()=>{
  const f=fixture();const id=seed(f.storage);const form=await f.form();const response=await f.post(id,fields(form),{headers:{Cookie:form.cookie}});
- assert.equal(response.status,303);assert.equal(response.headers.get('Location'),'/membership/requests/');assert.equal(f.storage.rows()[0].status,'approved');assert.equal(f.storage.rows()[0].revision,2);
+ assert.equal(response.status,303);assert.equal(response.headers.get('Location'),'/membership/requests/?view=invite-ready');assert.equal(f.storage.rows()[0].status,'approved');assert.equal(f.storage.rows()[0].revision,2);
  const audit=f.storage.audit();assert.equal(audit.length,2);assert.equal(audit[1].from_status,'pending');assert.equal(audit[1].to_status,'approved');assert.ok(!JSON.stringify(audit).includes('Synthetic owner note'));
 });
 for(const mode of ['missing cookie','missing token','cookie mismatch','tampered signature','forged cookie token','expired','other session','wrong origin','cross-site','same-site','duplicate cookie'])
@@ -105,7 +107,7 @@ test('stale revision and nonexistent random ID share conflict; concurrent decisi
 });
 for(const [from,to,allowed] of [['pending','approved',true],['pending','rejected',true],['pending','revoked',false],['approved','revoked',true],['approved','rejected',false],['rejected','approved',false],['revoked','pending',false],['expired','approved',false]])
  test(`transition ${from} → ${to}`,async()=>{
-  const f=fixture();const id=seed(f.storage,{status:from});const form=await f.form();const r=await f.post(id,fields(form,{status:to}),{headers:{Cookie:form.cookie}});
+  const f=fixture();const id=seed(f.storage,{status:from});const form=await f.form(from==='pending'?'pending':from==='approved'?'invite-ready':'history');const r=await f.post(id,fields(form,{status:to}),{headers:{Cookie:form.cookie}});
   assert.equal(r.status,allowed?303:409);const row=f.storage.rows()[0];assert.equal(row.status,allowed?to:from);if(allowed && ['rejected','revoked'].includes(to))assert.equal(row.closed_at,TIME);
  });
 test('safe note-only save, strict max/control validation and no edits after PII cleared',async()=>{
@@ -120,7 +122,7 @@ test('bounded stable pagination newest-first with equal timestamp tie breaks; an
  const f=fixture();for(let i=0;i<23;i++)seed(f.storage,{name:`Synthetic ${i}`,created:TIME-i*DAY});
  seed(f.storage,{status:'approved',created:TIME-365*DAY});
  const first=await f.form();assert.equal((first.html.match(/<article>/g)||[]).length,20);assert.ok(first.html.indexOf('Synthetic 0')<first.html.indexOf('Synthetic 1'));
- const next=first.html.match(/href="([^"]+)"[^>]*>Older requests/)[1];const second=await (await f.request(next)).text();assert.equal((second.match(/<article>/g)||[]).length,4);assert.match(second,/Annual owner review due/);
+ const next=first.html.match(/href="([^"]+)"[^>]*>Older requests/)[1];const second=await (await f.request(next.replaceAll('&amp;','&'))).text();assert.equal((second.match(/<article>/g)||[]).length,3);assert.doesNotMatch(second,/Annual owner review due/);assert.match((await f.form('invite-ready')).html,/Annual owner review due/);
  for(const query of ['?limit=9999','?before=invalid','?before=1&before=2'])assert.equal((await f.request('/membership/requests/'+query)).status,400);
 });
 test('third home card includes pending count and existing shortcuts',async()=>{const f=fixture();seed(f.storage);seed(f.storage,{status:'rejected'});const html=await (await f.request('/')).text();assert.match(html,/Pending: 1/);assert.ok(html.includes(envBase.MAIL_DESK_URL));assert.match(html,/https:\/\/bigsoxstudios.com\/admin\//);});
@@ -143,14 +145,14 @@ test('annual review boundary retains invite-ready details; only explicit owner w
  seed(f.storage,{status:'approved',created:TIME-365*DAY});
  const id=seed(f.storage,{status:'approved',created:TIME-800*DAY,note:'Keep for annual review'});
  await sweep(f.env,TIME);
- const form=await f.form();
+ const form=await f.form('invite-ready');
  assert.equal((form.html.match(/Annual owner review due/g)||[]).length,2);
  assert.match(form.html,/Keep for annual review/);
  assert.ok(f.storage.rows().every(row=>row.status==='approved' && row.revision===1));
  // Saving the annual review note retains approval and emits no status event.
  assert.equal((await f.post(id,fields(form,{status:'approved',note:'Annual review complete: retain'}),{headers:{Cookie:form.cookie}})).status,303);
  assert.equal(f.storage.sqlite.prepare("SELECT count(*) AS n FROM membership_notify_outbox WHERE kind='status'").get().n,0);
- const closeForm=await f.form();
+ const closeForm=await f.form('invite-ready');
  assert.equal((await f.post(id,fields(closeForm,{revision:'2',status:'revoked'}),{headers:{Cookie:closeForm.cookie}})).status,303);
  const events=f.storage.sqlite.prepare("SELECT * FROM membership_notify_outbox WHERE kind='status'").all();
  assert.equal(events.length,1);assert.equal(events[0].application_id,id);
@@ -160,4 +162,111 @@ test('annual review boundary retains invite-ready details; only explicit owner w
  const closed=f.storage.rows().find(row=>row.id===id);
  assert.equal(closed.status,'revoked');assert.equal(closed.closed_at,TIME);
  for(const key of ['name','email','reason','owner_note'])assert.equal(closed[key],null);
+});
+
+const viewStatuses={pending:['pending'],'invite-ready':['approved'],history:['rejected','revoked','expired']};
+const listPath=view=>`/membership/requests/?view=${view}`;
+const older=html=>html.match(/href="([^"]+)">Older requests/)?.[1].replaceAll('&amp;','&');
+const articles=html=>[...html.matchAll(/<article>.*?<\/article>/gs)].map(m=>m[0]);
+test('views isolate exact statuses, private details and audit IDs; GET preserves every record and note',async()=>{
+ const f=fixture(),ids={};
+ for(const status of Object.values(viewStatuses).flat())ids[status]=seed(f.storage,{status,name:`Synthetic ${status}`,email:`${status}@example.test`,note:`Private ${status}`,reason:`Reason ${status}`});
+ const before=JSON.stringify([f.storage.rows(),f.storage.audit()]);
+ for(const view of Object.keys(viewStatuses)) {
+  for(const path of [listPath(view),...(view==='pending'?['/membership/requests/']:[])]) {
+   const r=await f.request(path),html=await r.text();assert.equal(r.status,200);
+   assert.equal(r.headers.get('Referrer-Policy'),'same-origin');assert.equal(r.headers.get('Cache-Control'),'no-store');
+   for(const status of Object.keys(ids))for(const detail of [ids[status],`${status}@example.test`,`Private ${status}`,`Reason ${status}`])assert.equal(html.includes(detail),viewStatuses[view].includes(status),`${view}: ${detail}`);
+  }
+ }
+ assert.equal(JSON.stringify([f.storage.rows(),f.storage.audit()]),before);
+});
+test('strict view and cursor validation rejects empty, duplicate, unknown and injected query values',async()=>{
+ const f=fixture();seed(f.storage);
+ for(const query of ['view=','view=approved','view=Pending','view=__proto__','view=constructor',"view=pending%27%20OR%201=1--",'view=pending&view=pending','view=history&view=pending','view[]=pending','unexpected=x','view=pending&unexpected=x','before=','before=x','before=1&before=2','view=history&before=invalid']) {
+  const r=await f.request(`/membership/requests/?${query}`);assert.equal(r.status,400,query);assert.doesNotMatch(await r.text(),/Synthetic|visitor@example.test|Private/);
+ }
+});
+test('each empty view has mobile navigation, one current page link, keyboard focus and matching CSS CSP with no scripts',async()=>{
+ const f=fixture();
+ for(const [view,message] of [['pending','No pending applications.'],['invite-ready','No invite-ready applications.'],['history','No rejected, withdrawn, or expired applications.']]) {
+  const r=await f.request(listPath(view)),html=await r.text();assert.ok(html.includes(message));
+  const nav=html.match(/<nav aria-label="Membership request views">(.*?)<\/nav>/s)[1];
+  assert.equal((nav.match(/<a /g)||[]).length,3);assert.equal((nav.match(/aria-current="page"/g)||[]).length,1);
+  assert.match(nav,new RegExp(`href="${view==='pending'?'/membership/requests/':listPath(view).replace('?','\\?')}" aria-current="page"`));
+  assert.doesNotMatch(html,/<script|\son\w+=|javascript:|role="tab"/i);
+  assert.match(html,/name="viewport" content="width=device-width,initial-scale=1"/);
+  assert.match(html,/nav\{display:flex;flex-wrap:wrap;gap:8px/);assert.match(html,/nav a\{[^}]*min-height:44px/);assert.match(html,/a:focus-visible[^}]*outline:3px/);
+  const css=html.match(/<style>(.*?)<\/style>/s)[1];const hash=b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(css))).replaceAll('-','+').replaceAll('_','/');
+  assert.ok(r.headers.get('Content-Security-Policy').includes(`style-src 'sha256-${hash}='`));assert.match(r.headers.get('Content-Security-Policy'),/script-src 'none'/);
+ }
+});
+test('20 per page stable timestamp ties and newest-first order remain view scoped through all pages',async()=>{
+ const f=fixture(),expected={};
+ for(const [view,statuses] of Object.entries(viewStatuses)) {
+  expected[view]=[];
+  for(let i=0;i<45;i++)expected[view].push(seed(f.storage,{status:statuses[i%statuses.length],created:TIME-Math.floor(i/10)*DAY}));
+  expected[view].sort((a,b)=>{const rows=f.storage.rows();return rows.find(r=>r.id===b).created_at-rows.find(r=>r.id===a).created_at || b.localeCompare(a);});
+ }
+ for(const view of Object.keys(viewStatuses)) {
+  const seen=[];let path=listPath(view);
+  for(const count of [20,20,5]) {
+   const r=await f.request(path);assert.equal(r.status,200);const html=await r.text(),items=articles(html);assert.equal(items.length,count);
+   seen.push(...items.map(item=>item.match(/Request ([a-f0-9-]{36})/)[1]));
+   path=older(html);if(count===20){assert.ok(path.includes(`view=${view}&before=`));}else assert.equal(path,undefined);
+  }
+  assert.deepEqual(seen,expected[view]);
+ }
+});
+for(const [from,to,view] of [['pending','pending','pending'],['pending','approved','invite-ready'],['pending','rejected','history'],['approved','approved','invite-ready'],['approved','revoked','history'],['rejected','rejected','history'],['revoked','revoked','history'],['expired','expired','history']])test(`save ${from} to ${to} redirects into ${view} and leaves other queues`,async()=>{
+ const f=fixture(),id=seed(f.storage,{status:from}),form=await f.form(from==='pending'?'pending':from==='approved'?'invite-ready':'history');
+ const r=await f.post(id,fields(form,{status:to}),{headers:{Cookie:form.cookie}});assert.equal(r.status,303);
+ assert.equal(r.headers.get('Location'),view==='pending'?'/membership/requests/':listPath(view));
+ for(const target of Object.keys(viewStatuses)) {
+  const html=await (await f.request(listPath(target))).text();assert.equal(html.includes(id),target===view);assert.equal(html.includes('Synthetic owner note'),target===view);
+ }
+ assert.equal(f.storage.rows()[0].owner_note,'Synthetic owner note');
+});
+
+test('real local workerd/D1 executes filtered SQL, stable pagination and authenticated decision redirects without external services',async()=>{
+ const mf=new Miniflare(convertV4MiniflareOptions({
+  log:new NoOpLog(),name:'owner-queue-offline',compatibilityDate:'2026-09-29',d1Databases:['MEMBERSHIP_DB'],bindings:envBase,
+  modules:[{type:'ESModule',path:'entry.mjs',contents:`
+   import {createWorker} from './owner-launchpad/src/worker.mjs';
+   export default createWorker({now:()=>${TIME},fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})});
+  `},...['owner-launchpad/src/worker.mjs','owner-launchpad/src/security.mjs','owner-launchpad/src/membership.mjs','membership/common.mjs'].map(path=>({type:'ESModule',path,contents:readFileSync(new URL('../../'+path,import.meta.url),'utf8')}))],
+  outboundService:()=>{throw Error('External services forbidden');}
+ }));
+ try {
+  const d=await mf.getD1Database('MEMBERSHIP_DB');
+  // Preserve multi-statement triggers as single D1 prepared statements.
+  const schema=readFileSync(new URL('../../membership/migrations/0001_membership.sql',import.meta.url),'utf8');
+  const statements=schema.replace(/^--.*$/gm,'').trim().match(/\s*CREATE TRIGGER[\s\S]*?END;|[^;]+;/g).map(s=>s.trim()).filter(Boolean);
+  await d.batch(statements.map(s=>d.prepare(s)));
+  const expected={};
+  for(const [view,statuses] of Object.entries(viewStatuses)) {
+   expected[view]=[];
+   for(let i=0;i<23;i++) {
+    const id=crypto.randomUUID();expected[view].push(id);
+    await d.prepare('INSERT INTO membership_requests(id,email_hash,name,email,reason,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').bind(id,id,'Synthetic runtime',`${view}@example.test`,'Offline only',statuses[i%statuses.length],TIME,TIME).run();
+   }
+   expected[view].sort().reverse();
+  }
+  const request=(path='/membership/requests/',options={})=>mf.dispatchFetch(new URL(path,envBase.APP_ORIGIN).href,{redirect:'manual',...options,headers:{'Cf-Access-Jwt-Assertion':owner,...options.headers}});
+  for(const view of Object.keys(viewStatuses)) {
+   const r=await request(listPath(view));assert.equal(r.status,200);assert.equal(r.headers.get('Referrer-Policy'),'same-origin');
+   const html=await r.text(),second=await (await request(older(html))).text();
+   assert.deepEqual([...articles(html),...articles(second)].map(item=>item.match(/Request ([a-f0-9-]{36})/)[1]),expected[view]);
+   assert.equal(articles(html).length,20);assert.equal(articles(second).length,3);
+  }
+  for(const query of ['view=unknown','view=pending&view=history','extra=1'])assert.equal((await request(`/membership/requests/?${query}`)).status,400);
+  const id=expected.pending[0],r=await request(),html=await r.text(),csrf=html.match(/name="csrf" value="([^"]+)"/)[1],cookie=r.headers.get('Set-Cookie').split(';')[0];
+  for(const [status,revision,view] of [['approved','1','invite-ready'],['revoked','2','history']]) {
+   const saved=await request(`/membership/requests/${id}/decision`,{method:'POST',headers:{Origin:envBase.APP_ORIGIN,'Sec-Fetch-Site':'same-origin','Content-Type':'application/x-www-form-urlencoded',Cookie:cookie},body:new URLSearchParams({csrf,revision,status,note:'Synthetic retained note'})});
+   assert.equal(saved.status,303);assert.equal(saved.headers.get('Location'),listPath(view));
+   assert.doesNotMatch(await (await request()).text(),new RegExp(id));
+   assert.ok((await (await request(listPath(view))).text()).includes(id));
+  }
+  const row=await d.prepare('SELECT status,owner_note FROM membership_requests WHERE id=?').bind(id).first();assert.equal(row.status,'revoked');assert.equal(row.owner_note,'Synthetic retained note');
+ } finally {await mf.dispose();}
 });
