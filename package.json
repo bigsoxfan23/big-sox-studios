@@ -30,5 +30,8 @@
     "node": "24.22.x",
     "npm": ">=10.9.4 <11"
   },
-  "packageManager": "npm@10.9.4"
+  "packageManager": "npm@10.9.4",
+  "overrides": {
+    "undici@7.29.1": "7.30.1"
+  }
 }

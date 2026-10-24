@@ -1,0 +1,9 @@
+# DEVELOPMENT ONLY. No deployment command, prod routes, IDs, or live bindings.
+name = "bss-task12-offline-foundation"
+main = "worker.mjs"
+compatibility_date = "2026-10-24"
+workers_dev = false
+preview_urls = false
+# No routes, D1, services, secrets, schedules or environment activation.
+# Default Worker remains disabled: missing reviewed provider resolver, DB,
+# invite-service binding and explicit issuer/audience/isolated APP_ORIGIN.
