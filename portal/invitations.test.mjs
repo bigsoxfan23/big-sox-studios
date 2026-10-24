@@ -135,7 +135,7 @@ for (const deliveryAt of [60,61,118]) test(`OFFLINE: T+59 confirmation preserves
  f.time(epoch+59); await f.repo.confirmProjection('owner',invite.id,receipt);
  const before=await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
  assert.equal(before.projected_at,receipt.verifiedAt); assert.equal(before.changed_at,epoch+59);
- const audit=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ const {results:audit}=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
  f.time(epoch+deliveryAt);
  if(deliveryAt===60) {
   await f.repo.confirmOwnerDelivery('owner',invite.id);
@@ -144,7 +144,7 @@ for (const deliveryAt of [60,61,118]) test(`OFFLINE: T+59 confirmation preserves
  } else {
   await assert.rejects(f.repo.confirmOwnerDelivery('owner',invite.id),/state conflict/);
   assert.deepEqual(await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first(),before);
-  assert.deepEqual(await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all(),audit);
+  assert.deepEqual((await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all()).results,audit);
  }
 });
 
@@ -152,11 +152,11 @@ test('OFFLINE: late or future projection receipt cannot confirm; ordinary immedi
  const f=await fixture(t), id=await f.pending(), invite=await f.repo.issue('owner',id);
  const receipt=await projectAndReadback(f.db,f.adapter,invite.id,epoch);
  const before=await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
- const audit=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ const {results:audit}=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
  for(const at of [epoch+61,epoch-1]) {
   f.time(at); await assert.rejects(f.repo.confirmProjection('owner',invite.id,receipt),/projection unconfirmed/);
   assert.deepEqual(await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first(),before);
-  assert.deepEqual(await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all(),audit);
+  assert.deepEqual((await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all()).results,audit);
  }
  f.time(epoch); await f.repo.confirmProjection('owner',invite.id,receipt);
  await f.repo.confirmOwnerDelivery('owner',invite.id);
@@ -166,7 +166,8 @@ test('OFFLINE: late or future projection receipt cannot confirm; ordinary immedi
 test('OFFLINE: SQL freshness guards atomically reject future/late confirmation and stale or retimed delivery',async t=>{
  const f=await fixture(t), id=await f.pending(), invite=await f.repo.issue('owner',id);
  const row=()=>f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
- const audit=()=>f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ // Compare immutable audit rows, excluding nondeterministic D1 timing metadata.
+ const audit=async()=>(await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all()).results;
  async function rejected(sql,...args) {
   const before=await row(), events=await audit();
   await assert.rejects(f.db.prepare(sql).bind(...args,invite.id).run());

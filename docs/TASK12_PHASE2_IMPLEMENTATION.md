@@ -275,3 +275,146 @@ open loopback sockets; the successful offline suites used permitted local socket
 Logs: `/tmp/task12-medium-portal.tap`, `/tmp/task12-medium-validate.log`, and
 `/tmp/task12-medium-regressions.tap`. The sanitized fix report with exact final
 commit/tree is `/tmp/BSS_TASK12_MEDIUM_FIX_REPORT_20261024.md`.
+
+## Offline Access policy preflight increment — October 24, 2026
+
+`portal/access-preflight.mjs` exports the pure synchronous
+`preflightAccessProjection(input)` boundary. It receives explicit synthetic JSON
+in memory; it has no fetcher, credentials, account identifier, DB handle, CLI,
+mutation, receipt issuance or Worker integration. The existing `projection.mjs`
+contracts, schema, disabled Worker and owner decisions MF1–MF6 are preserved.
+This is the deliberately narrow policy-parser increment, not a live effective
+policy collector or a production reconciliation adapter.
+
+The input contract is demonstrated entirely with synthetic `.test` contacts in
+`portal/access-preflight.test.mjs` and disposable local D1 rows in
+`portal/access-preflight-d1.test.mjs`:
+
+- `now` is an explicit integer UTC second. `expectedHosts` lists exact DNS hosts;
+  `expectedIdps` lists opaque synthetic login-method IDs, never provider proof.
+- `access` has `capturedAt`, `complete: true`, `applications`, `groups`, and
+  `policies: [{applicationId, response}]`. Applications/groups/responses use
+  Cloudflare-style `success`, `errors`, `messages`, `result`, `result_info`
+  envelopes. Only an explicitly complete single page with matching counts is
+  supported. Missing/error/partial/multiple pages are inconclusive. A future
+  collector must independently implement and review pagination and coverage;
+  setting `complete` is only a synthetic fixture assertion.
+- Each application uses `id`, `type: self_hosted`, `domain`, `allowed_idps`, and
+  optional `name`/`auto_redirect_to_identity`. Each attached policy has `id`,
+  `decision`, `precedence`, `include`, `require`, `exclude`, and optional `name`.
+  Group objects have `id`, the three rule arrays, and optional `name`. These are
+  intentionally strict subsets of the official APIs. Additional API fields,
+  reusable-policy references without full rules, path/wildcard/destination
+  variants and other application types require review and block analysis.
+- `hosts` supplies a same-window synthetic manifest: `capturedAt`, `complete`,
+  `hosts`, `workersDev: false`, `previewUrls: false`. Missing/extra aliases,
+  enabled or unspecified direct/preview exposure and direct workers.dev
+  applications block. This cannot discover unlisted DNS, origin IPs, routes,
+  service bindings, tunnels, preview or alternate accounts. Live completeness
+  is always unproven.
+- `d1Before` and `d1After` contain `capturedAt`, `complete`, and **all** `members`
+  (active, pending and revoked). Each row has `id`, `recipient`, `status`, and
+  nullable `invitationId`, `invitationStatus`, `expiresAt` for its latest invite.
+  The D1 test shows a server-side query shape for the existing schema. Both
+  reads must match exactly, including row order; reordered reads conservatively
+  block. All four snapshots must be at most 60 seconds old and never future;
+  the second D1 read cannot precede the first. The function cannot attest the
+  caller's clock, transaction, complete rows or capture claims.
+
+The parser inventories each supplied application's policy decision and all
+Include/Require/Exclude selectors, referenced groups and even unreferenced
+groups. Include is OR, Require is AND, Exclude narrows the set; a group contains
+rules, not a literal list of actual users. The supported contact subset is flat
+explicit email Include rules, optionally through a single flat group, plus one
+explicit supported login-method Require per allow policy. Application IdPs must
+exactly match the expected set. Arbitrary labels do not establish Google, Apple
+or OTP subject provenance. Output distinguishes IdPs and hosts by generated
+ordinals only.
+
+Deny, bypass, non-identity/service decisions, unknown decisions, Everyone,
+email domains/wildcards, service tokens, dynamic/provider groups, external
+selectors, multiple/unknown/nested selectors, nested/cyclic groups, missing
+group references, ambiguous precedence, constrained email/group sets and
+unknown semantic fields all block. Deny/Exclude precedence is inventoried but
+not evaluated; unsupported input never yields an effective-user claim.
+Traversal is bounded to 1 MB serialized input, 16 group levels and 10,000 rule
+visits; exhaustion is explicitly inconclusive, never a truncated success.
+
+For the supported subset, compare the per-host union of explicit contact
+candidates against active D1 members and pending members with an unexpired live
+invitation, using the same eligibility predicate as `desiredProjection`.
+Diagnostics distinguish missing, duplicate and extra-or-ineligible contact
+candidates, including stale entries for expired, superseded or revoked rows.
+Case-variant D1 contact collisions also block. Changed/reissued/revoked D1
+readbacks are inconclusive. Contacts never authorize a person or enumerate
+actual IdP users; no alias or provider-subject inference occurs.
+
+Every result is `status: BLOCKED` with unconditional provider-subject and live
+inventory blockers and `NOT_A_PROJECTION_RECEIPT`. `CONTACTS_MATCH_ONLY` means
+only the synthetic explicit-contact comparison matched. `DRIFT` reports a
+supported contact mismatch; `INCONCLUSIVE` indicates unsafe/unknown semantics or
+snapshot evidence. Differences remain provisional when inconclusive. Duplicate
+contacts yield DRIFT, never success. Output contains only fixed codes, counts,
+selector/decision categories and generated opaque ordinals; it never echoes
+input IDs, names, contact details or hostnames. It returns no private input or
+member mapping and does not log. Ordinals are per-run references, not persistent
+identifiers or hashes. Do not send real identity data to this offline boundary.
+
+P1/P2 synthetic D1 tests demonstrate that a manual Access contact cannot create
+or authorize an uninvited Google/OTP member. Expiry at the exact boundary and
+revoked-member authorization denial remain D1-authoritative. The existing
+Worker tests still exercise unknown/direct-host denial and P1–P6 OFFLINE PROXIES.
+An existing rollback test compared D1 query timing metadata as well as audit
+rows, producing a nondeterministic failure. Those assertions now compare all
+audit row contents, retaining the rollback check without comparing timings.
+
+Official shape/semantics references consulted read-only on October 24, 2026:
+[application policies API](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/subresources/policies/methods/create/),
+[applications API](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/),
+[groups API](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/groups/methods/list/),
+and [policy semantics](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/).
+Documentation reads do not establish any deployed configuration or external
+provider claim. No authenticated provider/API requests were made.
+
+### Provider stable-subject research and intentionally absent implementation
+
+Cloudflare documents the Access application JWT `sub` as account-local and tied
+to email; removal/readdition can change it. The identity response describes
+`user_uuid` as its user ID and `idp` as provider data, without a universal upstream
+Google/Apple subject schema. Neither field is proof of the required upstream
+subject. Custom OIDC/SAML claims depend on the provider and configuration;
+provider support cannot be assumed. See the official
+[application token and identity response reference](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/).
+
+Cloudflare distinguishes IdP-reported MFA from independent Access MFA. A signed
+Access JWT alone does not prove independent MFA occurred in the required
+session. Exact enforcement, AMR provenance, reauthentication and session age
+need separately reviewed evidence. See
+[MFA requirements](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/mfa-requirements/)
+and [independent MFA](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/independent-mfa/).
+
+No upstream proof adapter is added in this increment: inventing a signed payload
+schema would not establish actual provider provenance. The existing server-owned
+resolver boundary remains mandatory and the default Worker has none. Missing
+evidence is the precise issuer, audience, algorithm/key lifecycle, provider and
+connection, stable upstream subject namespace, verified-contact provenance,
+nonce/replay store, session binding to this verified Access subject/token,
+freshness and independent MFA attestation. Email, client JSON, arbitrary IdP
+labels and unverified MFA/subject flags cannot supply these facts.
+
+Safe options for a separately authorized design review are (1) a server-owned
+upstream OIDC authorization-code flow validating signature, issuer, audience,
+nonce and provider subject, bound to the authenticated Access session, or (2) a
+reviewed broker that verifies upstream evidence and signs an audience-restricted,
+short-lived, nonce-bound attestation tying upstream subject and MFA evidence to
+that Access session. Both require actual protocol/configuration evidence and
+replay/session design before implementation, including Apple relay, subject
+collisions and an explicitly stable OTP namespace. A get-identity result alone
+must never be promoted to either proof. These are integration options, not claims
+that a configured provider or production-ready implementation exists.
+
+All final-production MF6 P1–P6 remain BLOCKED. Independent review of this exact
+increment, the broader live collector, provider proof and operational gates is
+still required. This implementation's own checks are not independent security
+review. Exact final counts, commit/tree and review commands are in
+`/tmp/BSS_TASK12_OVERNIGHT_INCREMENT_REPORT_20261024.md`.
