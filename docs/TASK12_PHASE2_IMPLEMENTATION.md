@@ -418,3 +418,81 @@ increment, the broader live collector, provider proof and operational gates is
 still required. This implementation's own checks are not independent security
 review. Exact final counts, commit/tree and review commands are in
 `/tmp/BSS_TASK12_OVERNIGHT_INCREMENT_REPORT_20261024.md`.
+
+## Private owner invitation increment — offline only (October 24, 2026)
+
+`portal/owner-admin.mjs` is a separate explicit `createOwnerAdminWorker(options)`
+factory with **no default export**, configuration file, production route or import
+from either existing Worker. `portal/worker.mjs` stays inert. No main-site or owner
+Worker changes. The factory requires `mode: offline-test`, an injected verified
+Owner-app JWT authenticator, a separate trusted `resolveOwnerActor`, and disposable
+D1. The tests supply signed synthetic JWTs and an explicit server-owned session to
+actor mapping; this is not a real identity/MFA resolver. The module checks exclusive
+exact owner audience again, distinct members audience, issuer, expiry and subject.
+The resolver must return `{memberId, accessSubject}` bound to the verified session;
+its role assertions are ignored. Every request reads current active Owner role
+from D1. Repository mutations independently enforce owner authority again.
+
+The small script-free three-section HTML page hides records on initial GET.
+Explicit POST reveals private candidate status, latest invitation state/UTC expiry,
+and pending-member/reissue/revoke controls. Contact text and identifiers are
+escaped. At most 100 people are rendered; larger lists fail closed and need a
+reviewed pagination design. Only create-pending, issue/reissue, revoke and view are
+accepted. No client actor, arbitrary status update, activation, identity binding,
+provider linking, projection, delivery or external cleanup action exists. Owners
+cannot be revoked through this limited surface. Repeating revocation with a fresh
+form is a no-op and does not duplicate audit/cleanup tasks.
+
+**Secrets are deliberately never displayed.** Repository issue/reissue generates
+and stores only the digest, and this HTTP boundary discards the returned raw proof.
+The invitation remains blocked. Without a real reviewed full Cloudflare effective
+policy readback verifier and safe delivery custody, a usable one-time disclosure
+would be misleading. Future delivery must explicitly reissue after implementing
+those gates; there is no secret recovery, query/link, log, email or delivered-state
+shortcut. Expiry dates are displayed alongside the stored state; this module does
+not run an automatic expiry job or claim live external reconciliation.
+
+Each response has private no-store, no-referrer, restrictive CSP and anti-framing
+headers; no scripts or external assets. HTTPS exact configured owner origin/Host,
+independent exact POST Origin, same-site checks and an 8 KiB streamed form-body
+limit apply. A random double-submit form/cookie token is bound server-side to a
+SHA-256 digest of the **entire signed Owner JWT** and resolved actor, expires after
+at most ten minutes/the JWT expiry, and is consumed before any action await. The
+host-only Secure/HttpOnly/SameSite=Strict cookie has no Domain. Concurrent POST
+replay loses; refresh or a second tab rotates the prior form. Unknown/duplicate
+fields deny generically. In-memory state is bounded to 128 sessions and 30 actions
+per minute per factory, with expiration pruning and no eviction-based bypass.
+These intentionally simple controls are for one offline runtime. They do not
+provide replay/rate guarantees across restarts or multiple isolates. A production
+activation design must address that explicitly before exposing any mutation.
+
+Activation remains BLOCKED on independent review, real exact Owner-app JWT/MFA
+configuration and trusted subject provenance/resolution, first-owner bootstrap,
+D1 authorization/concurrency acceptance, production replay/rate controls, real
+projection readback, safe delivery, and **all MF6 production gates**. Neither
+matching email nor a signed role/member-ID claim supplies trusted owner identity.
+The Notion URLs above were unavailable to the read-only web tool during this
+increment; the checked-in MF1–MF6 contract was preserved, with no claimed owner
+architecture amendment. No real records, credentials, API mutations, deployment,
+resource creation, messages, Task #28 work or independent review changes occurred.
+
+Workerd/Miniflare tests run the actual factory with WebCrypto-verifying synthetic
+Owner JWTs and local D1, outbound traffic prohibited. They cover wrong/multiple
+app audiences, bad/expired JWTs, injected role escalation, unknown/spoofed hosts,
+Origin/session CSRF, POST replay, body/field limits, escaping, pending creation,
+blocked issue/reissue, idempotent revocation, current role removal and revocation
+of a previously authorized member identity/service session. The default portal
+Worker and existing owner Worker are unmodified. Exact verification counts and
+commit/tree are recorded in `/tmp/BSS_TASK12_OWNER_ADMIN_INCREMENT_REPORT_20261024.md`.
+
+Increment verification: 119/119 portal tests (13 additional tests including nested
+cases), 365/365 core public/membership/notifier/owner-launchpad regressions, and
+root lint/Astro check/build pass (zero errors/warnings, 84 existing hints, 15 pages).
+Expanded testing of every other existing Mail Desk/owner-canary test produced
+1,885 passes and two failures out of 1,887. Both failures were reproduced from an
+untouched archive of starting commit `6a7f6df22f09e14da773a39d1a3bfe89b16b840f`:
+Mail Desk's stored-subject-NUL review test expects 403/409 but receives 400, and
+owner-canary's old baseline manifest disagrees with `.github/workflows/validate.yml`.
+These unrelated files/tests were not changed or waived. Existing installed local
+dependency trees were reused without installation or manifest/lockfile edits;
+initial missing-dependency and loopback-sandbox failures are retained in logs.
