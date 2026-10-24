@@ -59,6 +59,9 @@ CREATE TABLE invitations (
  CHECK((status IN ('blocked','projected','delivered') AND digest IS NOT NULL) OR
        (status IN ('claimed','expired','superseded','revoked') AND digest IS NULL)),
  CHECK(status NOT IN ('projected','delivered','claimed') OR (projection_receipt IS NOT NULL AND projected_at IS NOT NULL)),
+ CHECK(status!='blocked' OR (projection_receipt IS NULL AND projected_at IS NULL)),
+ CHECK(projected_at IS NULL OR projected_at BETWEEN created_at AND changed_at),
+ CHECK(delivered_at IS NULL OR (projected_at IS NOT NULL AND delivered_at BETWEEN projected_at AND projected_at+60 AND delivered_at<=changed_at)),
  CHECK(status NOT IN ('delivered','claimed') OR (delivered_at IS NOT NULL AND delivery_channel IS NOT NULL)),
  CHECK(status!='claimed' OR (claim_provider IS NOT NULL AND claim_subject IS NOT NULL AND claimed_at<expires_at))
 ) STRICT;
@@ -83,6 +86,12 @@ CREATE TRIGGER invite_transition BEFORE UPDATE ON invitations BEGIN
    OR (OLD.status='delivered' AND NEW.status='claimed') OR (OLD.status IN ('blocked','projected','delivered') AND NEW.status IN ('expired','superseded','revoked')))
   OR (NEW.status IN ('projected','delivered') AND NEW.digest IS NOT OLD.digest)
   THEN RAISE(ABORT,'invalid invitation transition') END;
+ -- Original readback time is immutable after confirmation, including reissue.
+ -- These guards run in the same statement as the transition and its audit.
+ SELECT CASE WHEN (OLD.status='blocked' AND NEW.status='projected' AND NEW.changed_at-NEW.projected_at>60)
+  OR (OLD.status!='blocked' AND (NEW.projected_at IS NOT OLD.projected_at OR NEW.projection_receipt IS NOT OLD.projection_receipt))
+  OR (NEW.status='delivered' AND NEW.delivered_at IS NOT NEW.changed_at)
+  THEN RAISE(ABORT,'invalid projection freshness') END;
  SELECT CASE WHEN NEW.status='claimed' AND (NEW.claimed_at<OLD.delivered_at OR NEW.claimed_at<OLD.created_at
   OR NOT EXISTS(SELECT 1 FROM members WHERE id=NEW.member_id AND status='pending')) THEN RAISE(ABORT,'claim conflict') END;
 END;

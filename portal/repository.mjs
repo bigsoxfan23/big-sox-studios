@@ -64,17 +64,17 @@ export function createRepository(db, {now=clock}={}) {
   },
   async confirmProjection(actor,id,receipt) {
    await owner(actor); const at=time();
-   // Accept only opaque receipt identifier from the offline adapter/readback.
+   // Keep the branded readback time; confirmation must not restart freshness.
    requireProjectionReceipt(receipt,id,at);
    changed(await stmt(`UPDATE invitations SET status='projected',projection_receipt=?,projected_at=?,changed_at=?,actor_id=? WHERE id=? AND status='blocked' AND expires_at>?
     AND EXISTS(SELECT 1 FROM members WHERE id=invitations.member_id AND status='pending')
-    AND EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner') RETURNING id`,receipt.id,at,at,actor,id,at,actor).first());
+    AND EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner') RETURNING id`,receipt.id,receipt.verifiedAt,at,actor,id,at,actor).first());
   },
   async confirmOwnerDelivery(actor,id) {
    await owner(actor); const at=time();
-   changed(await stmt(`UPDATE invitations SET status='delivered',delivered_at=?,delivery_channel='owner-private-channel',changed_at=?,actor_id=? WHERE id=? AND status='projected' AND expires_at>? AND projected_at>=?
+   changed(await stmt(`UPDATE invitations SET status='delivered',delivered_at=?,delivery_channel='owner-private-channel',changed_at=?,actor_id=? WHERE id=? AND status='projected' AND expires_at>? AND projected_at BETWEEN ? AND ?
     AND EXISTS(SELECT 1 FROM members WHERE id=invitations.member_id AND status='pending')
-    AND EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner') RETURNING id`,at,at,actor,id,at,at-60,actor).first());
+    AND EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner') RETURNING id`,at,at,actor,id,at,at-60,at,actor).first());
   },
   async claim(id,secret,identity) {
    const at=time(); requireIdentity(identity,at); await expire();

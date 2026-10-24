@@ -127,3 +127,83 @@ test('OFFLINE: delayed owner delivery cannot rely on stale projection readback',
  f.time(epoch+61); await assert.rejects(f.repo.confirmOwnerDelivery('owner',invite.id));
  assert.equal((await f.db.prepare('SELECT status FROM invitations WHERE id=?').bind(invite.id).first()).status,'projected');
 });
+
+// Each fixture is an ephemeral workerd D1 database; readback always occurs at T+0.
+for (const deliveryAt of [60,61,118]) test(`OFFLINE: T+59 confirmation preserves T+0 readback for T+${deliveryAt} delivery`,async t=>{
+ const f=await fixture(t), id=await f.pending(), invite=await f.repo.issue('owner',id);
+ const receipt=await projectAndReadback(f.db,f.adapter,invite.id,epoch);
+ f.time(epoch+59); await f.repo.confirmProjection('owner',invite.id,receipt);
+ const before=await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
+ assert.equal(before.projected_at,receipt.verifiedAt); assert.equal(before.changed_at,epoch+59);
+ const audit=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ f.time(epoch+deliveryAt);
+ if(deliveryAt===60) {
+  await f.repo.confirmOwnerDelivery('owner',invite.id);
+  const row=await f.db.prepare('SELECT status,projected_at,delivered_at FROM invitations WHERE id=?').bind(invite.id).first();
+  assert.deepEqual(row,{status:'delivered',projected_at:epoch,delivered_at:epoch+60});
+ } else {
+  await assert.rejects(f.repo.confirmOwnerDelivery('owner',invite.id),/state conflict/);
+  assert.deepEqual(await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first(),before);
+  assert.deepEqual(await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all(),audit);
+ }
+});
+
+test('OFFLINE: late or future projection receipt cannot confirm; ordinary immediate delivery passes',async t=>{
+ const f=await fixture(t), id=await f.pending(), invite=await f.repo.issue('owner',id);
+ const receipt=await projectAndReadback(f.db,f.adapter,invite.id,epoch);
+ const before=await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
+ const audit=await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ for(const at of [epoch+61,epoch-1]) {
+  f.time(at); await assert.rejects(f.repo.confirmProjection('owner',invite.id,receipt),/projection unconfirmed/);
+  assert.deepEqual(await f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first(),before);
+  assert.deepEqual(await f.db.prepare('SELECT * FROM audit_events ORDER BY id').all(),audit);
+ }
+ f.time(epoch); await f.repo.confirmProjection('owner',invite.id,receipt);
+ await f.repo.confirmOwnerDelivery('owner',invite.id);
+ assert.equal((await f.db.prepare('SELECT status FROM invitations WHERE id=?').bind(invite.id).first()).status,'delivered');
+});
+
+test('OFFLINE: SQL freshness guards atomically reject future/late confirmation and stale or retimed delivery',async t=>{
+ const f=await fixture(t), id=await f.pending(), invite=await f.repo.issue('owner',id);
+ const row=()=>f.db.prepare('SELECT * FROM invitations WHERE id=?').bind(invite.id).first();
+ const audit=()=>f.db.prepare('SELECT * FROM audit_events ORDER BY id').all();
+ async function rejected(sql,...args) {
+  const before=await row(), events=await audit();
+  await assert.rejects(f.db.prepare(sql).bind(...args,invite.id).run());
+  assert.deepEqual(await row(),before); assert.deepEqual(await audit(),events);
+ }
+ const confirm="UPDATE invitations SET status='projected',projection_receipt='synthetic-receipt',projected_at=?,changed_at=? WHERE id=?";
+ await rejected(confirm,epoch+1,epoch); // Future readback.
+ await rejected(confirm,epoch,epoch+61); // Late confirmation bypassing JS.
+ const receipt=await projectAndReadback(f.db,f.adapter,invite.id,epoch);
+ f.time(epoch+59); await f.repo.confirmProjection('owner',invite.id,receipt);
+ const deliver="UPDATE invitations SET status='delivered',delivery_channel='owner-private-channel',delivered_at=?,changed_at=? WHERE id=?";
+ await rejected(deliver,epoch+61,epoch+61);
+ await rejected(deliver,epoch+118,epoch+118);
+ await rejected(deliver,epoch+60,epoch+118); // Cannot backdate delivery.
+ await rejected("UPDATE invitations SET status='delivered',delivery_channel='owner-private-channel',projected_at=?,delivered_at=?,changed_at=? WHERE id=?",epoch+59,epoch+118,epoch+118);
+ await rejected("UPDATE invitations SET status='delivered',delivery_channel='owner-private-channel',projection_receipt='replacement',delivered_at=?,changed_at=? WHERE id=?",epoch+60,epoch+60);
+ // Clock rollback must not make a future readback eligible in repository SQL.
+ f.time(epoch-1); await assert.rejects(f.repo.confirmOwnerDelivery('owner',invite.id),/state conflict/);
+ f.time(epoch+60); await f.repo.confirmOwnerDelivery('owner',invite.id);
+});
+
+test('OFFLINE: replacement receipts and reissue cannot extend the original delivery window',async t=>{
+ const f=await fixture(t), id=await f.pending(), old=await f.repo.issue('owner',id);
+ const receipt=await projectAndReadback(f.db,f.adapter,old.id,epoch);
+ f.time(epoch+59); await f.repo.confirmProjection('owner',old.id,receipt);
+ f.time(epoch+61);
+ const replacement=await projectAndReadback(f.db,f.adapter,old.id,f.now());
+ await assert.rejects(f.repo.confirmProjection('owner',old.id,replacement),/state conflict/);
+ await assert.rejects(f.repo.confirmOwnerDelivery('owner',old.id),/state conflict/);
+ const fresh=await f.repo.issue('owner',id);
+ for(const stale of [receipt,replacement]) await assert.rejects(f.repo.confirmProjection('owner',fresh.id,stale),/projection unconfirmed/);
+ await assert.rejects(f.repo.confirmOwnerDelivery('owner',fresh.id));
+ await assert.rejects(f.repo.confirmProjection('owner',old.id,replacement));
+ const oldRow=await f.db.prepare('SELECT status,projected_at FROM invitations WHERE id=?').bind(old.id).first();
+ assert.deepEqual(oldRow,{status:'superseded',projected_at:epoch});
+ // A new invitation requires its own complete fresh reconciliation/readback.
+ await f.repo.confirmProjection('owner',fresh.id,await projectAndReadback(f.db,f.adapter,fresh.id,f.now()));
+ await f.repo.confirmOwnerDelivery('owner',fresh.id);
+ assert.equal((await f.db.prepare('SELECT projected_at FROM invitations WHERE id=?').bind(fresh.id).first()).projected_at,epoch+61);
+});

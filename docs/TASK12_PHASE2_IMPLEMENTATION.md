@@ -221,7 +221,7 @@ was temporarily reused; no installation or lockfile change. Exact final counts,
 commit/tree, limitations and logs are recorded in the sanitized external report
 `/tmp/BSS_TASK12_PHASE2_IMPL_REPORT_20261024.md`.
 
-Final local results: 42/42 portal tests and 365/365 existing public/membership/
+Initial local results: 42/42 portal tests and 365/365 existing public/membership/
 notifier/owner regression tests passed (407 total, zero failures/skips).
 `npm run validate` passed: lint plus Astro check/build, zero errors/warnings and
 84 existing hints outside portal; 15 static pages built. Initial local socket
@@ -230,3 +230,48 @@ combined regression/build run raced on `dist/` (349 pass, 1 file-load failure);
 the final 365-test regression run was executed after the successful build and
 passed. Development failures in D1 affected-row detection and the Miniflare Host
 harness were corrected before these final checks. No unresolved local test failure.
+
+## Independent review Medium finding resolution — October 24, 2026
+
+The independent review of `ffa05047a7616c51312cd3ea134f7e91cd31b02c`
+(tree `c5ae47ccb50257f01f812b7be7b25be81e2cf0c6`) blocked merge because
+`confirmProjection` stored confirmation time instead of the branded receipt's
+original `verifiedAt`. Readback at T+0, confirmation at T+59, then owner delivery
+at T+118 could succeed. This extended the policy-drift exposure beyond the
+contract's 60-second verification-to-delivery limit.
+
+The fix persists `projected_at = receipt.verifiedAt`, while `changed_at` remains
+the actual confirmation time. Delivery's SQL predicate requires
+`at-60 <= projected_at <= at`. New-schema CHECK constraints require readback
+between invitation creation and confirmation, and delivery between readback and
+readback+60. Transition triggers reject confirmation more than 60 seconds after
+readback, require delivery time to equal its transition time, and freeze the
+receipt ID/readback time after confirmation, including supersession. These guards
+execute atomically with the invitation transition and audit insertion. The branded
+receipt-to-timestamp association is validated in trusted repository code; SQL does
+not independently authenticate the in-process receipt or any live Access policy.
+
+Six additional synthetic workerd D1 tests prove T+0 readback/T+59 confirmation
+allows T+60 delivery and denies T+61 and T+118 delivery. They also cover late
+T+61 confirmation, future receipts/clock rollback, ordinary immediate success,
+replacement receipts, invitation-scoped reissue, and direct SQL attempts to bypass
+freshness or backdate delivery. Rejected transitions leave complete invitation
+rows and audit rows unchanged. Reissue requires a new invitation-scoped full
+readback; it cannot refresh or resurrect the old invitation.
+
+This is a compatible tightening of the new/offline schema with no column or API
+shape changes. No deployed database uses it, and no migration is performed or
+claimed: old disposable fixtures must be recreated with this schema. Any future
+persisted database requires a separately reviewed migration/rehearsal. Worker
+activation and all existing production gates remain blocked. The source fix
+addresses the reported Medium issue; a fresh independent review is still required.
+
+Fix verification: 48/48 portal tests, root `npm run validate` (lint and build;
+zero errors/warnings, 84 existing hints; 15 pages), and 365/365 existing regressions
+after build passed (413 tests total, zero failures/skips). Node 24.22.0 used the
+existing dependency tree via a transient untracked `node_modules` symlink, removed
+before commit; no install or lockfile change. The initial sandbox run could not
+open loopback sockets; the successful offline suites used permitted local sockets.
+Logs: `/tmp/task12-medium-portal.tap`, `/tmp/task12-medium-validate.log`, and
+`/tmp/task12-medium-regressions.tap`. The sanitized fix report with exact final
+commit/tree is `/tmp/BSS_TASK12_MEDIUM_FIX_REPORT_20261024.md`.
