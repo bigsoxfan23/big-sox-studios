@@ -1,0 +1,191 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
+import {createAuthenticator} from './access.mjs';
+import {createOtpAuthenticator} from './otp-identity.mjs';
+import {createMemberDashboard} from './member-dashboard.mjs';
+import disabled from './member-dashboard.mjs';
+import {fixture,epoch,envConfig,token,request,certFetch,jwk,applySchema} from './test-support.mjs';
+
+const config={...envConfig,OTP_CUSTOM_HOSTS:['members.example.test']};
+const ctx=(email='person@example.test',type='onetimepin',aud=config.ACCESS_AUDIENCE)=>({access:{aud,getIdentity:async()=>({email,idp:{type}})}});
+const policy=(changes={})=>({issuer:config.ACCESS_ISSUER,audience:config.ACCESS_AUDIENCE,origin:config.APP_ORIGIN,
+ source:'cloudflare-effective-policy-readback',independentMfaRequired:true,otpIdentityShapeVerified:true,
+ policyDigest:'a'.repeat(64),ownerApprovalAuditId:'synthetic-approval',ownerApprovalCount:1,verifiedAt:epoch,expiresAt:epoch+300,...changes});
+function options(extra={}) {return {now:()=>epoch*1000,verifyAccess:createAuthenticator({fetcher:certFetch,now:()=>epoch*1000}),verifyActivation:async()=>policy(),...extra};}
+async function seed(db,id='person',role='owner',provider='otp',subject='person@example.test') {
+ await db.prepare('INSERT INTO members VALUES(?,?,?,\'active\',?)').bind(id,subject,role,epoch).run();
+ await db.prepare('INSERT INTO identities VALUES(?,?,?,?)').bind(provider,subject,id,epoch).run();
+}
+async function snapshot(db) {
+ const tables=['members','identities','service_grants','audit_events','invitations','link_requests','revocations','projection_attempts','revocation_tasks'];
+ return Promise.all(tables.map(async name=>(await db.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()).results));
+}
+
+test('OFFLINE OTP: exact namespace, D1 role, zero writes, per-request revocation and grants',async t=>{
+ const {db}=await fixture(t); await seed(db);
+ const app=createMemberDashboard(options()); const env={...config,DB:db};
+ const get=(path='/',context=ctx(),jwt=token())=>app.fetch(request(jwt,path),env,context);
+ const before=await snapshot(db);
+ let response=await get(); assert.equal(response.status,200);
+ const html=await response.text();
+ assert.match(html,/<dd>Owner<\/dd>/); assert.match(html,/Services coming soon/);
+ assert.match(html,/href="\/cdn-cgi\/access\/logout"/);
+ assert.doesNotMatch(html,/person@example|access-session|synthetic-approval|jellyfin|palworld|mfa verified/i);
+ assert.match(response.headers.get('Cache-Control'),/no-store/);
+ assert.equal(response.headers.get('CDN-Cache-Control'),'no-store');
+ for (const service of ['jellyfin','palworld','status','unknown']) {
+  for (const path of [`/services/${service}`,`/api/services/${service}`,`/services/${service}/stream`]) assert.equal((await get(path)).status,403);
+ }
+ assert.deepEqual(await snapshot(db),before);
+ await db.prepare("INSERT INTO service_grants VALUES('person','jellyfin')").run();
+ assert.equal((await get('/services/jellyfin')).status,404); // never proxies or redirects
+ await db.prepare("DELETE FROM service_grants WHERE member_id='person'").run();
+ assert.equal((await get('/services/jellyfin')).status,403);
+ await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ response=await get(); assert.match(await response.text(),/<dd>Member<\/dd>/);
+ assert.equal((await get('/api/owner')).status,403);
+ await db.prepare("UPDATE members SET status='revoked' WHERE id='person'").run();
+ assert.equal((await get()).status,403); assert.equal((await get('/services/jellyfin')).status,403);
+});
+
+test('OFFLINE OTP: Google/Apple same email and Google-only D1 binding cannot auto-link',async t=>{
+ const {db}=await fixture(t); await seed(db,'person','owner','google');
+ const app=createMemberDashboard(options()),env={...config,DB:db},before=await snapshot(db);
+ for (const type of ['onetimepin','google','apple','otp','OneTimePin',undefined]) {
+  assert.equal((await app.fetch(request(),env,ctx('person@example.test',type))).status,403);
+ }
+ assert.deepEqual(await snapshot(db),before);
+});
+
+test('OFFLINE OTP: trusted runtime type, exact JWT email/audience and safe user id required',async()=>{
+ const authenticate=createOtpAuthenticator(options());
+ assert.equal((await authenticate(request(),config,ctx())).subject,'person@example.test');
+ assert.equal((await authenticate(request(token({email:'Case+tag@EXAMPLE.test'})),config,ctx('Case+tag@EXAMPLE.test'))).subject,'Case+tag@EXAMPLE.test');
+ const cases=[
+  [token(),ctx('Person@example.test')],[token(),ctx('person@EXAMPLE.test')],
+  [token(),ctx('other@example.test')],[token(),ctx('person@example.test','google')],
+  [token(),{}],[token(),{access:{aud:config.ACCESS_AUDIENCE,getIdentity:async()=>({email:'person@example.test',idp:'onetimepin'})}}],
+  [token(),ctx('person@example.test','onetimepin',['members-test'])],
+  [token(),ctx('person@example.test','onetimepin','owner-test')],
+  [token({aud:['members-test','owner-test']}),ctx()],[token({aud:['owner-test']}),ctx()],
+  [token({iss:'https://wrong.cloudflareaccess.com'}),ctx()],[token({exp:epoch}),ctx()],
+  [token({sub:'<script>private</script>'}),ctx()],[token({sub:''}),ctx()],
+  [token({email:'bad\n@example.test'}),ctx('bad\n@example.test')],
+  [token({email:undefined}),ctx()],
+  [token().replace(/.$/,'!'),ctx()]
+ ];
+ for (const [jwt,context] of cases) await assert.rejects(authenticate(request(jwt,'/',config.APP_ORIGIN,{
+  'Cf-Access-Authenticated-User-Email':'person@example.test','X-Identity-Provider':'onetimepin'
+ }),config,context));
+});
+
+test('OFFLINE OTP: unavailable MFA/readback/one audited approval/field proof prevents activation before D1',async()=>{
+ const db={prepare(){throw Error('D1 must not be reached');}};
+ const env={...config,DB:db,ENABLE:true,OTP_ENABLED:true,MFA_VERIFIED:true};
+ assert.equal((await disabled.fetch(request(),env,ctx())).status,503);
+ const changes=[{independentMfaRequired:false},{source:'config-inference'},{ownerApprovalCount:0},{ownerApprovalCount:2},
+  {ownerApprovalAuditId:''},{ownerApprovalAuditId:undefined},{policyDigest:''},{otpIdentityShapeVerified:false},{expiresAt:epoch},
+  {verifiedAt:epoch+1},{expiresAt:epoch+301},{audience:'owner-test'},{origin:'https://other.example.test'},{issuer:'https://wrong.cloudflareaccess.com'}];
+ for (const change of changes) {
+  const app=createMemberDashboard(options({verifyActivation:async()=>policy(change)}));
+  assert.equal((await app.fetch(request(),env,ctx())).status,503);
+ }
+});
+
+test('OFFLINE OTP: custom host only; disabled flags, unknown routes, methods, errors and PII stay private',async t=>{
+ const {db}=await fixture(t); await seed(db,'person','owner'); const env={...config,DB:db};
+ const app=createMemberDashboard(options());
+ for (const origin of ['https://wrong.example.test','https://anything.workers.dev','https://preview.pages.dev','http://members.example.test']) {
+  assert.equal((await app.fetch(request(token(),'/',origin),env,ctx())).status,403);
+ }
+ for (const extra of [{Host:'evil.example.test'},{Origin:'https://evil.example.test'}]) {
+  assert.equal((await app.fetch(request(token(),'/',config.APP_ORIGIN,extra),env,ctx())).status,403);
+ }
+ for (const custom of [undefined,[],['members.example.test','extra.example.test']]) {
+  assert.equal((await app.fetch(request(),{...env,OTP_CUSTOM_HOSTS:custom},ctx())).status,403);
+ }
+ for (const [path,status] of [['/unknown',404],['/api/owner',404],['/cdn-cgi/access/logout',404],['/?email=private',400]]) {
+  const response=await app.fetch(request(token(),path),env,ctx()); assert.equal(response.status,status);
+  assert.match(response.headers.get('Cache-Control'),/no-store/);
+ }
+ const head=await app.fetch(new Request(request(),{method:'HEAD'}),env,ctx()); assert.equal(head.status,200); assert.equal(await head.text(),'');
+ assert.equal((await app.fetch(new Request(request(),{method:'POST'}),env,ctx())).status,405);
+ await db.prepare("UPDATE members SET role='trusted' WHERE id='person'").run();
+ assert.match(await (await app.fetch(request(),env,ctx())).text(),/Trusted member/);
+ for (const broken of [{prepare(){throw Error('private-email@example.test');}}, {prepare(){return {bind(){return {first:async()=>({id:'<script>private</script>',role:'owner',status:'active',grants:'[]'})};}};}}]) {
+  const response=await app.fetch(request(),{...env,DB:broken},ctx()); assert.equal(response.status,403);
+  assert.doesNotMatch(await response.text(),/private|script|@/);
+ }
+});
+
+test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real ephemeral D1',async t=>{
+ const names=['member-dashboard','otp-identity','access','identity','authorization'];
+ const modules=names.map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
+ const entry=`import {createMemberDashboard} from './portal/member-dashboard.mjs';
+ import {createAuthenticator} from './portal/access.mjs';
+ const app=createMemberDashboard({now:()=>${epoch}000,
+ verifyAccess:createAuthenticator({now:()=>${epoch}000,fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})}),
+ verifyActivation:async()=>(${JSON.stringify(policy())})});
+ export default {fetch(request,env){const headers=new Headers(request.headers);headers.set('Host',new URL(request.url).host);
+ return app.fetch(new Request(request,{headers}),{...env,...${JSON.stringify(config)}},
+ {access:{aud:'members-test',getIdentity:async()=>({email:'person@example.test',idp:{type:'onetimepin'}})}});}};`;
+ const mf=new Miniflare(convertV4MiniflareOptions({name:'otp-runtime-offline',log:new NoOpLog(),compatibilityDate:'2026-10-24',d1Databases:{DB:'otp-synthetic'},
+  modules:[{type:'ESModule',path:'entry.mjs',contents:entry},...modules],outboundService:()=>{throw Error('no outbound traffic allowed');}}));
+ t.after(()=>mf.dispose()); const db=await mf.getD1Database('DB'); await applySchema(db); await seed(db);
+ const get=path=>mf.dispatchFetch(config.APP_ORIGIN+path,{headers:{'Cf-Access-Jwt-Assertion':token()}});
+ const response=await get('/'); assert.equal(response.status,200); assert.match(await response.text(),/Owner/);
+ assert.equal((await get('/services/jellyfin')).status,403);
+ await db.prepare("UPDATE members SET status='revoked' WHERE id='person'").run();
+ assert.equal((await get('/')).status,403);
+});
+
+// Synthetic clock advances happen across actual awaits, without wall-clock sleeps.
+for (const scenario of [
+ {name:'verifier wait expires evidence',verifierAt:epoch+10,proof:{expiresAt:epoch+10},status:503},
+ {name:'fresh readback created after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+10,expiresAt:epoch+310},status:200},
+ {name:'future-dated readback after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+11},status:503},
+ {name:'D1 wait reaches evidence expiry',d1At:epoch+300,status:403},
+ {name:'D1 wait passes evidence expiry',d1At:epoch+301,status:403},
+ {name:'fresh evidence after D1 wait',d1At:epoch+299,status:200},
+ {name:'authentication wait expires evidence',identityAt:epoch+300,status:403},
+ {name:'D1 wait expires signed JWT',d1At:epoch+10,jwtExpiry:epoch+10,status:403},
+ {name:'callback evidence mutation cannot extend retained expiry',d1At:epoch+300,mutate:true,status:403},
+ {name:'service route rechecks expiry after D1',d1At:epoch+300,path:'/services/jellyfin',status:403},
+ {name:'HEAD rechecks expiry after D1',d1At:epoch+300,method:'HEAD',status:403},
+ {name:'policy digest requires exact 64 hex characters',proof:{policyDigest:'a'.repeat(64)+'\n'},status:503}
+]) test(`OFFLINE OTP freshness: ${scenario.name}`,async t=>{
+ const {db}=await fixture(t); await seed(db);
+ await db.prepare("INSERT INTO service_grants VALUES('person','jellyfin')").run();
+ let at=epoch,reads=0;
+ const now=()=>at*1000,proof=policy(scenario.proof);
+ const app=createMemberDashboard(options({now,
+  verifyAccess:createAuthenticator({fetcher:certFetch,now}),
+  verifyActivation:async()=>{
+   await Promise.resolve();
+   at=scenario.verifierAt??at;
+   return proof;
+  }
+ }));
+ const delayedDb={prepare(sql){return {bind(...args){return {async first(){
+  const row=await db.prepare(sql).bind(...args).first();
+  reads++;
+  at=scenario.d1At??at;
+  if (scenario.mutate) proof.expiresAt=epoch+600;
+  return row;
+ } };} };} };
+ const context=ctx();
+ context.access.getIdentity=async()=>{
+  await Promise.resolve();
+  at=scenario.identityAt??at;
+  return {email:'person@example.test',idp:{type:'onetimepin'}};
+ };
+ const req=new Request(request(token({exp:scenario.jwtExpiry??epoch+700000}),scenario.path??'/'),{method:scenario.method??'GET'});
+ const response=await app.fetch(req,{...config,DB:delayedDb},context);
+ assert.equal(response.status,scenario.status);
+ assert.equal(reads,scenario.status===503?0:1);
+ const body=await response.text();
+ if (scenario.status!==200) assert.doesNotMatch(body,/Your membership|<dd>Owner<\/dd>|Services coming soon/);
+ assert.match(response.headers.get('Cache-Control'),/no-store/);
+});
