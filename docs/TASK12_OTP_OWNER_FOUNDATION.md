@@ -1,6 +1,7 @@
 # Task 12: independent email OTP Owner foundation
 
-Development only, OFFLINE verified. No live Owner login is established. MF1–MF6
+Development only, OFFLINE verified. No automated live OTP Owner identity proof or
+production acceptance is established. MF1–MF6
 in [Phase 2](TASK12_PHASE2_IMPLEMENTATION.md) remain binding. This supplement
 implements the MF3 email-OTP exception, where identity effectively is email.
 It does not change the generic provider resolver, invitation flow or schema.
@@ -78,6 +79,37 @@ and Owner's explicit decision, so old approval cannot cover a changed policy.
 No automatic MFA inference or activation flag fallback is provided.
 
 ## Known staging evidence and required field test
+
+Greg reports successfully completing a real email-code OTP login followed by a
+separate Cloudflare MFA challenge in iPhone Safari. Human screenshot inspection
+shows the custom-member staging Access app with Biometrics/Security Key/
+Authenticator MFA customization, 24-hour duration, OTP and Google selected, an
+owner-only allow policy including the exact email, and policy MFA respecting
+global settings while global MFA is disabled. These are human observations and
+configuration inspection, not automated runtime identity proof or server
+attestation of independent MFA enforcement.
+
+The existing staging-only `GET /owner/identity-check` is the read-only diagnostic
+for a separately authorized runtime field test. It requires the exact custom
+hostname `members-staging.bigsoxstudios.com`, no query, matching optional Host and
+Origin headers, the owner email secret, independently verified signed Access JWT
+and authenticated Access context. Workers.dev is denied. It preserves existing
+field-presence booleans and displays only sanitized booleans:
+
+- `otpProviderConfirmed`: only `identity?.idp?.type === 'onetimepin'`; Google,
+  case differences, missing fields and other shapes remain false, with no fallback.
+- `signedJwtRuntimeEmailExactMatch`: exact runtime email equality with the
+  independently signature-verified, owner-allowlisted JWT email. Mismatch denies
+  access; missing identity or a failed identity read returns 503.
+- `memberAppAudienceConfirmed`: the signed JWT has only the exact custom-member
+  app audience and `ctx.access.aud` equals that audience exactly.
+- `mfaEvidenceEstablished`: always false, regardless of provider or AMR fields.
+  This diagnostic cannot prove independent MFA from the JWT or runtime identity.
+
+Responses remain no-store/noindex and expose no raw identity, provider strings,
+email, JWT, secret, nonce, time or identifiers. Local synthetic tests do not
+establish a successful live runtime field test. This change enables no dashboard,
+account creation, grants or production acceptance and is not deployed.
 
 The user's existing Safari staging Google login is separate from this future OTP
 route. Observed: `ctx.access=true`, IdP type present, OIDC subject absent, AMR
