@@ -111,7 +111,7 @@ const diagnosticHeaders = {
 
 function diagnosticResponse(fields, status = 200) {
   const rows = Object.entries(fields).map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join('');
-  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Identity field check</title><style>body{font:18px system-ui;max-width:40rem;margin:2rem auto;padding:0 1rem}dt{overflow-wrap:anywhere;margin-top:1rem}dd{margin:.25rem 0;font-weight:bold}</style><h1>Identity field check</h1><p>${status === 200 ? 'Field availability only.' : 'Identity fields unavailable.'} MFA NOT VERIFIED — field presence does not prove independent MFA.</p><dl>${rows}</dl></html>`, { status, headers: diagnosticHeaders });
+  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Identity field check</title><style>body{font:18px system-ui;max-width:40rem;margin:2rem auto;padding:0 1rem}dt{overflow-wrap:anywhere;margin-top:1rem}dd{margin:.25rem 0;font-weight:bold}</style><h1>Identity field check</h1><p>${status === 200 ? 'Sanitized runtime identity checks only.' : 'Identity fields unavailable.'} MFA NOT VERIFIED — field presence does not prove independent MFA.</p><dl>${rows}</dl></html>`, { status, headers: diagnosticHeaders });
 }
 
 async function identityCheck(request, env, ctx) {
@@ -119,6 +119,7 @@ async function identityCheck(request, env, ctx) {
   const deny = status => new Response(status === 404 ? 'Not found' : 'Access verification required', { status, headers: diagnosticHeaders });
   if (url.hostname !== DIAGNOSTIC_HOST || url.host !== DIAGNOSTIC_HOST || url.protocol !== 'https:' ||
       (request.headers.has('Host') && request.headers.get('Host') !== DIAGNOSTIC_HOST) ||
+      (request.headers.has('Origin') && request.headers.get('Origin') !== url.origin) ||
       url.href.includes('?') || url.hash || request.method !== 'GET' ||
       typeof env?.DIAGNOSTIC_OWNER_EMAIL !== 'string' || !env.DIAGNOSTIC_OWNER_EMAIL ||
       env.DIAGNOSTIC_OWNER_EMAIL.trim() !== env.DIAGNOSTIC_OWNER_EMAIL) return deny(404);
@@ -132,6 +133,9 @@ async function identityCheck(request, env, ctx) {
     idpTypePresent: false,
     oidcSubjectPresent: false,
     amrArrayPresent: false,
+    otpProviderConfirmed: false,
+    signedJwtRuntimeEmailExactMatch: false,
+    memberAppAudienceConfirmed: false,
     mfaEvidenceEstablished: false,
   };
   try {
@@ -139,11 +143,16 @@ async function identityCheck(request, env, ctx) {
     if (ctx.access.aud !== AUDIENCES[DIAGNOSTIC_HOST]) return deny(403);
     fields.accessContextAvailable = true;
     const identity = await ctx.access.getIdentity();
-    if (!identity || identity.email !== verified.email) return deny(403);
+    if (!identity) return diagnosticResponse(fields, 503);
+    if (identity.email !== verified.email) return deny(403);
     const present = value => typeof value === 'string' && value.trim().length > 0;
     fields.idpTypePresent = present(identity.idp?.type);
     fields.oidcSubjectPresent = present(identity.oidc_fields?.sub);
     fields.amrArrayPresent = Array.isArray(identity.amr);
+    fields.otpProviderConfirmed = identity?.idp?.type === 'onetimepin';
+    fields.signedJwtRuntimeEmailExactMatch = identity.email === verified.email;
+    // Both exact audience checks above must pass before this can be confirmed.
+    fields.memberAppAudienceConfirmed = true;
     return diagnosticResponse(fields);
   } catch { return diagnosticResponse(fields, 503); }
 }
