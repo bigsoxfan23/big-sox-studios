@@ -496,3 +496,153 @@ owner-canary's old baseline manifest disagrees with `.github/workflows/validate.
 These unrelated files/tests were not changed or waived. Existing installed local
 dependency trees were reused without installation or manifest/lockfile edits;
 initial missing-dependency and loopback-sandbox failures are retained in logs.
+
+## First owner login preview increment — October 24, 2026
+
+Based on merged main `16cd4660bccb77e02660288c678a6692242016f7`, on isolated
+`feature/task12-owner-first-login-20261024`, server `fridman-optiplex`.
+The two Notion contracts linked above were read through the connected read-only
+fetch tool. Their latest checkpoint agrees: source merged, portal closed, empty
+separate D1, authentic upstream subject and independent MFA still required.
+The current instruction authorizes implementation, with no deployment or Access
+policy changes in this session. MF1–MF6 are preserved.
+
+`portal/owner-proof.mjs` adds the bounded session transport and an **inactive
+upstream verifier interface**. `portal/owner-preview.mjs` adds a disconnected
+factory with no default export, config or import from an existing Worker. Only
+explicit source-injected `mode: offline-test` can exercise it. Production mode
+returns 503; environment flags cannot activate it. No live provider resolver
+exists. This is a tested offline owner preview, not a completed real owner login.
+
+For the sole `/owner-preview` GET/HEAD route, it verifies the members app signature,
+issuer, exclusive audience and origin using `portal/access.mjs`. It requires an
+app/user token, recent issuance (five minutes), signed `identity_nonce`, and a
+single bounded `CF_Authorization` cookie **identical to the verified assertion**.
+It sends only that cookie and JSON Accept to the configured team's fixed HTTPS
+`/cdn-cgi/access/get-identity` endpoint. No browser JSON, URL-supplied endpoint,
+other cookies or service credentials are forwarded. Redirects, non-JSON responses,
+invalid UTF-8, over 32 KiB, outages and three-second timeouts deny. Each request
+fetches again; no identity/member authorization cache exists.
+
+Candidate response correlation requires exact account ID, user UUID matching the
+signed Access sub, email, issuance and nonce. These checks are conservative
+**offline assumptions**, not claims that Cloudflare documents or supplies every
+field/equivalence. Missing fields deny. A trusted verifier would then need to
+independently authenticate provider evidence before returning Google connection,
+stable upstream subject, verified email, independent MFA with AMR, the full signed
+token digest, Access sub/nonce/account, and a short-lived unique proof ID. All
+correlations are checked again. Access sub is used only for Access-session
+correlation; it is never a Google subject. Other providers never pass this slice.
+No email-based binding/linking or synthetic claims parser exists outside tests.
+
+The synthetic proof is valid for at most 60 seconds and consumed before another
+await, with 128 unexpired IDs maximum and no eviction bypass. This models replay
+denial within one offline factory. A signed Access application cookie remains a
+reusable session credential; replay denial here applies to the **upstream proof**,
+not a claim that Access cookies become one-use. A new verified proof can authorize
+another read. Restarts/multiple isolates require a separately reviewed durable
+replay design before activation; this map is not production session infrastructure.
+
+The greeting requires a pre-existing provider+subject binding, current active D1
+Owner role, and exact separately configured owner member ID. The repository's
+single current snapshot supplies binding/status/role/grants on each greeting.
+The page says only “Welcome, Owner”; it prints no PII, identifiers, cookies or
+tokens and grants no services. Query strings, POSTs, unknown/direct service paths,
+unknown hosts, wrong Origin and cross-site requests deny. Errors are fixed text;
+no module logging or persistent token storage exists. HTML has no script, style,
+external assets or forms, with restrictive CSP and private no-store headers.
+There are no repository mutation calls, JIT rows, owner assignment endpoints,
+invitations, linking, mail or downstream service actions.
+
+### Exact evidence still missing
+
+The official [Access application-token reference](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
+documents `get-identity` cookie transport and generic `idp`, `user_uuid`, account,
+email and issuance fields. It does not specify a universal Google subject or
+nonce echo schema, verified-email provenance or an independent-MFA attestation
+bound to this app session. Its Access sub namespace is not the upstream subject.
+Custom OIDC/SAML claims depend on actual configuration and can be omitted; their
+mere presence does not establish the required semantic provenance.
+
+The [independent MFA reference](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/independent-mfa/)
+distinguishes IdP AMR matching from Access MFA; accepting IdP AMR may skip another
+prompt. The [MFA requirements reference](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/mfa-requirements/)
+must be reconciled with actual application/session policy. A label or `mfa` array
+alone does not prove the independent MFA required here. The
+[Google integration reference](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/)
+does not establish this deployment's complete subject/MFA/session mapping.
+These docs were read on October 24. No authenticated owner browser session or
+live identity payload was available or collected. This is a documentation-based
+blocker, not a claim that every possible Cloudflare configuration is incapable.
+
+Needed before implementing a live verifier: exact configured Google connection
+and namespace; documented stable Google subject field and trusted path from
+Google to Access's server response (or separately verified upstream signed proof);
+verified-email evidence; documented session nonce/user UUID correlation; current
+independent MFA method/time/provenance tied to that session; freshness and
+signature/key/audience lifecycle; durable one-use proof consumption. Neither
+the synthetic `idp.syntheticEvidence` nor signed `syntheticEvidence` and
+`identity_nonce` fixtures claim to be real Cloudflare output. Real response fields
+named `subject`, `sub`, `email_verified` or `amr` must not silently activate them.
+
+### Small owner browser diagnostic probe design — not deployed
+
+After separate review and staging-only authorization, an owner can navigate to a
+temporary exact-path, script-free diagnostic protected by existing Access. Pin
+the verified members audience, exact staging host, account and **separately
+verified owner Access session** server-side before exposing any diagnostic. That
+diagnostic pin is only permission to inspect one's session, never a D1 Owner
+binding. Require a fresh signed JWT and matching app cookie; fetch get-identity
+server-side through the same bounded transport. Do not change policies, accept
+client-supplied claims, or ask the owner to copy cookies into chat/CLI.
+
+Return only fixed allowlisted boolean observations: signature/audience valid,
+session cookie matched, identity response obtained, account/user/email/nonce
+correlations matched, candidate subject field present, candidate MFA field
+present, and `authoritativeProviderProof: false`, `loginEnabled: false`.
+“Present” is not “verified.” Never return raw values, arbitrary field names,
+hashes/fingerprints, error text, tokens, email, IP, account/user/connection IDs,
+provider subject, AMR contents or a body preview. Use no-store/CSP/no-referrer,
+no assets/analytics/logging or retained payloads. Apply bounded probe requests and
+expire/remove the diagnostic route after the owner test. Even successful boolean
+correlations cannot provision a row or authorize login. Privately inspect only
+the minimum actual provider schema and pair it with authoritative documentation
+before defining the verifier. If no authoritative subject exists, stop here;
+no general broker/Apple/OTP identity system is proposed for this increment.
+
+### First Owner bootstrap utility design — no live initialization
+
+No runnable initializer or public bootstrap endpoint is added. Before a later
+sealed operator-only utility can write anything, independently review the live
+verifier and separately verify the owner through a trusted channel. The utility
+must consume a fresh, single-use, session-bound Google+independent-MFA proof,
+never an email, arbitrary subject flag, browser role or JWT Access sub substitute.
+Keep the minimal verified binding in private volatile operator custody, with no
+token/subject output in logs, reports, Notion or source.
+
+Require separately authorized exact target DB identity, zero member/identity rows,
+verified backup/rehearsal, and explicit owner-approved initialization. Use one
+atomic transaction/batch with fail-closed empty-DB preconditions to insert exactly
+one active Owner and its verified Google binding plus minimal audit; schema global
+subject constraints apply. Concurrent/second attempts must roll back completely.
+Insert no service grants/invites; read back binding/status/role and zero grants,
+then permanently disable/remove the initializer. A later owner browser greeting
+must still perform the ordinary current-D1 lookup. Utility implementation and
+concurrency rehearsal require separate review before any real execution. The
+existing empty phase2 D1 was not queried or written in this session.
+
+Synthetic tests exercise successful pre-provisioned greeting, absent binding/no
+auto-create, current-D1 revocation and role changes, proof replay/concurrency,
+wrong IdP/audiences/nonce/email/sub/account/cookie, missing subject/verified email/
+AMR/independent MFA, direct paths and unknown hosts, unavailable verifier,
+upstream refusals/body bounds and sanitized errors. A real workerd test executes
+the new modules with WebCrypto and ephemeral D1, with outbound traffic disabled.
+All final-production MF6 cases, live owner test, independent exact-source review
+and final launch gates remain BLOCKED. Exact commit/tree and verification are in
+`/tmp/BSS_TASK12_OWNER_LOGIN_IMPL_20261024.md`.
+
+Increment verification: 131/131 portal tests (119 existing + 12 new), 365/365
+core regressions, root `npm run validate` PASS (zero errors/warnings, 84 existing
+Astro hints, 15 pages), and full/production npm audits each report zero
+vulnerabilities. Node v24.22.0 / npm 10.9.4 and existing local dependencies were
+used; no manifests, lockfiles, public/owner Workers or external systems changed.
