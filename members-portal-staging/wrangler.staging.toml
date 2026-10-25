@@ -1,0 +1,10 @@
+# Version upload only. Do not run deploy or triggers deploy with this config.
+name = "big-sox-studios-members-staging"
+main = "worker.mjs"
+compatibility_date = "2026-10-09"
+workers_dev = true
+preview_urls = false
+keep_vars = true
+routes = [{ pattern = "members-staging.bigsoxstudios.com", custom_domain = true }]
+# No D1/assets/Access configuration. DIAGNOSTIC_OWNER_EMAIL is deliberately absent.
+# Release operator supplies it via versions upload --secrets-file outside the repo.
