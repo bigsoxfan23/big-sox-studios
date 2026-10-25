@@ -140,3 +140,52 @@ test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real e
  await db.prepare("UPDATE members SET status='revoked' WHERE id='person'").run();
  assert.equal((await get('/')).status,403);
 });
+
+// Synthetic clock advances happen across actual awaits, without wall-clock sleeps.
+for (const scenario of [
+ {name:'verifier wait expires evidence',verifierAt:epoch+10,proof:{expiresAt:epoch+10},status:503},
+ {name:'fresh readback created after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+10,expiresAt:epoch+310},status:200},
+ {name:'future-dated readback after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+11},status:503},
+ {name:'D1 wait reaches evidence expiry',d1At:epoch+300,status:403},
+ {name:'D1 wait passes evidence expiry',d1At:epoch+301,status:403},
+ {name:'fresh evidence after D1 wait',d1At:epoch+299,status:200},
+ {name:'authentication wait expires evidence',identityAt:epoch+300,status:403},
+ {name:'D1 wait expires signed JWT',d1At:epoch+10,jwtExpiry:epoch+10,status:403},
+ {name:'callback evidence mutation cannot extend retained expiry',d1At:epoch+300,mutate:true,status:403},
+ {name:'service route rechecks expiry after D1',d1At:epoch+300,path:'/services/jellyfin',status:403},
+ {name:'HEAD rechecks expiry after D1',d1At:epoch+300,method:'HEAD',status:403},
+ {name:'policy digest requires exact 64 hex characters',proof:{policyDigest:'a'.repeat(64)+'\n'},status:503}
+]) test(`OFFLINE OTP freshness: ${scenario.name}`,async t=>{
+ const {db}=await fixture(t); await seed(db);
+ await db.prepare("INSERT INTO service_grants VALUES('person','jellyfin')").run();
+ let at=epoch,reads=0;
+ const now=()=>at*1000,proof=policy(scenario.proof);
+ const app=createMemberDashboard(options({now,
+  verifyAccess:createAuthenticator({fetcher:certFetch,now}),
+  verifyActivation:async()=>{
+   await Promise.resolve();
+   at=scenario.verifierAt??at;
+   return proof;
+  }
+ }));
+ const delayedDb={prepare(sql){return {bind(...args){return {async first(){
+  const row=await db.prepare(sql).bind(...args).first();
+  reads++;
+  at=scenario.d1At??at;
+  if (scenario.mutate) proof.expiresAt=epoch+600;
+  return row;
+ } };} };} };
+ const context=ctx();
+ context.access.getIdentity=async()=>{
+  await Promise.resolve();
+  at=scenario.identityAt??at;
+  return {email:'person@example.test',idp:{type:'onetimepin'}};
+ };
+ const req=new Request(request(token({exp:scenario.jwtExpiry??epoch+700000}),scenario.path??'/'),{method:scenario.method??'GET'});
+ const response=await app.fetch(req,{...config,DB:delayedDb},context);
+ assert.equal(response.status,scenario.status);
+ assert.equal(reads,scenario.status===503?0:1);
+ const body=await response.text();
+ if (scenario.status!==200) assert.doesNotMatch(body,/Your membership|<dd>Owner<\/dd>|Services coming soon/);
+ assert.match(response.headers.get('Cache-Control'),/no-store/);
+});
