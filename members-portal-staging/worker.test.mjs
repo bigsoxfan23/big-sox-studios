@@ -83,7 +83,10 @@ async function withKeys(run) {
   try { await run(); } finally { globalThis.fetch = originalFetch; }
 }
 function assertPrivate(body) {
-  for (const value of ['member@example.com', 'PRIVATE_', 'Cf-Access', 'eyJ', 'Error:', 'stack']) assert.ok(!body.includes(value));
+  for (const value of ['member@example.com', 'PRIVATE_', 'Cf-Access', 'eyJ', 'Error:', 'stack', 'onetimepin', 'google', issuer, ...Object.keys(hosts), ...Object.values(hosts)]) assert.ok(!body.includes(value));
+}
+function diagnosticFields(body) {
+  return Object.fromEntries([...body.matchAll(/<dt>(.*?)<\/dt><dd>(true|false)<\/dd>/g)].map(match => [match[1], match[2] === 'true']));
 }
 function assertDiagnosticHeaders(response) {
   assert.match(response.headers.get('Cache-Control'), /no-store/);
@@ -99,13 +102,18 @@ test('diagnostic signed owner with matching Access context outputs only boolean 
   assertDiagnosticHeaders(response);
   const body = await response.text();
   assertPrivate(body);
-  assert.deepEqual([...body.matchAll(/<dd>(.*?)<\/dd>/g)].map(match => match[1]), ['true', 'true', 'true', 'true', 'false']);
+  assert.deepEqual(diagnosticFields(body), {
+    accessContextAvailable: true, idpTypePresent: true, oidcSubjectPresent: true,
+    amrArrayPresent: true, otpProviderConfirmed: false,
+    signedJwtRuntimeEmailExactMatch: true, memberAppAudienceConfirmed: true,
+    mfaEvidenceEstablished: false,
+  });
   assert.match(body, /MFA NOT VERIFIED/);
   assert.ok(!body.includes('<script'));
 }));
 
 test('diagnostic missing context and failing identity read are sanitized unavailable states', async () => withKeys(async () => {
-  for (const ctx of [undefined, {}, { access: { aud: customAudience, getIdentity() { throw new Error('PRIVATE_EXCEPTION'); } } }]) {
+  for (const ctx of [undefined, {}, accessContext(null), { access: { aud: customAudience, getIdentity: async () => undefined } }, { access: { aud: customAudience, getIdentity() { throw new Error('PRIVATE_EXCEPTION'); } } }]) {
     const response = await worker.fetch(diagnosticRequest(), ownerEnv, ctx);
     assert.equal(response.status, 503);
     assertDiagnosticHeaders(response);
@@ -114,7 +122,10 @@ test('diagnostic missing context and failing identity read are sanitized unavail
     assertPrivate(body);
     assert.match(body, /mfaEvidenceEstablished<\/dt><dd>false/);
     assert.match(body, /MFA NOT VERIFIED/);
-    assert.ok(!body.includes('<dd>true</dd>') || body.includes('accessContextAvailable</dt><dd>true'));
+    const fields = diagnosticFields(body);
+    assert.equal(fields.otpProviderConfirmed, false);
+    assert.equal(fields.signedJwtRuntimeEmailExactMatch, false);
+    assert.equal(fields.memberAppAudienceConfirmed, false);
   }
 }));
 
@@ -123,7 +134,29 @@ test('diagnostic absent and mistyped fields stay false and AMR never establishes
     const response = await worker.fetch(diagnosticRequest(), ownerEnv, accessContext(identity));
     assert.equal(response.status, 200);
     const body = await response.text();
-    assert.deepEqual([...body.matchAll(/<dd>(.*?)<\/dd>/g)].map(match => match[1]), ['true', 'false', 'false', 'false', 'false']);
+    assert.deepEqual(diagnosticFields(body), {
+      accessContextAvailable: true, idpTypePresent: false, oidcSubjectPresent: false,
+      amrArrayPresent: false, otpProviderConfirmed: false,
+      signedJwtRuntimeEmailExactMatch: true, memberAppAudienceConfirmed: true,
+      mfaEvidenceEstablished: false,
+    });
+  }
+}));
+
+test('diagnostic confirms only exact runtime OTP type and never infers MFA', async () => withKeys(async () => {
+  for (const type of ['onetimepin', 'google', 'Onetimepin', 'ONETIMEPIN', 'onetimepin ', ' onetimepin', '', null, undefined, 1, {}, ['onetimepin']]) {
+    const identity = { ...fullIdentity, idp: { type }, amr: ['otp', 'mfa'], mfa: true };
+    const response = await worker.fetch(diagnosticRequest({ headers: { Origin: `https://${customHost}` } }), ownerEnv, accessContext(identity));
+    assert.equal(response.status, 200);
+    assertDiagnosticHeaders(response);
+    const body = await response.text();
+    assertPrivate(body);
+    const fields = diagnosticFields(body);
+    assert.equal(fields.otpProviderConfirmed, type === 'onetimepin');
+    assert.equal(fields.signedJwtRuntimeEmailExactMatch, true);
+    assert.equal(fields.memberAppAudienceConfirmed, true);
+    assert.equal(fields.mfaEvidenceEstablished, false);
+    assert.match(body, /MFA NOT VERIFIED/);
   }
 }));
 
@@ -141,6 +174,9 @@ test('diagnostic blocks direct Worker, unknown/mismatched Host, HTTP, port, quer
     { url: `https://${Object.keys(hosts)[1]}/owner/identity-check`, jwt: token(Object.values(hosts)[1]) },
     { url: 'https://unknown.example/owner/identity-check' },
     { headers: { Host: Object.keys(hosts)[1] } },
+    { headers: { Origin: 'https://unknown.example' } },
+    { headers: { Origin: 'null' } },
+    { url: 'https://unknown.example/owner/identity-check', headers: { Host: customHost } },
     { url: diagnosticUrl.replace('https:', 'http:') },
     { url: diagnosticUrl.replace(customHost, `${customHost}:8443`) },
     { url: diagnosticUrl + '?debug=1' }, { url: diagnosticUrl + '?' },
@@ -160,7 +196,7 @@ test('diagnostic rejects wrong or multiple audience, issuer, time, signature and
     { aud: [Object.values(hosts)[1]] }, { aud: [customAudience, Object.values(hosts)[1]] },
     { aud: [customAudience, customAudience] }, { aud: customAudience },
     { iss: 'https://forged.example' }, { exp: now }, { iat: now + 30 }, { nbf: now + 30 },
-    { email: 'unknown@example.com' },
+    { email: 'unknown@example.com' }, { email: 'Member@example.com' },
   ];
   const valid = token(customAudience);
   for (const jwt of ['', valid.slice(0, -12) + 'AAAAAAAAAAAA', ...changes.map(change => token(customAudience, change))]) {
@@ -176,7 +212,7 @@ test('diagnostic rejects wrong or multiple audience, issuer, time, signature and
 test('diagnostic requires context audience and matching identity, never email headers alone', async () => withKeys(async () => {
   const noAudience = accessContext();
   delete noAudience.access.aud;
-  for (const ctx of [accessContext(fullIdentity, Object.values(hosts)[1]), noAudience, accessContext(null), accessContext({ email: 'unknown@example.com' }), accessContext({})]) {
+  for (const ctx of [accessContext(fullIdentity, Object.values(hosts)[1]), accessContext(fullIdentity, [customAudience]), noAudience, accessContext({ ...fullIdentity, idp: { type: 'onetimepin' }, email: 'unknown@example.com' }), accessContext({ email: 'Member@example.com' }), accessContext({})]) {
     const response = await worker.fetch(diagnosticRequest(), ownerEnv, ctx);
     assert.equal(response.status, 403);
     assertPrivate(await response.text());
