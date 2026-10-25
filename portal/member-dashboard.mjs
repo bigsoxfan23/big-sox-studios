@@ -14,15 +14,19 @@ const dashboard=member=>page('Member portal',`<section aria-labelledby="membersh
 // verifyActivation is intentionally absent by default. A future reviewed server
 // adapter must validate REAL effective independent MFA policy readback and ONE
 // explicit audited owner approval. Browser/env booleans are not evidence.
-async function activation(env,verifyActivation,at) {
- if (typeof verifyActivation!=='function') return false;
- const proof=await verifyActivation(Object.freeze({issuer:env.ACCESS_ISSUER,audience:env.ACCESS_AUDIENCE,origin:env.APP_ORIGIN}));
- return Boolean(proof && proof.issuer===env.ACCESS_ISSUER && proof.audience===env.ACCESS_AUDIENCE && proof.origin===env.APP_ORIGIN &&
+async function activation(env,verifyActivation,now) {
+ if (typeof verifyActivation!=='function') return null;
+ const result=await verifyActivation(Object.freeze({issuer:env.ACCESS_ISSUER,audience:env.ACCESS_AUDIENCE,origin:env.APP_ORIGIN}));
+ // Snapshot the trusted adapter's evidence; later awaits must not extend its TTL.
+ const proof=Object.freeze({...result});
+ const at=Math.floor(now()/1000);
+ const valid=(proof && proof.issuer===env.ACCESS_ISSUER && proof.audience===env.ACCESS_AUDIENCE && proof.origin===env.APP_ORIGIN &&
   proof.source==='cloudflare-effective-policy-readback' && proof.independentMfaRequired===true &&
-  proof.otpIdentityShapeVerified===true && typeof proof.policyDigest==='string' && /^[a-f0-9]{64}$/.test(proof.policyDigest) &&
+  proof.otpIdentityShapeVerified===true && typeof proof.policyDigest==='string' && proof.policyDigest.length===64 && /^[a-f0-9]{64}$/.test(proof.policyDigest) &&
   typeof proof.ownerApprovalAuditId==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(proof.ownerApprovalAuditId) && proof.ownerApprovalCount===1 &&
   Number.isSafeInteger(at) && Number.isSafeInteger(proof.verifiedAt) && proof.verifiedAt>=0 && proof.verifiedAt<=at &&
   Number.isSafeInteger(proof.expiresAt) && proof.expiresAt>at && proof.expiresAt<=proof.verifiedAt+300);
+ return valid?Object.freeze({expiresAt:proof.expiresAt}):null;
 }
 
 export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Date.now()}={}) {
@@ -31,7 +35,8 @@ export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Dat
   const respond=(status,title,body)=>new Response(request.method==='HEAD'?null:page(title,`<p>${body}</p>`),{status,headers});
   try {
    checkOtpHost(request,env);
-   if (!await activation(env,verifyActivation,Math.floor(now()/1000))) return respond(503,'Portal unavailable','Activation is blocked.');
+   const evidence=await activation(env,verifyActivation,now);
+   if (!evidence) return respond(503,'Portal unavailable','Activation is blocked.');
    const identity=await authenticate(request,env,ctx);
    // One live snapshot, every path/method. No login writes, no email fallback,
    // no owner shortcut and no cached membership, roles or service grants.
@@ -41,7 +46,10 @@ export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Dat
     WHERE i.provider=? AND i.subject=? GROUP BY m.id`).bind(identity.provider,identity.subject).first();
    if (!member || typeof member.id!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(member.id)) throw Error('denied');
    member.grants=JSON.parse(member.grants);
-   if (!authorizeMember(member) || identity.expiresAt<=Math.floor(now()/1000)) throw Error('denied');
+   // Both credentials must still be fresh after authentication and the live D1 read.
+   const at=Math.floor(now()/1000);
+   if (!authorizeMember(member) || !Number.isSafeInteger(at) || at<0 ||
+    evidence.expiresAt<=at || identity.expiresAt<=at) throw Error('denied');
    if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
    const url=new URL(request.url);
    if (url.search) return respond(400,'Unavailable','This address is unavailable.');
