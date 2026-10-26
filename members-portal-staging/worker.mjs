@@ -157,10 +157,22 @@ async function identityCheck(request, env, ctx) {
   } catch { return diagnosticResponse(fields, 503); }
 }
 
-export default {
+// A future approved assembly may inject the D1-backed member application.
+// The deployed default intentionally has no memberApp and cannot provision accounts.
+export function createStagingWorker({memberApp}={}) {
+ return {
   async fetch(request, env, ctx) {
     if (new URL(request.url).pathname === '/owner/identity-check') return identityCheck(request, env, ctx);
     const url = new URL(request.url);
+    if (url.pathname==='/app' || url.pathname.startsWith('/app/')) {
+      // Never expose the private portal on direct workers.dev, previews, aliases or unknown hosts.
+      if (url.hostname!==DIAGNOSTIC_HOST || url.host!==DIAGNOSTIC_HOST || url.protocol!=='https:' ||
+          (request.headers.has('Host') && request.headers.get('Host')!==DIAGNOSTIC_HOST))
+        return new Response('Not found',{status:404,headers:securityHeaders});
+      if (!memberApp || typeof memberApp.fetch!=='function')
+        return new Response('Portal not activated',{status:503,headers:securityHeaders});
+      return memberApp.fetch(request,env,ctx);
+    }
     const audience = AUDIENCES[url.hostname];
     if (!audience || url.protocol !== 'https:') return new Response('Not found', { status: 404, headers: securityHeaders });
     let identity;
@@ -175,4 +187,7 @@ export default {
       headers: { ...securityHeaders, 'Content-Type': 'text/html; charset=utf-8' },
     });
   },
-};
+ };
+}
+
+export default createStagingWorker();
