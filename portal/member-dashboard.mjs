@@ -29,7 +29,8 @@ async function activation(env,verifyActivation,now) {
  return valid?Object.freeze({expiresAt:proof.expiresAt}):null;
 }
 
-export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Date.now()}={}) {
+export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Date.now(),mountPath='/'}={}) {
+ if (!['/','/app'].includes(mountPath)) throw Error('invalid mount');
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  return {async fetch(request,env,ctx) {
   const respond=(status,title,body)=>new Response(request.method==='HEAD'?null:page(title,`<p>${body}</p>`),{status,headers});
@@ -53,10 +54,12 @@ export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Dat
    if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
    const url=new URL(request.url);
    if (url.search) return respond(400,'Unavailable','This address is unavailable.');
-   if (url.pathname==='/') return new Response(request.method==='HEAD'?null:dashboard(member),{status:200,headers});
-   if (url.pathname==='/api/owner' && !mayManageMembers(member)) throw Error('denied');
+   const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
+   if (path===null) throw Error('denied');
+   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member),{status:200,headers});
+   if (path==='/api/owner' && !mayManageMembers(member)) throw Error('denied');
    // Own and legacy service paths are guarded even though no service is wired.
-   const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(url.pathname)?.[1];
+   const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(path)?.[1];
    if (service && (!SERVICES.includes(service) || !authorizeMember(member,service))) throw Error('denied');
    return respond(404,'Unavailable','This resource is not connected.');
   } catch { return respond(403,'Access unavailable','Access could not be verified.'); }
