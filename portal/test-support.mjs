@@ -47,8 +47,8 @@ export async function fixture(t) {
  return {mf,db,repo,identity,adapter,pending,ready,time:value=>{at=value;},now:()=>at};
 }
 
-export async function applySchema(db) {
- let sql=readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replace(/^--.*$/gm,'').trim();
+export async function applySchema(db,file='./schema.sql') {
+ let sql=readFileSync(new URL(file,import.meta.url),'utf8').replace(/^--.*$/gm,'').trim();
  const statements=[];
  while(sql) {
   let end;
