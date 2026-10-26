@@ -31,6 +31,6 @@ export function createOtpAuthenticator({verifyAccess=createAuthenticator(),now=(
    identity.email!==claims.email) throw Error('denied');
   normalizeEmail(claims.email); // syntax validation only; DO NOT normalize subject
   if (claims.exp<=Math.floor(now()/1000)) throw Error('denied');
-  return Object.freeze({provider:'otp',subject:claims.email,expiresAt:claims.exp});
+  return Object.freeze({provider:'otp',subject:claims.email,issuedAt:claims.iat,expiresAt:claims.exp});
  };
 }

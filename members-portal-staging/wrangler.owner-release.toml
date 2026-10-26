@@ -1,0 +1,27 @@
+# Candidate only — DO NOT DEPLOY until owner authorizes this staging release.
+# Only the already-protected existing staging Worker and Phase 2 D1 are used.
+name = "big-sox-studios-members-staging"
+main = "owner-staging-release.mjs"
+compatibility_date = "2026-10-09"
+workers_dev = true
+preview_urls = false
+keep_vars = true
+routes = [{ pattern = "members-staging.bigsoxstudios.com", custom_domain = true }]
+
+[vars]
+PORTAL_MODE = "staging-enrollment-source"
+BOOTSTRAP_DATABASE_ID = "43a8a15b-e195-4712-9198-1dcc9f0152af"
+# Pinned separate Owner Launchpad app audience (not the Members staging audience).
+OWNER_ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bss-members-portal-phase2"
+database_id = "43a8a15b-e195-4712-9198-1dcc9f0152af"
+
+# Future predeployment secrets (never store values in code/repo):
+# DIAGNOSTIC_OWNER_EMAIL — existing owner-only Worker secret
+# OWNER_ENROLLMENT_HMAC_KEY — independently generated 32 bytes, base64url
+# OWNER_ENROLLMENT_NONCE — independently generated stable 32-byte URL-safe nonce
+# Secret values must be provisioned by reviewed Wrangler secret flow, not [vars].
+# Back up and record current staging Worker version before deployment.

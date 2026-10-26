@@ -10,12 +10,10 @@ export const dashboardConfig=Object.freeze({
  OTP_CUSTOM_HOSTS:Object.freeze([host])
 });
 
-// Source composition only: verifyActivation must be a reviewed server adapter,
-// never a binding/flag or request value. No real adapter is supplied here.
-// Before wiring one, independently approve the existing Phase2 DB binding.
-export function createStagingDashboard({verifyActivation,fetcher=fetch,now=()=>Date.now()}={}) {
+// Source-only composition. The deployed staging config still selects worker.mjs.
+export function createStagingDashboard({fetcher=fetch,now=()=>Date.now()}={}) {
  const dashboard=createMemberDashboard({
-  verifyAccess:createAuthenticator({fetcher,now}),verifyActivation,now,mountPath:'/app'
+  verifyAccess:createAuthenticator({fetcher,now}),now,mountPath:'/app'
  });
  return createStagingWorker({memberApp:{fetch(request,env,ctx){
   // These targets come from source, not configurable audiences or host aliases.
@@ -23,5 +21,5 @@ export function createStagingDashboard({verifyActivation,fetcher=fetch,now=()=>D
  }}});
 }
 
-// Even selecting this entrypoint cannot activate via environment configuration.
+// Selecting this entrypoint requires a separate reviewed rollout.
 export default createStagingDashboard();

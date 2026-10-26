@@ -1,5 +1,12 @@
 # Task 12: independent email OTP Owner foundation
 
+> Updated 2026-10-26: the additional custom MFA policy attestation and separate
+> approval adapter requirements below are superseded by the approved
+> [Cloudflare MFA reliance and browser confirmation flow](TASK12_FIRST_OWNER_ENROLLMENT.md).
+> Cloudflare MFA remains configured; the source-only dashboard uses signed
+> Access OTP identity and live D1. Historical implementation details follow.
+
+
 Development only, OFFLINE verified. No automated live OTP Owner identity proof or
 production acceptance is established. MF1–MF6
 in [Phase 2](TASK12_PHASE2_IMPLEMENTATION.md) remain binding. This supplement

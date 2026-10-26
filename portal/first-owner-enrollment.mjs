@@ -21,12 +21,11 @@ const hash=async value=>b64(await crypto.subtle.digest('SHA-256',encoder.encode(
 
 // All dependencies are trusted server source injections, never browser/env proof.
 // The key must be a reviewed shared HMAC SHA-256 CryptoKey, separate from Access.
-// No default key, recipient, policy verifier or approval verifier is provided.
+// No default key or approved recipient is provided.
 export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
  const enabled=confirmationKey?.type==='secret' && confirmationKey.algorithm?.name==='HMAC' &&
   confirmationKey.algorithm?.hash?.name==='SHA-256' && confirmationKey.algorithm?.length>=256 &&
-  confirmationKey.usages.includes('sign') && confirmationKey.usages.includes('verify') &&
-  typeof options.verifyPolicy==='function' && typeof options.verifyOwnerApproval==='function';
+  confirmationKey.usages.includes('sign') && confirmationKey.usages.includes('verify');
  const bootstrap=createFirstOwnerBootstrap({...options,mode:'staging-enrollment-source'});
  const now=options.now??(()=>Date.now());
  const seconds=()=>{const at=Math.floor(now()/1000);need(Number.isSafeInteger(at)&&at>=0);return at;};
@@ -41,7 +40,7 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
    const url=new URL(request.url);
    need(url.pathname===enrollmentPath && !url.search && !url.hash);
    need(request.method==='GET' || request.method==='POST');
-   // Reuse the exact OTP, target and independently verified evidence contracts.
+   // Reuse the exact signed OTP, approved target and fresh-session checks.
    const internal=new Request(new URL('/',url),{method:'POST',headers:request.headers});
    if(request.method==='GET') {
     need(!request.headers.has('Sec-Fetch-Site') || ['same-origin','none'].includes(request.headers.get('Sec-Fetch-Site')));
@@ -50,7 +49,7 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
     const secret=b64(crypto.getRandomValues(new Uint8Array(32)));
     const ticket=await sign({context:plan.confirmationDigest,cookie:await hash(secret),at,exp:at+300});
     need(seconds()<at+300);
-    return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. This confirmation does not establish independent MFA or replace the separate Owner approval.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
+    return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. Cloudflare Access manages MFA. Clicking confirm approves this Owner enrollment.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
    }
    // A top-level, user-initiated browser form POST, never GET or an API fetch.
    need(request.headers.get('Origin')===env.APP_ORIGIN && request.headers.get('Sec-Fetch-Site')==='same-origin' &&
@@ -77,7 +76,8 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
    const plan=await bootstrap(internal,env,ctx);
    need(plan.confirmationDigest===proof.context && seconds()<proof.exp);
    committing=true;
-   await bootstrap(internal,env,ctx,{commit:true,expectedConfirmationDigest:proof.context,confirmationExpiresAt:proof.exp});
+   await bootstrap(internal,env,ctx,{commit:true,expectedConfirmationDigest:proof.context,confirmationExpiresAt:proof.exp,
+    browserTicketDigest:[...new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(ticket)))].map(b=>b.toString(16).padStart(2,'0')).join('')});
    return page('<p>First Owner enrollment completed.</p>',200,cookie('',0));
   } catch {
    // Any commit error may be an ambiguous successful write. Never auto-retry.

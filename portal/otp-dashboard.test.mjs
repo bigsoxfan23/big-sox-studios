@@ -5,15 +5,11 @@ import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
 import {createAuthenticator} from './access.mjs';
 import {createOtpAuthenticator} from './otp-identity.mjs';
 import {createMemberDashboard} from './member-dashboard.mjs';
-import disabled from './member-dashboard.mjs';
 import {fixture,epoch,envConfig,token,request,certFetch,jwk,applySchema} from './test-support.mjs';
 
 const config={...envConfig,OTP_CUSTOM_HOSTS:['members.example.test']};
 const ctx=(email='person@example.test',type='onetimepin',aud=config.ACCESS_AUDIENCE)=>({access:{aud,getIdentity:async()=>({email,idp:{type}})}});
-const policy=(changes={})=>({issuer:config.ACCESS_ISSUER,audience:config.ACCESS_AUDIENCE,origin:config.APP_ORIGIN,
- source:'cloudflare-effective-policy-readback',independentMfaRequired:true,otpIdentityShapeVerified:true,
- policyDigest:'a'.repeat(64),ownerApprovalAuditId:'synthetic-approval',ownerApprovalCount:1,verifiedAt:epoch,expiresAt:epoch+300,...changes});
-function options(extra={}) {return {now:()=>epoch*1000,verifyAccess:createAuthenticator({fetcher:certFetch,now:()=>epoch*1000}),verifyActivation:async()=>policy(),...extra};}
+function options(extra={}) {return {now:()=>epoch*1000,verifyAccess:createAuthenticator({fetcher:certFetch,now:()=>epoch*1000}),...extra};}
 async function seed(db,id='person',role='owner',provider='otp',subject='person@example.test') {
  await db.prepare('INSERT INTO members VALUES(?,?,?,\'active\',?)').bind(id,subject,role,epoch).run();
  await db.prepare('INSERT INTO identities VALUES(?,?,?,?)').bind(provider,subject,id,epoch).run();
@@ -81,19 +77,6 @@ test('OFFLINE OTP: trusted runtime type, exact JWT email/audience and safe user 
  }),config,context));
 });
 
-test('OFFLINE OTP: unavailable MFA/readback/one audited approval/field proof prevents activation before D1',async()=>{
- const db={prepare(){throw Error('D1 must not be reached');}};
- const env={...config,DB:db,ENABLE:true,OTP_ENABLED:true,MFA_VERIFIED:true};
- assert.equal((await disabled.fetch(request(),env,ctx())).status,503);
- const changes=[{independentMfaRequired:false},{source:'config-inference'},{ownerApprovalCount:0},{ownerApprovalCount:2},
-  {ownerApprovalAuditId:''},{ownerApprovalAuditId:undefined},{policyDigest:''},{otpIdentityShapeVerified:false},{expiresAt:epoch},
-  {verifiedAt:epoch+1},{expiresAt:epoch+301},{audience:'owner-test'},{origin:'https://other.example.test'},{issuer:'https://wrong.cloudflareaccess.com'}];
- for (const change of changes) {
-  const app=createMemberDashboard(options({verifyActivation:async()=>policy(change)}));
-  assert.equal((await app.fetch(request(),env,ctx())).status,503);
- }
-});
-
 test('OFFLINE OTP: custom host only; disabled flags, unknown routes, methods, errors and PII stay private',async t=>{
  const {db}=await fixture(t); await seed(db,'person','owner'); const env={...config,DB:db};
  const app=createMemberDashboard(options());
@@ -126,8 +109,7 @@ test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real e
  const entry=`import {createMemberDashboard} from './portal/member-dashboard.mjs';
  import {createAuthenticator} from './portal/access.mjs';
  const app=createMemberDashboard({now:()=>${epoch}000,
- verifyAccess:createAuthenticator({now:()=>${epoch}000,fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})}),
- verifyActivation:async()=>(${JSON.stringify(policy())})});
+ verifyAccess:createAuthenticator({now:()=>${epoch}000,fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})})});
  export default {fetch(request,env){const headers=new Headers(request.headers);headers.set('Host',new URL(request.url).host);
  return app.fetch(new Request(request,{headers}),{...env,...${JSON.stringify(config)}},
  {access:{aud:'members-test',getIdentity:async()=>({email:'person@example.test',idp:{type:'onetimepin'}})}});}};`;
@@ -141,51 +123,18 @@ test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real e
  assert.equal((await get('/')).status,403);
 });
 
-// Synthetic clock advances happen across actual awaits, without wall-clock sleeps.
-for (const scenario of [
- {name:'verifier wait expires evidence',verifierAt:epoch+10,proof:{expiresAt:epoch+10},status:503},
- {name:'fresh readback created after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+10,expiresAt:epoch+310},status:200},
- {name:'future-dated readback after verifier wait',verifierAt:epoch+10,proof:{verifiedAt:epoch+11},status:503},
- {name:'D1 wait reaches evidence expiry',d1At:epoch+300,status:403},
- {name:'D1 wait passes evidence expiry',d1At:epoch+301,status:403},
- {name:'fresh evidence after D1 wait',d1At:epoch+299,status:200},
- {name:'authentication wait expires evidence',identityAt:epoch+300,status:403},
- {name:'D1 wait expires signed JWT',d1At:epoch+10,jwtExpiry:epoch+10,status:403},
- {name:'callback evidence mutation cannot extend retained expiry',d1At:epoch+300,mutate:true,status:403},
- {name:'service route rechecks expiry after D1',d1At:epoch+300,path:'/services/jellyfin',status:403},
- {name:'HEAD rechecks expiry after D1',d1At:epoch+300,method:'HEAD',status:403},
- {name:'policy digest requires exact 64 hex characters',proof:{policyDigest:'a'.repeat(64)+'\n'},status:503}
-]) test(`OFFLINE OTP freshness: ${scenario.name}`,async t=>{
- const {db}=await fixture(t); await seed(db);
- await db.prepare("INSERT INTO service_grants VALUES('person','jellyfin')").run();
- let at=epoch,reads=0;
- const now=()=>at*1000,proof=policy(scenario.proof);
- const app=createMemberDashboard(options({now,
-  verifyAccess:createAuthenticator({fetcher:certFetch,now}),
-  verifyActivation:async()=>{
-   await Promise.resolve();
-   at=scenario.verifierAt??at;
-   return proof;
-  }
- }));
- const delayedDb={prepare(sql){return {bind(...args){return {async first(){
-  const row=await db.prepare(sql).bind(...args).first();
-  reads++;
-  at=scenario.d1At??at;
-  if (scenario.mutate) proof.expiresAt=epoch+600;
-  return row;
- } };} };} };
- const context=ctx();
- context.access.getIdentity=async()=>{
-  await Promise.resolve();
-  at=scenario.identityAt??at;
+// Signed session expiry must be rechecked across asynchronous identity and D1 reads.
+for (const stage of ['identity','database']) test(`OFFLINE OTP: ${stage} wait expires signed JWT`,async t=>{
+ const {db}=await fixture(t);await seed(db);let at=epoch;
+ const now=()=>at*1000;
+ const app=createMemberDashboard(options({now,verifyAccess:createAuthenticator({fetcher:certFetch,now})}));
+ const delayed={prepare(sql){return {bind(...args){return {async first(){
+  const row=await db.prepare(sql).bind(...args).first();at=epoch+10;return row;
+ }};}};}};
+ const context=ctx();context.access.getIdentity=async()=>{
+  if(stage==='identity') at=epoch+10;
   return {email:'person@example.test',idp:{type:'onetimepin'}};
  };
- const req=new Request(request(token({exp:scenario.jwtExpiry??epoch+700000}),scenario.path??'/'),{method:scenario.method??'GET'});
- const response=await app.fetch(req,{...config,DB:delayedDb},context);
- assert.equal(response.status,scenario.status);
- assert.equal(reads,scenario.status===503?0:1);
- const body=await response.text();
- if (scenario.status!==200) assert.doesNotMatch(body,/Your membership|<dd>Owner<\/dd>|Services coming soon/);
- assert.match(response.headers.get('Cache-Control'),/no-store/);
+ const response=await app.fetch(request(token({exp:epoch+10})),{...config,DB:stage==='database'?delayed:db},context);
+ assert.equal(response.status,403);assert.match(response.headers.get('Cache-Control'),/no-store/);
 });

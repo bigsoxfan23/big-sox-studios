@@ -1,18 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import disabled,{createStagingDashboard,dashboardConfig} from './dashboard-assembly.mjs';
+import {createStagingDashboard,dashboardConfig} from './dashboard-assembly.mjs';
 import staging from './worker.mjs';
 import {fixture,epoch,envConfig,token,request,certFetch} from '../portal/test-support.mjs';
 
 const config={...envConfig,...dashboardConfig};
 const context=(changes={})=>({access:{aud:config.ACCESS_AUDIENCE,getIdentity:async()=>({email:'person@example.test',idp:{type:'onetimepin'},...changes})}});
 const signed=(path='/app',changes={},origin=config.APP_ORIGIN)=>request(token({iss:config.ACCESS_ISSUER,aud:[config.ACCESS_AUDIENCE],...changes}),path,origin);
-const proof=(changes={})=>({source:'cloudflare-effective-policy-readback',issuer:config.ACCESS_ISSUER,
- audience:config.ACCESS_AUDIENCE,origin:config.APP_ORIGIN,independentMfaRequired:true,otpIdentityShapeVerified:true,
- policyDigest:'a'.repeat(64),ownerApprovalAuditId:'synthetic-only',ownerApprovalCount:1,
- verifiedAt:epoch,expiresAt:epoch+300,...changes});
-const assembly=(extra={})=>createStagingDashboard({fetcher:certFetch,now:()=>epoch*1000,verifyActivation:async()=>proof(),...extra});
+const assembly=(extra={})=>createStagingDashboard({fetcher:certFetch,now:()=>epoch*1000,...extra});
 async function seed(db){
  await db.prepare("INSERT INTO members VALUES('person','person@example.test','owner','active',?)").bind(epoch).run();
  await db.prepare("INSERT INTO identities VALUES('otp','person@example.test','person',?)").bind(epoch).run();
@@ -27,18 +23,9 @@ function privateResponse(response){
  assert.match(response.headers.get('Content-Security-Policy'),/default-src 'none'/);
 }
 
-test('assembly and original default cannot activate from bindings, flags or fake evidence',async()=>{
- let reads=0,identities=0;
- const env={...config,DB:{prepare(){reads++;throw Error('must not read');}},
-  ENABLE_PORTAL:true,PORTAL_MODE:'active',MFA_VERIFIED:true,verifyActivation:async()=>proof(),ACTIVATION_EVIDENCE:proof()};
- const ctx={access:{aud:config.ACCESS_AUDIENCE,getIdentity:async()=>{identities++;throw Error('must not read');}}};
- for(const app of [staging,disabled,createStagingDashboard({fetcher:certFetch,now:()=>epoch*1000})]){
-  for(const path of ['/app','/app/api/owner','/app/services/jellyfin']){
-   const response=await app.fetch(signed(path),env,ctx);
-   assert.equal(response.status,503);assert.match(response.headers.get('Cache-Control'),/no-store/);
-  }
- }
- assert.equal(reads,0);assert.equal(identities,0);
+test('original staging worker stays safe-off despite bindings and flags',async()=>{
+ const response=await staging.fetch(signed(),{...config,ENABLE_PORTAL:true,PORTAL_MODE:'active'},context());
+ assert.equal(response.status,503);
 });
 
 test('assembly reuses signed OTP + D1 authorization with no login writes, live roles/status/grants',async t=>{
@@ -95,17 +82,15 @@ test('assembly pins host/issuer/audience and denies absent, mismatched or non-OT
  assert.deepEqual(await snapshot(db),before);
 });
 
-test('assembly denies missing D1, unbound identity, failed/stale authorization evidence',async t=>{
+test('assembly denies missing D1, unbound identity and D1 errors',async t=>{
  const {db}=await fixture(t);
  const env={...config,DB:db};
  assert.equal((await assembly().fetch(signed(),env,context())).status,403);
  await seed(db);
  assert.equal((await assembly().fetch(signed(),config,context())).status,403);
- for(const verifyActivation of [undefined,async()=>{throw Error('private');},async()=>proof({expiresAt:epoch}),async()=>proof({independentMfaRequired:false})]){
-  const response=await assembly({verifyActivation}).fetch(signed(),env,context());
-  assert.ok([403,503].includes(response.status));privateResponse(response);
-  assert.doesNotMatch(await response.text(),/private|person@example|<dd>Owner/);
- }
+ const response=await assembly().fetch(signed(),{...env,DB:{prepare(){throw Error('private');}}},context());
+ assert.equal(response.status,403);privateResponse(response);
+ assert.doesNotMatch(await response.text(),/private|person@example|<dd>Owner/);
 });
 
 test('staging configs retain inert entrypoint; D1 example is existing Phase2 only',()=>{
