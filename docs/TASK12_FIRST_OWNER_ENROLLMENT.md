@@ -107,3 +107,5 @@ Unauthorized, direct service, wrong-provider, stale-session and revoked tests
 are mandatory before a production rollout.
 
 No deployment, Owner account insertion or browser acceptance is claimed here.
+
+**Configuration verifier correction (Oct 26, 2026):** The signed-JWT verifier also requires the *separate* `OWNER_ACCESS_AUDIENCE` value, distinct from the Members application. The candidate config pins the exact non-secret audience from the existing deployed Owner Launchpad `wrangler.production.toml`. Do not substitute the Members audience or an arbitrary placeholder. A focused release-config regression test compares the two files.

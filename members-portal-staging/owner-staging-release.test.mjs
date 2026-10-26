@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {createOwnerStagingRelease,phase2DatabaseId} from './owner-staging-release.mjs';
 import {dashboardConfig} from './dashboard-assembly.mjs';
@@ -90,4 +91,15 @@ test('one release instance reuses Access signing keys but checks current D1 role
  await db.prepare("UPDATE members SET status='revoked'").run();
  assert.equal((await candidate.fetch(session('/app'),env,context())).status,403);
  assert.equal(keyFetches,1);
+});
+
+test('release config pins existing separate Owner Access audience and exact Phase2 D1',()=>{
+ const settings=readFileSync(new URL('./wrangler.owner-release.toml',import.meta.url),'utf8');
+ const ownerConfig=readFileSync(new URL('../owner-launchpad/wrangler.production.toml',import.meta.url),'utf8');
+ const value=/^ACCESS_AUDIENCE = "([^"]+)"$/m.exec(ownerConfig)?.[1];
+ assert.ok(value);assert.notEqual(value,dashboardConfig.ACCESS_AUDIENCE);
+ assert.match(settings,new RegExp('^OWNER_ACCESS_AUDIENCE = "'+value+'"$', 'm'));
+ assert.match(settings,/binding = "DB"/);
+ assert.match(settings,new RegExp('database_id = "'+phase2DatabaseId+'"'));
+ assert.doesNotMatch(settings,/bss-membership-requests|migrations_dir/);
 });

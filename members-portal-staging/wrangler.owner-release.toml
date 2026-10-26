@@ -11,6 +11,8 @@ routes = [{ pattern = "members-staging.bigsoxstudios.com", custom_domain = true 
 [vars]
 PORTAL_MODE = "staging-enrollment-source"
 BOOTSTRAP_DATABASE_ID = "43a8a15b-e195-4712-9198-1dcc9f0152af"
+# Pinned separate Owner Launchpad app audience (not the Members staging audience).
+OWNER_ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
 
 [[d1_databases]]
 binding = "DB"
