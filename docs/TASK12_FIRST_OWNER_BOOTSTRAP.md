@@ -1,8 +1,11 @@
 # Disconnected first-Owner bootstrap source
 
-`portal/first-owner-bootstrap.mjs` is an offline factory, with no default export,
-HTTP route, CLI, deployment configuration, or production evidence adapter. No live
-entrypoint imports it. Existing login, invitations, linking, service grants, and
+`portal/first-owner-bootstrap.mjs` is a source-only factory, with no default export,
+CLI, deployment configuration, or production evidence adapter. The default mode
+remains offline. A separately disabled source-only browser confirmation wrapper
+now uses its explicit `staging-enrollment-source` mode; see
+[the enrollment page and approval gates](TASK12_FIRST_OWNER_ENROLLMENT.md).
+No deployed entrypoint imports it. Existing login, invitations, linking, service grants, and
 revocation behavior are unchanged. Development authorization does not approve
 production bootstrap, migration, integration, or deployment.
 
