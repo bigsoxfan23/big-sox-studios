@@ -1,9 +1,9 @@
 // Big Sox Studios Members Portal, staging only.
 // The two Access applications have distinct audiences. Never deploy this file
 // to the public website Worker or use an unprotected preview route.
-const ACCESS_ISSUER = 'https://old-hill-995d.cloudflareaccess.com';
+export const ACCESS_ISSUER = 'https://old-hill-995d.cloudflareaccess.com';
 const ACCESS_CERTS = `${ACCESS_ISSUER}/cdn-cgi/access/certs`;
-const AUDIENCES = Object.freeze({
+export const AUDIENCES = Object.freeze({
   'members-staging.bigsoxstudios.com': 'f3ad2eeca58fc7e607b96e47b28672b78a920d34474f97a15e56a6235fc1cdbe',
   'big-sox-studios-members-staging.fridman-greg.workers.dev': 'f4057b183ae0b354ff3e9f161839fbf516e54c33c7714db645c3d5ac950969df',
 });

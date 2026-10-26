@@ -1,6 +1,6 @@
 # Task #12 — Member dashboard staging slice (source-only)
 
-**Status: implemented offline; not deployed or activated.** The existing approved Phase 1 staging homepage (`/`) and protected owner diagnostic (`/owner/identity-check`) remain unchanged. Source now reserves the private `/app` path for the existing D1-backed `createMemberDashboard` with `mountPath:'/app'`.
+**Status: implemented offline; not deployed or activated.** The existing approved Phase 1 staging homepage (`/`) and protected owner diagnostic (`/owner/identity-check`) remain unchanged. Source reserves the private `/app` path for the existing D1-backed `createMemberDashboard` with `mountPath:'/app'`. `members-portal-staging/dashboard-assembly.mjs` now supplies a source-only composition pinned to the existing custom host, issuer and members audience. Its default also lacks an activation verifier. The documented `wrangler.dashboard.example.toml` keeps the disabled entrypoint and placeholder metadata for the already-existing Phase2 D1; it is not a release config or permission to create a database.
 
 The deployed default `createStagingWorker()` has no member application adapter. It responds 503 to `/app` while prohibiting direct workers.dev, unrecognized hosts and insecure protocols; environmental feature flags cannot activate the route. No invitation issue/claim, Owner bootstrap or D1 write routes are exposed.
 

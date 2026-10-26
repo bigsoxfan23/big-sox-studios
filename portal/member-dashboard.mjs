@@ -65,5 +65,5 @@ export function createMemberDashboard({verifyAccess,verifyActivation,now=()=>Dat
   } catch { return respond(403,'Access unavailable','Access could not be verified.'); }
  }};
 }
-// No entrypoint imports this module. This export cannot activate with env flags.
+// This default has no server activation verifier and cannot activate with env flags.
 export default createMemberDashboard();
