@@ -67,3 +67,57 @@ wrangler versions upload --config members-portal-staging/wrangler.staging.toml -
 ```
 
 The tests use synthetic signed identities and mocked signing keys only. The homepage fixture hash was calculated from the exact upstream PR #15 renderer using the synthetic email. No live identity or token is needed for unit tests.
+
+## Source-only dashboard assembly
+
+`dashboard-assembly.mjs` composes the existing `createMemberDashboard` at `/app`
+with `createStagingWorker`. It reuses the existing RS256 OTP authenticator,
+`ctx.access` identity checks, exact OTP email subject, live D1 role/status and
+service-grant checks. Issuer, exclusive members audience and custom origin are
+pinned to the Phase 1 source constants. Environment values cannot retarget them.
+The root renderer and `/owner/identity-check` still use the original handler;
+this assembly does not interpret diagnostic booleans as authorization evidence.
+
+Both the existing `worker.mjs` default and the assembly default remain disabled
+for `/app`. No environment flag, D1 binding, diagnostic owner allowlist or
+browser-supplied evidence enables it. The assembly factory accepts a trusted
+server `verifyActivation` dependency only in source. A future reviewed composition
+must implement the existing dashboard evidence contract, including authentic
+independent effective MFA policy readback and one audited owner approval bound
+to the exact target and policy. The structural checks do not establish that
+proof by themselves. No real verifier or activation entrypoint is shipped here.
+Tests inject synthetic evidence only.
+
+`wrangler.dashboard.example.toml` documents the proposed `DB` binding for the
+**already-existing dedicated Task12 Phase2 D1**. Its name and UUID deliberately
+remain placeholders: this repository contains no approved live Phase2 binding
+metadata. Obtain and independently review those values from the existing
+resource inventory; do not create a database or infer its identity from a name.
+Never substitute Task11's `bss-membership-requests`/`MEMBERSHIP_DB`, the public
+membership request database, or another service's D1. The example retains
+`main = "worker.mjs"`; adding the binding does not activate the dashboard. The
+actual staging config remains unchanged and has no D1 binding.
+
+Before any separately authorized release, review the exact existing Phase2
+binding and schema readiness, server verifier implementation and evidence,
+source revision, and the future entrypoint wiring. Existing membership and OTP
+identity bindings must already be independently approved. No login, dashboard,
+or configuration path provisions a member or Owner, applies migrations or
+writes D1. Missing D1, missing bindings, wrong provider, revoked status or stale
+proof deny access. Owner status never substitutes for an explicit service grant;
+even granted services return unavailable because integrations are not connected.
+See [the staging slice handoff](../docs/TASK12_OWNER_STAGING_SLICE.md) for separate
+bootstrap/release prerequisites. This work authorizes no live changes.
+
+Local focused verification (Node 24, existing local dependencies):
+
+```sh
+node --test --experimental-test-isolation=none members-portal-staging/*.test.mjs portal/*.test.mjs
+npm run lint
+```
+
+The assembly tests use signed synthetic JWTs and ephemeral local D1. They cover
+inert defaults, exact host/audience/issuer, runtime OTP mismatch, zero login
+writes, fresh roles/status/grants, direct service denial, HEAD/method handling,
+private responses and missing/failed/stale evidence. The original staging tests
+retain the Phase 1 rendered-byte fixture and owner identity-check coverage.
