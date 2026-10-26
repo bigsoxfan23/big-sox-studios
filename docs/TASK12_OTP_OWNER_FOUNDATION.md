@@ -141,8 +141,10 @@ active member). The help states Access logout affects sessions across apps and
 does not log out the email provider. Service-native session revocation remains
 the existing separate MF4 obligation.
 
-## One-time Owner bootstrap procedure/design — disabled
+## One-time Owner bootstrap procedure/design — production disabled
 
+Disconnected offline factory source, migration, and negative tests now exist;
+see [first-Owner bootstrap source and production approval gate](TASK12_FIRST_OWNER_BOOTSTRAP.md).
 No executable write CLI or Owner SQL seed is shipped. Available evidence cannot
 prove the first real OTP identity or independent MFA policy; email-string-only
 bootstrap would violate the contract. Production D1 writes remain prohibited.
@@ -176,9 +178,10 @@ A future separately reviewed one-time tool must satisfy all of the following:
    a fresh active Owner member, exact OTP binding and immutable bootstrap audit
    event with approval/proof/policy digests, never raw proof. Use a separately
    reviewed one-time consumed-nonce/receipt constraint and compare read-state in
-   the same transaction. Existing schema alone has no bootstrap nonce table;
-   do not pretend it provides replay protection. Concurrent or repeated bootstrap
-   must fail closed, with no partial rows, no second Owner, no email-based upsert.
+   the same transaction. The base schema alone has no bootstrap nonce table;
+   the disconnected migration supplies a permanent singleton receipt. Concurrent
+   or repeated bootstrap must fail closed, with no partial rows, no second Owner,
+   no email-based upsert.
 5. Read back exact intended binding/role/status and sanitized audit evidence;
    disable/remove write capability after success. Readback failure is an incident
    requiring inspection, never blind retry. Test rollback, duplicate/concurrent
