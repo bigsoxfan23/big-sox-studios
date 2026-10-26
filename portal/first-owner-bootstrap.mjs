@@ -1,4 +1,4 @@
-// Disconnected OFFLINE factory only: no entrypoint, CLI, route or live verifier.
+// Source-only factory: no live verifier or deployed entrypoint.
 import {createOtpAuthenticator} from './otp-identity.mjs';
 
 const need=value=>{if(!value) throw Error('bootstrap denied');};
@@ -10,8 +10,8 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,verifyPolicy
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  // Snapshot configuration so a callback cannot change the approved target.
  const intended=Object.freeze({...target});
- return async function bootstrap(request,env,ctx,{commit=false}={}) {
-  need(mode==='offline-test' && env?.PORTAL_MODE==='offline-test' && env.DB);
+ return async function bootstrap(request,env,ctx,{commit=false,expectedConfirmationDigest,confirmationExpiresAt}={}) {
+  need(['offline-test','staging-enrollment-source'].includes(mode) && env?.PORTAL_MODE===mode && env.DB);
   need(typeof verifyPolicy==='function' && typeof verifyOwnerApproval==='function' && verifyPolicy!==verifyOwnerApproval);
   need(intended.role==='owner' && typeof intended.recipient==='string' && id(intended.databaseId) &&
    id(intended.revision) && typeof intended.nonce==='string' && /^[A-Za-z0-9_-]{32,128}$/.test(intended.nonce));
@@ -32,11 +32,14 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,verifyPolicy
   // Neither callback may accept browser/env booleans or sign the challenge on demand.
   const policy=Object.freeze({...await verifyPolicy(challenge)});
   const approval=Object.freeze({...await verifyOwnerApproval(Object.freeze({...challenge,policyDigest:policy.policyDigest}))});
+  const confirmationDigest=await digest(JSON.stringify([contextDigest,policy.policyDigest,approval.approvalDigest,approval.auditId]));
   const time=()=>{const at=Math.floor(now()/1000);need(Number.isSafeInteger(at) && at>=0);return at;};
   const fresh=(proof,at)=>Number.isSafeInteger(proof.verifiedAt) && proof.verifiedAt>=0 && proof.verifiedAt<=at &&
    Number.isSafeInteger(proof.expiresAt) && proof.expiresAt>at && proof.expiresAt<=proof.verifiedAt+300;
   const valid=()=>{
    const at=time();
+   if (expectedConfirmationDigest!==undefined) need(hex(expectedConfirmationDigest) && expectedConfirmationDigest===confirmationDigest);
+   if (confirmationExpiresAt!==undefined) need(Number.isSafeInteger(confirmationExpiresAt) && confirmationExpiresAt>at);
    need(identity.expiresAt>at && fresh(policy,at) && fresh(approval,at));
    need(policy.source==='cloudflare-effective-policy-readback' && policy.independentMfaRequired===true &&
     policy.enforcementVerified===true && policy.otpIdentityShapeVerified===true && policy.contextDigest===contextDigest && hex(policy.policyDigest));
@@ -54,7 +57,7 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,verifyPolicy
    (SELECT count(*) FROM first_owner_bootstrap) AS records`).first();
   need(state?.records===0);
   const at=valid(); // recheck both attestations and the same JWT after the D1 await
-  if (!commit) return Object.freeze({ready:true,committed:false,contextDigest});
+  if (!commit) return Object.freeze({ready:true,committed:false,contextDigest,confirmationDigest});
   const memberId=crypto.randomUUID();
   // One statement + triggers: receipt, exact binding, active Owner and audit all
   // commit or roll back together. No pre-existing person can be promoted.

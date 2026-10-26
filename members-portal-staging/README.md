@@ -1,5 +1,13 @@
 # Big Sox Studios Members Portal — staging Worker
 
+The new [first Owner confirmation page](../docs/TASK12_FIRST_OWNER_ENROLLMENT.md)
+is a disabled source-only composition in `owner-enrollment-assembly.mjs` at
+`/owner/enroll`. No Wrangler config selects it. It reuses verified OTP identity
+and the atomic singleton bootstrap, requires a signed GET form followed by an
+explicit browser confirmation POST, and still requires independently verified
+policy and Owner approval. The linked document records all remaining approval,
+database, key custody, browser acceptance and deployment prerequisites.
+
 This directory contains the Phase 1 dashboard for the existing, isolated Cloudflare Worker `big-sox-studios-members-staging`. It is independent of the production Astro website and `big-sox-studios` Worker. Do not add this directory to the production website build or change the root `wrangler.toml` to deploy it.
 
 ## Current deployment topology
