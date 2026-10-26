@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
 import {createFirstOwnerEnrollment,enrollmentPath} from './first-owner-enrollment.mjs';
 import inertAssembly,{createStagingOwnerEnrollment} from '../members-portal-staging/owner-enrollment-assembly.mjs';
@@ -18,9 +19,8 @@ async function setup(t) {
  await applySchema(db);await applySchema(db,'./migrations/0001-first-owner-bootstrap.sql');
  let at=epoch;
  const options={target,now:()=>at*1000,confirmationKey:await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256',length:256},false,['sign','verify']),
-  verifyAccess:createAuthenticator({fetcher:certFetch,now:()=>at*1000}),
-  verifyPolicy:async c=>({source:'cloudflare-effective-policy-readback',contextDigest:c.contextDigest,policyDigest:'a'.repeat(64),independentMfaRequired:true,enforcementVerified:true,otpIdentityShapeVerified:true,verifiedAt:epoch,expiresAt:epoch+300}),
-  verifyOwnerApproval:async c=>({source:'independent-explicit-owner-approval',decision:'approve-first-owner',approvalCount:1,contextDigest:c.contextDigest,policyDigest:c.policyDigest,approvalDigest:'b'.repeat(64),auditId:'synthetic-approval',verifiedAt:epoch,expiresAt:epoch+300})};
+  verifyAccess:createAuthenticator({fetcher:certFetch,now:()=>at*1000})};
+
  const env={...envConfig,PORTAL_MODE:'staging-enrollment-source',OTP_CUSTOM_HOSTS:['members.example.test'],BOOTSTRAP_DATABASE_ID:target.databaseId,DB:db};
  const app=createFirstOwnerEnrollment(options);
  const get=(jwt=token(),path=enrollmentPath,extra={})=>request(jwt,path,env.APP_ORIGIN,extra);
@@ -42,6 +42,11 @@ test('enrollment GET is read-only; explicit browser POST commits one atomic Owne
  assert.match(form.response.headers.get('Content-Security-Policy'),/form-action 'self'/);
  const result=await f.fetch(f.post(form));assert.equal(result.status,200);assert.match(await result.text(),/completed/);
  const state=await snapshot(f.db);for(const index of [0,1,2,9]) assert.equal(state[index].length,1);
+ const digest=value=>createHash('sha256').update(value).digest('hex');
+ const receipt=state[9][0],browserTicketDigest=digest(form.ticket);
+ assert.equal(receipt.policy_digest,digest(JSON.stringify({source:'cloudflare-managed-mfa-reliance',contextDigest:receipt.context_digest})));
+ assert.equal(receipt.approval_digest,digest(JSON.stringify({source:'browser-confirmation',decision:'confirm-first-owner',contextDigest:receipt.context_digest,policyDigest:receipt.policy_digest,browserTicketDigest})));
+ assert.equal(receipt.approval_audit_id,`browser-${browserTicketDigest}`);
  assert.equal(state[0][0].role,'owner');assert.equal(state[1][0].provider,'otp');assert.equal(state[1][0].subject,target.recipient);
  const restarted=createFirstOwnerEnrollment(f.options);
  assert.equal((await restarted.fetch(f.post(form),f.env,context())).status,403);
@@ -63,18 +68,15 @@ test('enrollment denies CSRF, API posts, malformed form, missing GET, altered co
  assert.deepEqual(await snapshot(f.db),before);
 });
 
-test('enrollment binds confirmation to session, exact recipient, target, policy, approval, expiry and trusted runtime OTP',async t=>{
+test('enrollment binds confirmation to session, exact recipient, target, expiry and trusted runtime OTP',async t=>{
  const f=await setup(t),form=await f.start(),before=await snapshot(f.db);
- for(const jwt of [token({sub:'another-session'}),token({email:'Person@example.test'}),token({aud:['members-test','owner-test']}),token({iss:'https://wrong.cloudflareaccess.com'}),token({exp:epoch}),token().replace(/.$/,'!')])
+ for(const jwt of [token({sub:'another-session'}),token({email:'Person@example.test'}),token({aud:['members-test','owner-test']}),token({iss:'https://wrong.cloudflareaccess.com'}),token({exp:epoch}),token({iat:epoch-300}),token({iat:epoch+1}),token().replace(/.$/,'!')])
   assert.equal((await f.fetch(f.post(form,{},jwt))).status,403);
  for(const ctx of [{},context(target.recipient,'google'),context('other@example.test'),{access:{aud:'wrong',getIdentity:async()=>{throw Error('no');}}}])
   assert.equal((await f.fetch(f.post(form),ctx)).status,403);
  for(const changes of [
   {target:{...target,nonce:'z'.repeat(32)}},{target:{...target,revision:'different'}},
-  {verifyPolicy:async c=>({...await f.options.verifyPolicy(c),policyDigest:'c'.repeat(64)})},
-  {verifyOwnerApproval:async c=>({...await f.options.verifyOwnerApproval(c),approvalDigest:'d'.repeat(64)})},
-  {verifyPolicy:async c=>({...await f.options.verifyPolicy(c),independentMfaRequired:false})},
-  {verifyOwnerApproval:async c=>({...await f.options.verifyOwnerApproval(c),expiresAt:epoch})}
+  {target:undefined},{target:{...target,recipient:undefined}},{target:{...target,databaseId:'wrong'}}
  ]) assert.equal((await createFirstOwnerEnrollment({...f.options,...changes}).fetch(f.post(form),f.env,context())).status,403);
  for(const bindings of [{...f.env,DB:undefined},{...f.env,BOOTSTRAP_DATABASE_ID:'wrong'}]) assert.equal((await f.fetch(f.post(form),context(),bindings)).status,403);
  for(const url of ['https://evil.test/owner/enroll','http://members.example.test/owner/enroll','https://members.example.test:444/owner/enroll','https://preview.workers.dev/owner/enroll'])
@@ -85,7 +87,7 @@ test('enrollment binds confirmation to session, exact recipient, target, policy,
 
 test('source and assembly defaults remain disabled regardless of flags/bindings',async t=>{
  const f=await setup(t),before=await snapshot(f.db);
- for(const app of [createFirstOwnerEnrollment(),createFirstOwnerEnrollment({...f.options,confirmationKey:undefined}),createFirstOwnerEnrollment({...f.options,verifyPolicy:undefined}),inertAssembly])
+ for(const app of [createFirstOwnerEnrollment(),createFirstOwnerEnrollment({...f.options,confirmationKey:undefined}),createFirstOwnerEnrollment({...f.options,confirmationKey:{}}),inertAssembly])
   assert.equal((await app.fetch(f.get(),{...f.env,ENABLE_OWNER_ENROLLMENT:true},context())).status,404);
  assert.equal((await f.fetch(f.get(),context(),{...f.env,PORTAL_MODE:'production'})).status,404);
  assert.deepEqual(await snapshot(f.db),before);
@@ -100,7 +102,7 @@ test('competing browser confirmations have one winner; rollback and ambiguous re
  const state=await snapshot(f.db);for(const index of [0,1,2,9]) assert.equal(state[index].length,1);
 });
 
-test('confirmation is rechecked at commit after fresh evidence and D1 await; ambiguous success never offers retry',async t=>{
+test('confirmation is rechecked at commit after authentication and D1 await; ambiguous success never offers retry',async t=>{
  const f=await setup(t),form=await f.start(),before=await snapshot(f.db);
  let reads=0;
  const delayed={prepare(sql){const statement=f.db.prepare(sql);if(!sql.includes(' AS records')) return statement;return {async first(){const row=await statement.first();if(++reads===2) f.time(epoch+300);return row;}};}};
@@ -110,33 +112,34 @@ test('confirmation is rechecked at commit after fresh evidence and D1 await; amb
  assert.equal((await f.fetch(f.post(form))).status,403);assert.equal((await snapshot(f.db))[9].length,1);
 });
 
-test('commit refuses policy or approval changed after the POST preflight',async t=>{
- const f=await setup(t),before=await snapshot(f.db);
- for(const kind of ['policy','approval']) {
-  let calls=0;
-  const field=kind==='policy'?'verifyPolicy':'verifyOwnerApproval';
-  const app=createFirstOwnerEnrollment({...f.options,[field]:async c=>{
-   const evidence=await f.options[field](c);
-   return ++calls===3?{...evidence,[kind==='policy'?'policyDigest':'approvalDigest']:'c'.repeat(64)}:evidence;
-  }});
-  const get=await app.fetch(f.get(),f.env,context());
-  const form={cookie:get.headers.get('Set-Cookie').split(';')[0],ticket:(await get.text()).match(/name="ticket" value="([^"]+)"/)[1]};
-  assert.equal((await app.fetch(f.post(form),f.env,context())).status,503);
-  assert.deepEqual(await snapshot(f.db),before);
- }
-});
-
 test('staging source composition pins custom host/issuer/audience and requires deliberate server wiring',async t=>{
  const f=await setup(t),app=createStagingOwnerEnrollment({...f.options,fetcher:certFetch});
  const jwt=token({iss:dashboardConfig.ACCESS_ISSUER,aud:[dashboardConfig.ACCESS_AUDIENCE]});
  const ctx={access:{aud:dashboardConfig.ACCESS_AUDIENCE,getIdentity:context().access.getIdentity}};
  const req=new Request(dashboardConfig.APP_ORIGIN+enrollmentPath,{headers:{'Cf-Access-Jwt-Assertion':jwt}});
  const env={...f.env,APP_ORIGIN:'https://evil.test',ACCESS_ISSUER:'https://wrong.cloudflareaccess.com',ACCESS_AUDIENCE:'wrong'};
+ const login=()=>app.fetch(new Request(dashboardConfig.APP_ORIGIN+'/app',{headers:req.headers}),env,ctx);
+ const pristine=await snapshot(f.db);assert.equal((await login()).status,403);assert.deepEqual(await snapshot(f.db),pristine);
  const get=await app.fetch(req,env,ctx);assert.equal(get.status,200);
  const form={cookie:get.headers.get('Set-Cookie').split(';')[0],ticket:(await get.text()).match(/name="ticket" value="([^"]+)"/)[1]};
  const postHeaders=new Headers(f.post(form).headers);
  postHeaders.set('Cf-Access-Jwt-Assertion',jwt);postHeaders.set('Origin',dashboardConfig.APP_ORIGIN);
  const post=new Request(req,{method:'POST',headers:postHeaders,body:await f.post(form).text()});
  assert.equal((await app.fetch(post,env,ctx)).status,200);
+ const enrolled=await snapshot(f.db);assert.equal((await login()).status,200);assert.deepEqual(await snapshot(f.db),enrolled);
+ await f.db.prepare("UPDATE members SET role='member'").run();
+ assert.match(await (await login()).text(),/<dd>Member<\/dd>/);
+ await f.db.prepare("UPDATE members SET status='revoked'").run();
+ assert.equal((await login()).status,403);
  assert.equal((await app.fetch(f.get(),env,context())).status,403);
+});
+
+test('missing approved target/DB and wrong HMAC key deny without writes',async t=>{
+ const f=await setup(t),before=await snapshot(f.db),form=await f.start();
+ for(const target of [undefined,{}, {...f.options.target,recipient:''}])
+  assert.equal((await createFirstOwnerEnrollment({...f.options,target}).fetch(f.get(),f.env,context())).status,403);
+ assert.equal((await f.fetch(f.get(),context(),{...f.env,DB:undefined})).status,403);
+ const key=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256',length:256},false,['sign','verify']);
+ assert.equal((await createFirstOwnerEnrollment({...f.options,confirmationKey:key}).fetch(f.post(form),f.env,context())).status,403);
+ assert.deepEqual(await snapshot(f.db),before);
 });

@@ -1,173 +1,109 @@
-# First Owner confirmation page — staging source only
+# Task #12: Cloudflare MFA reliance and first Owner confirmation
 
-This change implements `GET` and `POST /owner/enroll` in
-`portal/first-owner-enrollment.mjs`, with a proposed custom-host composition in
-`members-portal-staging/owner-enrollment-assembly.mjs`. No deployment config
-selects that composition. The existing staging Worker, dashboard default, public
-website and Cloudflare configuration remain unchanged. No deployment, push,
-remote database write, migration or settings change was performed.
+Approved source-only change, 2026-10-26. Big Sox Studios relies on the already
+configured Cloudflare Access MFA. This replaces the earlier custom policy
+attestation and separate Owner approval callbacks. It does not change or disable
+Cloudflare MFA. JWT/OTP checks establish the Access session and identity; they
+are not an independent MFA attestation or a live policy readback.
 
-Both new default exports return 404 for enrollment. Activation requires explicit
-reviewed server source wiring of an exact target, two independent evidence
-verifiers and an HMAC SHA-256 CryptoKey of at least 256 bits with sign/verify
-usages, plus `PORTAL_MODE=staging-enrollment-source`, the approved `DB` binding and
-matching `BOOTSTRAP_DATABASE_ID`. A flag, binding, allowlisted email, browser
-claim or diagnostic boolean alone cannot enable enrollment. The composition pins
-the staging custom host, issuer and exclusive members audience to the existing
-source constants; environment values cannot retarget them. The separate owner
-Access audience required by the existing authenticator must also be reviewed.
+`members-portal-staging/owner-enrollment-assembly.mjs` reuses the portal enrollment
+and dashboard modules. No deployment config selects it. The existing staging
+`worker.mjs` stays safe-off for `/app`, and its config has no D1 binding. There
+is no feature flag to bypass authentication or authorization.
 
-The page reuses `createOtpAuthenticator` through `createFirstOwnerBootstrap`.
-Every GET and POST requires the signed Access JWT and matching trusted runtime
-`ctx.access` audience, exact JWT/runtime email agreement and
-`idp.type === 'onetimepin'`. The exact OTP subject must match the approved
-recipient. Google or Apple identity with the same email cannot enroll; there is
-no normalization, linking, promotion or upsert. Requests to HTTP, workers.dev,
-alias hosts, nonstandard ports, wrong issuer/audience, mismatched Origin/Host,
-queries, HEAD and other methods fail closed.
+A reviewed source composition must supply `target` (exact allowed Owner email,
+`role: 'owner'`, existing approved `databaseId`, reviewed source `revision`, and
+unique 32–128 character URL-safe `nonce`) and a shared HMAC SHA-256 CryptoKey of
+at least 256 bits with sign/verify usages. No recipient or key defaults exist.
+Do not obtain the target from browser input or infer it from a login. Bind only
+the existing dedicated Phase2 DB; `BOOTSTRAP_DATABASE_ID` must match the reviewed
+target. `PORTAL_MODE` must be `staging-enrollment-source`; it is a restriction,
+not an authentication bypass. Missing key returns 404; missing target/DB or any
+identity ambiguity denies access.
 
-A successful GET performs only the existing read-only bootstrap preflight,
-including fresh external policy and Owner approval verification and pristine D1
-checks. It returns a plain accessible HTML form, without scripts, identity text,
-raw JWT, approval record or auto-submit. A random 256-bit cookie is Secure,
-HttpOnly, SameSite=Strict, host-only (`__Host-`), Path=/ and expires in 300 seconds.
-The hidden HMAC-signed ticket binds its hash, issue/expiry time and an opaque
-digest of the exact Access session, target recipient/role, database, host,
-issuer/audience, source revision, bootstrap nonce, policy digest, approval digest
-and approval audit reference. A new GET replaces the browser cookie, invalidating
-older forms in that browser. All responses are private/no-store and noindex,
-with no framing, external resources, scripts, referrer disclosure or CORS grant.
-The CSP permits only same-origin form submission.
+The assembly pins issuer, exact custom host and exclusive members audience in
+source. It rejects direct workers.dev, wrong Host/Origin, wrong issuer/audience,
+invalid signature/time, absent runtime Access context, a non-`onetimepin` runtime
+provider, and any mismatch between signed JWT email, runtime email and the
+reviewed target. No normalization, auto-linking or automatic JIT occurs.
 
-POST requires the ticket, matching single cookie, explicit confirm button value,
-exact same-origin Origin, `Sec-Fetch-Site: same-origin`,
-`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document` and
-`Sec-Fetch-User: ?1`. Missing metadata fails closed. This requires a browser form
-navigation after GET and a user activation in supported browsers. These headers
-are CSRF defenses, not cryptographic evidence of a person: an authenticated
-non-browser client can emulate headers. No request header is treated as MFA or
-independent approval. The form body is limited to 2 KiB while streaming; extra
-or duplicate fields, invalid signatures, mismatched cookies, stale tickets and
-changed sessions/targets/evidence are denied. Browser back, reload and API fetch
-must not cause a successful write without that confirmation contract.
+1. GET `/owner/enroll` authenticates a JWT issued less than five minutes ago and
+   checks that all membership tables and the receipt table are pristine. It
+   performs SELECTs only and shows a confirmation form. It sets a random
+   `__Host-first-owner-confirm` cookie (Secure, HttpOnly, Path=/, SameSite=Strict,
+   five minutes, no Domain) and a signed five-minute HMAC ticket bound to that
+   cookie, exact signed session and reviewed enrollment context.
+2. The user's confirm click submits POST. The handler checks exact Origin,
+   same-origin navigation/document/user Fetch Metadata, URL-encoded form shape,
+   bounded body, HMAC, single cookie, expiry and unchanged context. It repeats
+   authentication, fresh-session and pristine-state checks before writing.
+3. One INSERT into `first_owner_bootstrap` uses the already-applied triggers to
+   create the singleton receipt, active Owner, exact OTP binding and immutable
+   audit together. The user click is the sole Owner enrollment approval. GET,
+   ordinary login and dashboard requests never create a member.
+4. A readback verifies the created rows. Commit errors, including ambiguous
+   readback failures, return 503 with an inspection instruction. Never retry an
+   ambiguous write automatically. Replays, concurrent confirmations, existing
+   members and revoked Owners cannot bootstrap again.
 
-POST redoes authentication, evidence verification and D1 preflight. Immediately
-before write dispatch the bootstrap rechecks the same confirmation digest,
-ticket deadline, JWT expiry and both independent attestations, including after
-D1 awaits. It then reuses the existing singleton SQL receipt and triggers from
-`portal/migrations/0001-first-owner-bootstrap.sql`: one statement creates a fresh
-active Owner, exact OTP binding, immutable audit and receipt, or rolls back all
-four. Concurrent attempts can have only one winner. Successful replay, new
-cookies/tickets, process restarts, new sessions, new nonces and later revocation
-cannot reopen bootstrap. Failed precommit attempts do not consume a separate
-server challenge record; the permanent successful-use boundary is the existing
-D1 singleton. No additional migration or schema change is introduced.
+The existing schema is unchanged. See [receipt meanings](TASK12_FIRST_OWNER_BOOTSTRAP.md).
+Private no-store/noindex responses do not display JWTs, tickets outside the form,
+or the Owner's email. Tickets and cookies must not be logged.
 
-Success follows exact binding/Owner/audit readback. Every commit-stage error is
-reported as requiring operator inspection with “Do not retry,” since a commit
-may have succeeded despite a lost response or failed readback. There is no
-automatic retry or success redirect that could repeat a POST. The confirmation
-cookie is cleared after any POST outcome. No raw requests, subjects, tickets,
-cookies, JWTs or verifier evidence are logged by this implementation.
+## Separately authorized staging work still required
 
-The existing factory still defaults to read-only and supports its original
-`offline-test` mode. The only added mode is `staging-enrollment-source`, requiring
-the exact corresponding runtime mode and explicit source dependencies. The new
-optional confirmation digest/deadline constrain its commit invocation; they do
-not bypass its evidence requirements. Neither verifier is implemented here.
-Synthetic local callbacks establish no real OTP identity, independent MFA,
-effective policy or Owner approval.
+Review the exact target email, existing Phase2 binding, source revision, nonce,
+shared secret provisioning and entrypoint wiring. The DB is reported pristine
+with the migration already applied: do not reapply it or create another DB.
+Review the existing protected Access route and MFA configuration without
+changing/disabling MFA. A real authorized staging deployment and actual browser
+session are still needed to verify runtime `ctx.access`, cookie/Fetch Metadata
+behavior (including Safari), and the Owner's explicit confirmation click.
+Afterward verify the singleton receipt/identity/audit and dashboard; test denied
+uninvited, wrong-provider and revoked sessions and the rollback procedure.
+These are future authorized actions, not actions performed by this source task.
+No push, merge, deployment, remote DB write or actual enrollment occurred here.
+## Ready-to-review staging release candidate — October 26, 2026
 
-## Remaining approval and deployment prerequisites
+This **source-only** candidate keeps the existing Big Sox Studios Members staging
+Worker and exact already-existing Phase 2 D1 binding, with no additional
+Cloudflare account, identity provider, database or paid service.
 
-1. Independently review the exact source revision and security contract, including
-   the mode extension, confirmation key custody, browser behavior, expiry at
-   write dispatch and conservative ambiguous-outcome handling. Resolve findings
-   before any release. Source review is not deployment or bootstrap approval.
-2. Obtain separately authorized real OTP runtime field evidence on the exact final
-   protected custom host without changing existing Google login or weakening
-   policy. Verify actual `ctx.access` identity and exclusive audience behavior;
-   absence or mismatch remains a denial. OTP is not independent MFA.
-3. Implement and review trusted server adapters that actually verify effective
-   Access policy readback, all overrides/bypasses, independent MFA enforcement
-   for this OTP route, and external signed/audited Owner approval. Verify signer,
-   algorithm, audience, signature, expiry, revocation, provenance and outages;
-   never mint evidence on demand or convert config/browser booleans to proof.
-   Evidence must satisfy the existing context/policy binding contract.
-4. Obtain one independent explicit audited Owner decision for the exact private
-   recipient, role `owner`, database, host, reviewed revision, bootstrap nonce,
-   verified Access session and effective policy digest. General development
-   authorization and the browser confirm click do not replace this decision.
-5. Independently verify the actual identity and approved schema of the existing
-   dedicated Task12 Phase2 D1 binding, its pristine state across all portal
-   tables, singleton/audit guards and binding metadata. The source database ID
-   label is not independent binding attestation. Do not create another database,
-   reuse Task11/public membership D1 or infer readiness from a name. Separately
-   authorize any needed migration, retention, backup, recovery and local-D1
-   rehearsal; this task authorizes none remotely.
-6. Arrange a separate sanitized read-only bootstrap dry-run against the exact
-   authorized target. Review its opaque context/confirmation digests, counts,
-   evidence freshness and expected atomic effects before explicitly authorizing
-   the first remote write. The page's GET does not itself authorize that write.
-7. Prepare a reviewed shared confirmation key through approved secret custody,
-   separate from Access signing keys, with a scoped lifecycle and rotation plan.
-   Supply a non-extractable CryptoKey through reviewed server composition; do
-   not hardcode, log or commit key bytes. Multiple isolates must use the same
-   approved key; missing/rotated keys fail closed. Decide the supported browser
-   matrix, including Fetch Metadata and SameSite behavior across Access login.
-8. Independently approve the future entrypoint/config wiring, exact DB binding,
-   source target and evidence adapters. Inventory and protect every route,
-   workers.dev/preview alias and direct path, pin issuer/audiences, verify edge
-   cache restrictions and fixed logout interception. The example dashboard
-   config and current staging config do not activate this module. Obtain
-   separate authorization for upload, deployment and any settings changes;
-   record the prior version and an approved rollback procedure.
-9. Run real-browser acceptance on an approved synthetic local setup, then the
-   separately authorized protected staging target: GET writes nothing; clicking
-   the button issues the expected POST; cancel/back/reload and direct API posts
-   do not enroll; cross-site submission, missing headers, stale/copied/tampered
-   forms, wrong identity/session, changed evidence, concurrent confirmations,
-   D1 outages and ambiguous readback fail closed. Check mobile/keyboard layout
-   and no sensitive data in logs, cache or screenshots. No browser/MFA live
-   acceptance is claimed by these local handler tests.
-10. After separately approved success, inspect exact receipt, Owner binding and
-    immutable audit, then remove/disable write capability and retire the key.
-    Never delete the singleton receipt to retry. An uncertain outcome requires
-    inspection before any further action. Complete the broader production MF6
-    acceptance, live role/revocation/grant checks, independent service-session
-    cleanup and the launch gates in `TASK12_OTP_OWNER_FOUNDATION.md` before any
-    production or service launch.
+- New entrypoint: `members-portal-staging/owner-staging-release.mjs`
+- Candidate only config: `members-portal-staging/wrangler.owner-release.toml`
+- Existing Worker: `big-sox-studios-members-staging`
+- Custom host: `members-staging.bigsoxstudios.com`
+- D1 binding: `DB`, existing `bss-members-portal-phase2` only.
+- Source revision label: `task12-cloudflare-mfa-20261026-v1`.
 
-## Local validation
+The entrypoint leaves every existing Phase 1 and owner diagnostic route to the
+unchanged safe Worker. Protected `/app` requires the pinned D1 binding and signed OTP identity;
+`/owner/enroll` additionally requires the reviewed target and the nonextractable
+imported HMAC key. Retiring enrollment-only secrets must not affect `/app`. There is no user creation
+until the actual owner's browser POST. Both custom and direct worker routes
+still enforce origin, audience and runtime Access context. Unknown or missing
+secret/binding returns no-store 503. Normal dashboard access checks D1 every
+request, so revoked members immediately lose access.
 
-Use existing Node 24 and installed dependencies, with no package installation:
+**Do not deploy this config until the Owner explicitly approves deployment.**
+When authorized, first review the final PRs/source tree and the existing
+Cloudflare app MFA setting (already observed by the Owner), confirm the exact
+Worker and live D1, and provision `OWNER_ENROLLMENT_HMAC_KEY` (32 random bytes
+encoded base64url) plus stable `OWNER_ENROLLMENT_NONCE` (32 random bytes
+encoded base64url) as Worker secrets, never in files/logs. Reuse the existing
+`DIAGNOSTIC_OWNER_EMAIL` secret, do not expose it in logs. Preserve the current
+staging Worker version for rollback. Review upload bindings and ensure secret
+preservation, then deploy the reviewed source. No remote D1 seed/insert by CLI.
 
-```sh
-node --test --experimental-test-isolation=none portal/*.test.mjs members-portal-staging/*.test.mjs
-npm run lint
-npm run build
-```
+After approved deployment, the Owner starts a fresh Cloudflare OTP + MFA session,
+opens `https://members-staging.bigsoxstudios.com/owner/enroll`, and clicks
+**Confirm first Owner enrollment**. Do not ask the Owner to paste any token,
+cookie, email code or secret into ChatGPT. GET should create zero database rows.
+After the click, query only receipt counts and status, confirm the immutable
+binding and audit, then check `/app` in Safari. If POST outcome is ambiguous,
+never retry automatically; inspect the singleton receipt first. Remove the
+temporary enrollment route/key after acceptance while retaining the D1 audit.
+Unauthorized, direct service, wrong-provider, stale-session and revoked tests
+are mandatory before a production rollout.
 
-Miniflare needs local loopback socket permission. Tests use ephemeral local D1,
-synthetic RSA-signed JWTs, mocked signing-key fetches, synthetic runtime OTP and
-injected synthetic policy/approval evidence; the new fixtures prohibit outbound
-network traffic. They cover no-write GET/denials, disabled defaults, exact target
-and identity checks, CSRF, form/cookie/ticket tampering, duplicate fields, expiry,
-policy/approval changes even between POST preflight and commit, pinned staging
-composition, single successful concurrent commit, rollback, restart replay and
-ambiguous readback. The existing bootstrap tests additionally cover every
-existing member state, preflight/write races and immutable receipt/audit history.
-
-A local Playwright/Chromium launch was attempted on 2026-10-26 but could not start:
-its runtime lacks `libatk-1.0.so.0`. No browser dependencies or system packages
-were installed. The handler tests emulate the browser headers; actual browser
-acceptance remains explicitly required above.
-
-Validation results on 2026-10-26: the portal/staging regression run passed all
-171 tests. After adding two further cases, the final enrollment-focused run
-passed all eight tests. Repository lint, Astro check/build and `git diff --check`
-passed. Temporary local dependency reuse required no package or lockfile change.
-Local logs: `/tmp/bss-owner-enrollment-regression.log`,
-`/tmp/bss-owner-enrollment-focused-final.log`,
-`/tmp/bss-owner-enrollment-lint-final.log` and
-`/tmp/bss-owner-enrollment-build.log`.
+No deployment, Owner account insertion or browser acceptance is claimed here.

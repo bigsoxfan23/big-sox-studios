@@ -21,4 +21,4 @@ database_id = "REPLACE_WITH_EXISTING_APPROVED_PHASE2_DATABASE_UUID"
 # bss-membership-requests / MEMBERSHIP_DB and NOT any other service database.
 # No migrations_dir: this example does not create, bootstrap or migrate D1.
 # Binding alone does not activate /app. A future source-reviewed entrypoint must
-# compose createStagingDashboard with a real verifyActivation server adapter.
+# select the Access/D1 assembly after reviewing the protected route and binding.

@@ -63,11 +63,11 @@ test('synthetic trusted adapter mounts actual D1 Owner dashboard without JIT or 
  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM identities").first()).n,1);
 });
 
-test('staging app fails closed on absent attestation, missing D1, bad host and direct bypass',async t=>{
+test('staging app denies uninvited members, missing D1, bad host and direct bypass',async t=>{
  const {db}=await fixture(t);
  const env={...config,DB:db};
- const insecure=createStagingWorker({memberApp:dashboard({verifyActivation:undefined})});
- assert.equal((await insecure.fetch(signed(),env,context())).status,503);
+ const uninvited=createStagingWorker({memberApp:dashboard()});
+ assert.equal((await uninvited.fetch(signed(),env,context())).status,403);
  const app=createStagingWorker({memberApp:dashboard()});
  assert.equal((await app.fetch(signed('/app',{},'https://big-sox-studios-members-staging.fridman-greg.workers.dev'),env,context())).status,404);
  assert.equal((await app.fetch(signed('/app',{},'https://unknown.example.test'),env,context())).status,404);

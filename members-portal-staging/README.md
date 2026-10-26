@@ -86,15 +86,18 @@ pinned to the Phase 1 source constants. Environment values cannot retarget them.
 The root renderer and `/owner/identity-check` still use the original handler;
 this assembly does not interpret diagnostic booleans as authorization evidence.
 
-Both the existing `worker.mjs` default and the assembly default remain disabled
-for `/app`. No environment flag, D1 binding, diagnostic owner allowlist or
-browser-supplied evidence enables it. The assembly factory accepts a trusted
-server `verifyActivation` dependency only in source. A future reviewed composition
-must implement the existing dashboard evidence contract, including authentic
-independent effective MFA policy readback and one audited owner approval bound
-to the exact target and policy. The structural checks do not establish that
-proof by themselves. No real verifier or activation entrypoint is shipped here.
-Tests inject synthetic evidence only.
+The existing `worker.mjs` default stays disabled for `/app`. The source-only
+assembly now authenticates with Cloudflare Access and authorizes against live D1
+without `verifyActivation`. Cloudflare manages the already-configured MFA; the
+app does not invent a policy attestation. Selecting the assembly requires a
+reviewed config and separately authorized rollout. No environment feature flag
+bypasses signed identity or D1 checks.
+
+`owner-enrollment-assembly.mjs` adds GET confirmation and click-only POST at
+`/owner/enroll`. It requires a reviewed source target and shared HMAC key; it has
+no default Owner target or key. The browser confirmation is the only enrollment
+approval. See [the current enrollment contract](../docs/TASK12_FIRST_OWNER_ENROLLMENT.md)
+and [receipt semantics](../docs/TASK12_FIRST_OWNER_BOOTSTRAP.md).
 
 `wrangler.dashboard.example.toml` documents the proposed `DB` binding for the
 **already-existing dedicated Task12 Phase2 D1**. Its name and UUID deliberately
@@ -107,12 +110,12 @@ membership request database, or another service's D1. The example retains
 actual staging config remains unchanged and has no D1 binding.
 
 Before any separately authorized release, review the exact existing Phase2
-binding and schema readiness, server verifier implementation and evidence,
+binding and schema readiness, shared HMAC key provisioning and approved target,
 source revision, and the future entrypoint wiring. Existing membership and OTP
 identity bindings must already be independently approved. No login, dashboard,
-or configuration path provisions a member or Owner, applies migrations or
-writes D1. Missing D1, missing bindings, wrong provider, revoked status or stale
-proof deny access. Owner status never substitutes for an explicit service grant;
+or configuration path provisions a member or Owner. Only the validated
+enrollment POST writes D1; it does not apply migrations. Missing D1, missing bindings, wrong provider, revoked status or stale
+session deny access. Owner status never substitutes for an explicit service grant;
 even granted services return unavailable because integrations are not connected.
 See [the staging slice handoff](../docs/TASK12_OWNER_STAGING_SLICE.md) for separate
 bootstrap/release prerequisites. This work authorizes no live changes.
@@ -125,7 +128,7 @@ npm run lint
 ```
 
 The assembly tests use signed synthetic JWTs and ephemeral local D1. They cover
-inert defaults, exact host/audience/issuer, runtime OTP mismatch, zero login
+safe-off deployed defaults, exact host/audience/issuer, runtime OTP mismatch, zero login
 writes, fresh roles/status/grants, direct service denial, HEAD/method handling,
-private responses and missing/failed/stale evidence. The original staging tests
+private responses and missing DB or expired sessions. The original staging tests
 retain the Phase 1 rendered-byte fixture and owner identity-check coverage.
