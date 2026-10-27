@@ -36,6 +36,7 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
  return {async fetch(request,env,ctx) {
   if(!enabled || env?.PORTAL_MODE!=='staging-enrollment-source') return page('<p>Not found</p>',404);
   let committing=false;
+  let stage='route';
   try {
    const url=new URL(request.url);
    need(url.pathname===enrollmentPath && !url.search && !url.hash);
@@ -54,36 +55,50 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
     return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. Cloudflare Access manages MFA. Clicking confirm approves this Owner enrollment.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
    }
    // A top-level, user-initiated browser form POST, never GET or an API fetch.
-   need(request.headers.get('Origin')===env.APP_ORIGIN && request.headers.get('Sec-Fetch-Site')==='same-origin' &&
-    request.headers.get('Sec-Fetch-Mode')==='navigate' && request.headers.get('Sec-Fetch-Dest')==='document' &&
-    request.headers.get('Sec-Fetch-User')==='?1');
-   need(request.headers.get('Content-Type')==='application/x-www-form-urlencoded');
+   // Origin is mandatory and exact. Fetch Metadata is optional because
+   // intermediaries/browser versions may omit it; if present its value must be
+   // correct. The signed HMAC ticket and same-site cookie remain mandatory.
+   stage='browser-headers';
+   const meta=(name,value)=>!request.headers.has(name) || request.headers.get(name)===value;
+   need(request.headers.get('Origin')===env.APP_ORIGIN &&
+    meta('Sec-Fetch-Site','same-origin') && meta('Sec-Fetch-Mode','navigate') &&
+    meta('Sec-Fetch-Dest','document') && meta('Sec-Fetch-User','?1'));
+   need((request.headers.get('Content-Type')??'').split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded');
    // Bound streaming reads as well as Content-Length; never buffer an unlimited body.
+   stage='form-body';
    const reader=request.body?.getReader();need(reader);
    let body='';let size=0;const decoder=new TextDecoder('utf-8',{fatal:true});
    try {while(true) {const {done,value}=await reader.read();if(done) break;size+=value.length;need(size<=2048);body+=decoder.decode(value,{stream:true});}body+=decoder.decode();}
    finally {await reader.cancel().catch(()=>{});}
    const form=new URLSearchParams(body);
    need([...form.keys()].length===2 && form.getAll('ticket').length===1 && form.getAll('decision').length===1 && form.get('decision')==='confirm-first-owner');
+   stage='signed-ticket';
    const ticket=form.get('ticket');need(ticket && ticket.length<1600);
    const parts=ticket.split('.');need(parts.length===2);
    need(await crypto.subtle.verify('HMAC',confirmationKey,unb64(parts[1]),encoder.encode(parts[0])));
    const proof=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(unb64(parts[0])));
    const at=seconds();
    need(Number.isSafeInteger(proof.at) && proof.at>=0 && proof.at<=at && proof.exp===proof.at+300 && proof.exp>at);
+   stage='confirmation-cookie';
    const cookies=(request.headers.get('Cookie')??'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(`${cookieName}=`));
    need(cookies.length===1);
    const secret=cookies[0].slice(cookieName.length+1);need(/^[A-Za-z0-9_-]{43}$/.test(secret));
    need(await hash(secret)===proof.cookie);
+   stage='otp-identity';
    const plan=await bootstrap(internal,env,ctx);
    need(plan.confirmationDigest===proof.context && seconds()<proof.exp);
+   stage='database-commit';
    committing=true;
    await bootstrap(internal,env,ctx,{commit:true,expectedConfirmationDigest:proof.context,confirmationExpiresAt:proof.exp,
     browserTicketDigest:[...new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(ticket)))].map(b=>b.toString(16).padStart(2,'0')).join('')});
    return page('<p>First Owner enrollment completed.</p>',200,cookie('',0));
   } catch {
+   // Sanitized stage only; no email, token, cookie, request or exception.
    // Any commit error may be an ambiguous successful write. Never auto-retry.
-   return page(committing?'<p>Enrollment outcome requires operator inspection. Do not retry.</p>':'<p>Enrollment unavailable. No confirmation accepted.</p>',committing?503:403,cookie('',0));
+   console.warn('Task12 owner enrollment rejected at stage:',stage);
+   const message=committing?'<p>Enrollment outcome requires operator inspection. Do not retry.</p>':
+    '<p>Enrollment unavailable. No confirmation accepted.</p><p>Check: '+stage+'</p>';
+   return page(message,committing?503:403,cookie('',0));
   }
  }};
 }
