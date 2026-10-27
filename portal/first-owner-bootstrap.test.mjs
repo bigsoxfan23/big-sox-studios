@@ -62,16 +62,25 @@ test('bootstrap denies absent target, wrong exact recipient/DB and missing brows
  assert.deepEqual(await snapshot(db),before);
 });
 
-test('bootstrap requires exact OTP runtime and current signed JWT, rejects stale sessions',async t=>{
+test('bootstrap requires exact OTP runtime and unexpired signed JWT, rejects invalid sessions',async t=>{
  const {db,env}=await setup(t),before=await snapshot(db),app=createFirstOwnerBootstrap(options());
  for(const [jwt,ctx] of [[token(),{}],[token(),context(target.recipient,'google')],[token(),context(target.recipient,'apple')],
   [token(),context('other@example.test')],[token({aud:['members-test','owner-test']}),context()],
   [token({iss:'https://wrong.cloudflareaccess.com'}),context()],[token({exp:epoch}),context()],
-  [token({iat:epoch-300}),context()],[token().replace(/.$/,'!'),context()]])
+  [token({iat:epoch+1}),context()],[token().replace(/.$/,'!'),context()]])
   await assert.rejects(app(req(jwt),env,ctx));
  for(const request of [new Request(req(),{method:'GET'}),new Request('https://evil.example.test/',req()),
   new Request(config.APP_ORIGIN+'/?nonce=browser',req())]) await assert.rejects(app(request,env,context()));
  assert.deepEqual(await snapshot(db),before);
+});
+
+test('valid Cloudflare session older than five minutes starts a fresh five-minute confirmation',async t=>{
+ const {db,env}=await setup(t),app=createFirstOwnerBootstrap(options());
+ const oldButUnexpired=token({iat:epoch-3600,nbf:epoch-3600,exp:epoch+3600});
+ const plan=await app(req(oldButUnexpired),env,context());
+ assert.equal(plan.ready,true);assert.equal(plan.committed,false);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM members').first()).n,0);
+ await assert.rejects(app(req(token({iat:epoch-3600,nbf:epoch-3600,exp:epoch-1})),env,context()));
 });
 
 test('bootstrap handles concurrent writers with exactly one winner and rolls back every row on downstream failure',async t=>{
@@ -120,7 +129,7 @@ test('bootstrap refuses every existing person, including revoked Owners, pending
 
 test('bootstrap rechecks JWT freshness after asynchronous D1 reads',async t=>{
  const {db,env}=await setup(t);
- for(const expiry of [epoch+10,epoch+700]) {
+ for(const expiry of [epoch+10,epoch+200]) {
   let at=epoch;const now=()=>at*1000;
   const app=createFirstOwnerBootstrap(options({now,verifyAccess:createAuthenticator({fetcher:certFetch,now})}));
   const delayed={prepare(sql){const statement=db.prepare(sql);return {async first(){

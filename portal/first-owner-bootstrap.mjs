@@ -32,7 +32,9 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,now=()=>Date
   const time=()=>{const at=Math.floor(now()/1000);need(Number.isSafeInteger(at) && at>=0);return at;};
   const valid=()=>{
    const at=time();
-   need(Number.isSafeInteger(identity.issuedAt) && identity.issuedAt<=at && at<identity.issuedAt+300 && identity.expiresAt>at);
+   // Cloudflare Access controls the signed session lifetime (including its MFA policy).
+   // The browser confirmation ticket, not the original Access JWT iat, is five minutes.
+   need(Number.isSafeInteger(identity.issuedAt) && identity.issuedAt<=at && identity.expiresAt>at);
    if (expectedConfirmationDigest!==undefined) need(hex(expectedConfirmationDigest) && expectedConfirmationDigest===confirmationDigest);
    if (confirmationExpiresAt!==undefined) need(Number.isSafeInteger(confirmationExpiresAt) && confirmationExpiresAt>at && confirmationExpiresAt<=at+300);
    if (commit) need(expectedConfirmationDigest===confirmationDigest && hex(browserTicketDigest) && confirmationExpiresAt>at);
@@ -58,7 +60,7 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,now=()=>Date
    (slot,nonce,member_id,subject,database_id,revision,session_digest,context_digest,policy_digest,approval_digest,approval_audit_id,at,expires_at)
    VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(intended.nonce,memberId,identity.subject,intended.databaseId,intended.revision,
    sessionDigest,contextDigest,policyDigest,approvalDigest,approvalAuditId,at,
-   Math.min(identity.expiresAt,identity.issuedAt+300,confirmationExpiresAt)).run();
+   Math.min(identity.expiresAt,confirmationExpiresAt)).run();
   // A readback failure can follow a successful commit: inspect, never retry blindly.
   const verified=await env.DB.prepare(`SELECT m.id FROM first_owner_bootstrap b
    JOIN members m ON m.id=b.member_id JOIN identities i ON i.member_id=m.id

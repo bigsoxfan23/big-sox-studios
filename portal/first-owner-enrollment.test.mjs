@@ -70,7 +70,7 @@ test('enrollment denies CSRF, API posts, malformed form, missing GET, altered co
 
 test('enrollment binds confirmation to session, exact recipient, target, expiry and trusted runtime OTP',async t=>{
  const f=await setup(t),form=await f.start(),before=await snapshot(f.db);
- for(const jwt of [token({sub:'another-session'}),token({email:'Person@example.test'}),token({aud:['members-test','owner-test']}),token({iss:'https://wrong.cloudflareaccess.com'}),token({exp:epoch}),token({iat:epoch-300}),token({iat:epoch+1}),token().replace(/.$/,'!')])
+ for(const jwt of [token({sub:'another-session'}),token({email:'Person@example.test'}),token({aud:['members-test','owner-test']}),token({iss:'https://wrong.cloudflareaccess.com'}),token({exp:epoch}),token({iat:epoch+1}),token().replace(/.$/,'!')])
   assert.equal((await f.fetch(f.post(form,{},jwt))).status,403);
  for(const ctx of [{},context(target.recipient,'google'),context('other@example.test'),{access:{aud:'wrong',getIdentity:async()=>{throw Error('no');}}}])
   assert.equal((await f.fetch(f.post(form),ctx)).status,403);
