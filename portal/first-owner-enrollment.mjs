@@ -55,13 +55,12 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
     return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. Cloudflare Access manages MFA. Clicking confirm approves this Owner enrollment.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
    }
    // A top-level, user-initiated browser form POST, never GET or an API fetch.
-   // CSRF guard: exact browser Origin plus a valid, session-bound HMAC ticket
-   // and Secure, HttpOnly, SameSite=Strict cookie. Browser Fetch Metadata
-   // describes navigation; it is not reliable proof of a click. Strict
-   // mode/destination/user checks caused legitimate Chrome posts to reject.
-   // Explicit cross-site submission is still denied.
+   // Origin may be omitted by intermediaries on legitimate same-site POSTs.
+   // Reject a foreign or literal null Origin when supplied. A valid HMAC ticket,
+   // same-site secure cookie and signed Access OTP session remain mandatory.
    stage='browser-origin';
-   need(request.headers.get('Origin')===env.APP_ORIGIN);
+   const origin=request.headers.get('Origin');
+   need(origin===null || origin===env.APP_ORIGIN);
    stage='browser-site';
    need(request.headers.get('Sec-Fetch-Site')!=='cross-site');
    stage='browser-content-type';

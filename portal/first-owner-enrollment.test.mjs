@@ -85,6 +85,34 @@ test('POST does not rely on mode, destination or user Fetch Metadata as click pr
  assert.equal((await f.fetch(req)).status,200);
  assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,1);
 });
+test('Chrome may confirm without Origin when signed ticket, cookie and OTP match',async t=>{
+ const f=await setup(t),form=await f.start();
+ const headers=new Headers(f.post(form).headers);
+ headers.delete('Origin');
+ const req=new Request(f.get(),{method:'POST',headers,
+  body:new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner'}).toString()});
+ assert.equal((await f.fetch(req)).status,200);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,1);
+});
+test('missing Origin does not bypass cross-site and cookie protection',async t=>{
+ const f=await setup(t),form=await f.start();
+ for(const overrides of [
+  {'Origin':undefined,'Sec-Fetch-Site':'cross-site'},
+  {'Origin':undefined,Cookie:''},
+  {'Origin':undefined,Cookie:'__Host-first-owner-confirm=wrong'},
+  {Origin:'null'}
+ ]) {
+  const h=new Headers(f.post(form).headers);
+  for(const [key,value] of Object.entries(overrides)) {
+   if(value===undefined) h.delete(key); else h.set(key,value);
+  }
+  const req=new Request(f.get(),{method:'POST',headers:h,
+   body:new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner'}).toString()});
+  assert.equal((await f.fetch(req)).status,403);
+ }
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,0);
+});
+
 test('explicit cross-site requests deny before DB and show safe stage',async t=>{
  const f=await setup(t),form=await f.start();
  const response=await f.fetch(f.post(form,{'Sec-Fetch-Site':'cross-site'}));
