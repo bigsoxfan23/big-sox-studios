@@ -62,9 +62,21 @@ test('enrollment denies CSRF, API posts, malformed form, missing GET, altered co
   f.post(form,{},token(),'x'.repeat(2049)),f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'cancel'}).toString()),
   f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner',extra:'true'}).toString()),
   f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner'}).toString()+'&ticket=duplicate'),
-  ...['HEAD','PUT','DELETE'].map(method=>new Request(f.get(),{method})),f.get(token(),enrollmentPath+'?commit=true'),f.get(token(),enrollmentPath,{Origin:'https://evil.test'}),f.get(token(),enrollmentPath,{'Sec-Fetch-Site':'cross-site'})
+  ...['HEAD','PUT','DELETE'].map(method=>new Request(f.get(),{method})),f.get(token(),enrollmentPath+'?commit=true'),f.get(token(),enrollmentPath,{Origin:'https://evil.test'})
  ];
  for(const req of cases) {const response=await f.fetch(req);assert.equal(response.status,403);assert.match(response.headers.get('Cache-Control'),/no-store/);}
+ assert.deepEqual(await snapshot(f.db),before);
+});
+
+test('signed OTP deep-link GET after cross-site Cloudflare redirect is safe and read-only',async t=>{
+ const f=await setup(t),before=await snapshot(f.db);
+ const request=f.get(token(),enrollmentPath,{'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document'});
+ const response=await f.fetch(request);
+ assert.equal(response.status,200);
+ assert.match(await response.text(),/Confirm first Owner enrollment/);
+ assert.deepEqual(await snapshot(f.db),before);
+ const form=await f.start();
+ assert.equal((await f.fetch(f.post(form,{'Sec-Fetch-Site':'cross-site'}))).status,403);
  assert.deepEqual(await snapshot(f.db),before);
 });
 

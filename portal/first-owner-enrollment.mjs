@@ -43,7 +43,9 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
    // Reuse the exact signed OTP, approved target and fresh-session checks.
    const internal=new Request(new URL('/',url),{method:'POST',headers:request.headers});
    if(request.method==='GET') {
-    need(!request.headers.has('Sec-Fetch-Site') || ['same-origin','none'].includes(request.headers.get('Sec-Fetch-Site')));
+    // GET is read-only. Access sign-in redirects and external Safari links can
+    // legitimately arrive as cross-site top-level navigations. Only the
+    // account-creating POST below must be same-origin and user initiated.
     const at=seconds();
     const plan=await bootstrap(internal,env,ctx);
     const secret=b64(crypto.getRandomValues(new Uint8Array(32)));
