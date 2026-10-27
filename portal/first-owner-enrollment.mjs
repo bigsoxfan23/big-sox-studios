@@ -55,14 +55,16 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
     return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. Cloudflare Access manages MFA. Clicking confirm approves this Owner enrollment.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
    }
    // A top-level, user-initiated browser form POST, never GET or an API fetch.
-   // Origin is mandatory and exact. Fetch Metadata is optional because
-   // intermediaries/browser versions may omit it; if present its value must be
-   // correct. The signed HMAC ticket and same-site cookie remain mandatory.
-   stage='browser-headers';
-   const meta=(name,value)=>!request.headers.has(name) || request.headers.get(name)===value;
-   need(request.headers.get('Origin')===env.APP_ORIGIN &&
-    meta('Sec-Fetch-Site','same-origin') && meta('Sec-Fetch-Mode','navigate') &&
-    meta('Sec-Fetch-Dest','document') && meta('Sec-Fetch-User','?1'));
+   // CSRF guard: exact browser Origin plus a valid, session-bound HMAC ticket
+   // and Secure, HttpOnly, SameSite=Strict cookie. Browser Fetch Metadata
+   // describes navigation; it is not reliable proof of a click. Strict
+   // mode/destination/user checks caused legitimate Chrome posts to reject.
+   // Explicit cross-site submission is still denied.
+   stage='browser-origin';
+   need(request.headers.get('Origin')===env.APP_ORIGIN);
+   stage='browser-site';
+   need(request.headers.get('Sec-Fetch-Site')!=='cross-site');
+   stage='browser-content-type';
    need((request.headers.get('Content-Type')??'').split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded');
    // Bound streaming reads as well as Content-Length; never buffer an unlimited body.
    stage='form-body';

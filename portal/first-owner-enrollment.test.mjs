@@ -59,7 +59,7 @@ test('enrollment denies CSRF, API posts, malformed form, missing GET, altered co
   f.post({...form,ticket:''}),f.post({...form,ticket:form.ticket+'x'}),f.post({...form,cookie:''}),f.post({...form,cookie:'__Host-first-owner-confirm='+'a'.repeat(43)}),
   f.post(form,{Cookie:form.cookie+'; '+form.cookie}),
   ...['Origin','Content-Type'].flatMap(name=>[f.post(form,{[name]:''}),f.post(form,{[name]:'cross-site'})]),
-  ...['Sec-Fetch-Site','Sec-Fetch-Mode','Sec-Fetch-Dest','Sec-Fetch-User'].map(name=>f.post(form,{[name]:'cross-site'})),
+  f.post(form,{'Sec-Fetch-Site':'cross-site'}),
   f.post(form,{},token(),'x'.repeat(2049)),f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'cancel'}).toString()),
   f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner',extra:'true'}).toString()),
   f.post(form,{},token(),new URLSearchParams({ticket:form.ticket,decision:'confirm-first-owner'}).toString()+'&ticket=duplicate'),
@@ -79,11 +79,25 @@ test('POST accepts missing browser fetch metadata when exact Origin, token and c
  assert.equal((await f.fetch(req)).status,200);
  assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,1);
 });
+test('POST does not rely on mode, destination or user Fetch Metadata as click proof',async t=>{
+ const f=await setup(t),form=await f.start();
+ const req=f.post(form,{'Sec-Fetch-Mode':'cors','Sec-Fetch-Dest':'empty','Sec-Fetch-User':'?0'});
+ assert.equal((await f.fetch(req)).status,200);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,1);
+});
+test('explicit cross-site requests deny before DB and show safe stage',async t=>{
+ const f=await setup(t),form=await f.start();
+ const response=await f.fetch(f.post(form,{'Sec-Fetch-Site':'cross-site'}));
+ assert.equal(response.status,403);
+ assert.match(await response.text(),/Check: browser-site/);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,0);
+});
+
 test('precommit error returns a non-sensitive stage code',async t=>{
  const f=await setup(t),form=await f.start();
  const res=await f.fetch(f.post(form,{Origin:'https://wrong.example.test'}));
  assert.equal(res.status,403);
- assert.match(await res.text(),/Check: browser-headers/);
+ assert.match(await res.text(),/Check: browser-origin/);
 });
 
 test('signed OTP deep-link GET after cross-site Cloudflare redirect is safe and read-only',async t=>{
