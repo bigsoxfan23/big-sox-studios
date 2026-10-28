@@ -160,6 +160,39 @@ test('diagnostic confirms only exact runtime OTP type and never infers MFA', asy
   }
 }));
 
+test('owner-only diagnostic compares strict portal JWT and live D1 gates safely',async()=>{
+ const now=Math.floor(Date.now()/1000), jwt=token(customAudience,{nbf:now,sub:'abc-def-123'});
+ let readCount=0;
+ const fakeDb={prepare(sql){
+  assert.match(sql,/LEFT JOIN service_grants/);
+  return {bind(provider,subject){
+   assert.equal(provider,'otp');
+   assert.equal(subject,ownerEnv.DIAGNOSTIC_OWNER_EMAIL);
+   return {async first(){readCount++;return {id:'member-test-1',role:'owner',status:'active',grants:'[]'};}};
+  }};
+ }};
+ const env={...ownerEnv,OWNER_ACCESS_AUDIENCE:'separate-owner-test',DB:fakeDb};
+ globalThis.fetch=async()=>certFetch();
+ try {
+  const ctx=accessContext({...fullIdentity,idp:{type:'onetimepin'}});
+  const r=await worker.fetch(diagnosticRequest({jwt}),env,ctx);
+  assert.equal(r.status,200);
+  const html=await r.text();assertPrivate(html);
+  const f=diagnosticFields(html);
+  for(const key of ['portalJwtShapeAccepted','portalJwtSubAccepted','portalJwtTimeClaimsAccepted',
+    'portalStrictJwtVerified','portalOtpSessionVerified','portalD1LookupSucceeded',
+    'portalOwnerD1Matched','portalOwnerActive']) assert.equal(f[key],true,key);
+  assert.equal(readCount,1);
+  const odd=token(customAudience,{nbf:now,sub:'not+allowed'});
+  const second=await worker.fetch(diagnosticRequest({jwt:odd}),env,ctx);
+  const fields=diagnosticFields(await second.text());
+  assert.equal(fields.portalJwtSubAccepted,false);
+  assert.equal(fields.portalStrictJwtVerified,true);
+  assert.equal(fields.portalOtpSessionVerified,false);
+  assert.equal(fields.portalOwnerD1Matched,true);
+ } finally {globalThis.fetch=originalFetch;}
+});
+
 test('diagnostic absent owner configuration returns 404 without reading identity', async () => {
   const ctx = { access: { getIdentity() { assert.fail('Must not read identity'); } } };
   for (const env of [undefined, {}, { DIAGNOSTIC_OWNER_EMAIL: '' }, { DIAGNOSTIC_OWNER_EMAIL: ' member@example.com' }]) {
