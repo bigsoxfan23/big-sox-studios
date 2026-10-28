@@ -1,3 +1,6 @@
+import {createAuthenticator} from '../portal/access.mjs';
+import {createOtpAuthenticator} from '../portal/otp-identity.mjs';
+import {authorizeMember} from '../portal/authorization.mjs';
 // Big Sox Studios Members Portal, staging only.
 // The two Access applications have distinct audiences. Never deploy this file
 // to the public website Worker or use an unprotected preview route.
@@ -153,6 +156,43 @@ async function identityCheck(request, env, ctx) {
     fields.signedJwtRuntimeEmailExactMatch = identity.email === verified.email;
     // Both exact audience checks above must pass before this can be confirmed.
     fields.memberAppAudienceConfirmed = true;
+    // Owner-only read-only check against exactly the portal's JWT and D1 gates.
+    if (env?.DB && typeof env.DB.prepare === 'function') {
+      Object.assign(fields,{
+        portalJwtShapeAccepted:false,portalJwtSubAccepted:false,
+        portalJwtTimeClaimsAccepted:false,portalStrictJwtVerified:false,
+        portalOtpSessionVerified:false,portalD1LookupSucceeded:false,
+        portalOwnerD1Matched:false,portalOwnerActive:false
+      });
+      const memberEnv={...env,ACCESS_ISSUER,ACCESS_AUDIENCE:AUDIENCES[DIAGNOSTIC_HOST],
+        APP_ORIGIN:url.origin,OTP_CUSTOM_HOSTS:[DIAGNOSTIC_HOST]};
+      try {
+        // JWT already independently signature-verified; no claim value returned.
+        const signedToken=request.headers.get('Cf-Access-Jwt-Assertion');
+        const claims=JSON.parse(new TextDecoder().decode(decodeBase64Url(signedToken.split('.')[1])));
+        const at=Math.floor(Date.now()/1000);
+        fields.portalJwtSubAccepted=typeof claims.sub==='string' && /^[A-Za-z0-9_-]{1,512}$/.test(claims.sub);
+        fields.portalJwtTimeClaimsAccepted=['exp','nbf','iat'].every(k=>Number.isSafeInteger(claims[k]) && claims[k]>=0) &&
+          claims.exp>at && claims.nbf<=at && claims.iat<=at && claims.iat<claims.exp && claims.nbf<claims.exp;
+        fields.portalJwtShapeAccepted=fields.portalJwtSubAccepted && fields.portalJwtTimeClaimsAccepted;
+      } catch { /* Keep all identity and authorization details private. */ }
+      try {
+        const strictClaims=await createAuthenticator()(request,memberEnv);
+        fields.portalStrictJwtVerified=true;
+        try {
+          const session=await createOtpAuthenticator({verifyAccess:async()=>strictClaims})(request,memberEnv,ctx);
+          fields.portalOtpSessionVerified=session.provider==='otp' && session.subject===verified.email;
+        } catch { /* Keep all identity and authorization details private. */ }
+      } catch { /* Keep all identity and authorization details private. */ }
+      try {
+        const row=await env.DB.prepare('SELECT m.id,m.role,m.status,COALESCE(json_group_array(g.service) FILTER(WHERE g.service IS NOT NULL),\'[]\') AS grants FROM identities i JOIN members m ON m.id=i.member_id LEFT JOIN service_grants g ON g.member_id=m.id WHERE i.provider=? AND i.subject=? GROUP BY m.id').bind('otp',verified.email).first();
+        fields.portalD1LookupSucceeded=true;
+        fields.portalOwnerD1Matched=!!row && typeof row.id==='string' &&
+          /^[A-Za-z0-9_-]{1,128}$/.test(row.id) && row.role==='owner';
+        fields.portalOwnerActive=fields.portalOwnerD1Matched &&
+          authorizeMember({...row,grants:JSON.parse(row.grants)});
+      } catch { /* Keep all identity and authorization details private. */ }
+    }
     return diagnosticResponse(fields);
   } catch { return diagnosticResponse(fields, 503); }
 }

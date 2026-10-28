@@ -242,3 +242,5 @@ All login/denial requests in the zero-write matrix preserve full table snapshots
 Runtime outbound traffic is prohibited. Miniflare loopback socket permission is
 needed; this is not Cloudflare access or a deployment. Full results/commit/tree
 and launch prerequisites are in `/tmp/BSS_TASK12_OTP_OWNER_IMPL_20261025.md`.
+
+**October 27 — Temporary Owner-only mobile portal gate check:** Mobile Safari passes signed OTP provider, runtime email and app audience but both dashboard and management respond 403. The existing owner-only identity diagnostic now exposes eight additional boolean-only readbacks for the strict dashboard JWT shape and verification, OTP binding, and live D1 role. It requires the independently verified exact Owner allowlist first. No emails, identifiers, JWT claims, cookies or secrets are displayed, and there are no database writes or permission changes. Remove temporary probes after root cause and acceptance.
