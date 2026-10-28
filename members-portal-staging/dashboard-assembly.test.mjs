@@ -58,6 +58,29 @@ test('assembly reuses signed OTP + D1 authorization with no login writes, live r
  assert.equal((await get('/app/services/jellyfin')).status,403);
 });
 
+test('owner-only studio UI preview is branded, read-only and role gated',async t=>{
+ const {db}=await fixture(t);await seed(db);
+ const app=assembly(),env={...config,DB:db},before=await snapshot(db);
+ let response=await app.fetch(signed('/app'),env,context());
+ let html=await response.text();
+ assert.equal(response.status,200);
+ assert.match(html,/Big Sox Studios/);
+ assert.match(html,/Your studio, your space/);
+ assert.match(html,/name="viewport"/);
+ assert.match(html,/brand\/logo\/big-sox-studios-mark.webp/);
+ assert.match(html,/href="\/app\/ui-preview"/);
+ assert.match(response.headers.get('Content-Security-Policy'),/img-src https:\/\/bigsoxstudios.com/);
+ response=await app.fetch(signed('/app/ui-preview'),env,context());
+ assert.equal(response.status,200);html=await response.text();
+ assert.match(html,/Design preview only/);assert.match(html,/Invite expired/);
+ assert.doesNotMatch(html,/<form|<script|person@example|ticket=/);
+ assert.deepEqual(await snapshot(db),before);
+ await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ assert.equal((await app.fetch(signed('/app/ui-preview'),env,context())).status,403);
+ html=await (await app.fetch(signed('/app'),env,context())).text();
+ assert.doesNotMatch(html,/\/app\/ui-preview|Owner workspace/);
+});
+
 test('assembly pins host/issuer/audience and denies absent, mismatched or non-OTP runtime identity',async t=>{
  const {db}=await fixture(t);await seed(db);
  const app=assembly(),env={...config,DB:db};

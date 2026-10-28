@@ -28,6 +28,10 @@ test('OFFLINE OTP: exact namespace, D1 role, zero writes, per-request revocation
  const html=await response.text();
  assert.match(html,/<dd>Owner<\/dd>/); assert.match(html,/Services coming soon/);
  assert.match(html,/href="\/cdn-cgi\/access\/logout"/);
+ assert.match(html,/href="\/ui-preview"/);
+ const preview=await get('/ui-preview');
+ assert.equal(preview.status,200);
+ assert.match(await preview.text(),/href="\/"/);
  assert.doesNotMatch(html,/person@example|access-session|synthetic-approval|jellyfin|palworld|mfa verified/i);
  assert.match(response.headers.get('Cache-Control'),/no-store/);
  assert.equal(response.headers.get('CDN-Cache-Control'),'no-store');
@@ -104,7 +108,7 @@ test('OFFLINE OTP: custom host only; disabled flags, unknown routes, methods, er
 });
 
 test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real ephemeral D1',async t=>{
- const names=['member-dashboard','otp-identity','access','identity','authorization'];
+ const names=['member-dashboard','studio-ui','otp-identity','access','identity','authorization'];
  const modules=names.map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
  const entry=`import {createMemberDashboard} from './portal/member-dashboard.mjs';
  import {createAuthenticator} from './portal/access.mjs';

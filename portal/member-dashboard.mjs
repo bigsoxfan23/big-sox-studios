@@ -1,15 +1,27 @@
 import {checkOtpHost,createOtpAuthenticator} from './otp-identity.mjs';
 import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
+import {studioPage,studioPreview} from './studio-ui.mjs';
 
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
- 'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+ 'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https://bigsoxstudios.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
  'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
  'X-Robots-Tag':'noindex, nofollow, noarchive','Content-Type':'text/html; charset=utf-8'
 };
-const page=(title,body)=>`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Big Sox Studios</title><style>
-:root{color-scheme:dark;font:100%/1.6 system-ui,sans-serif;background:#101820;color:#f6f4ee}body{margin:auto;max-width:46rem;padding:clamp(1rem,5vw,3rem)}header{border-bottom:3px solid #ffba70;margin-bottom:2rem}h1{line-height:1.2}section{background:#1c2a36;padding:1.5rem;border-radius:.75rem;margin:1.5rem 0}a{color:#ffd49f;display:inline-block;padding:.75rem 0}a:focus-visible{outline:3px solid #fff;outline-offset:4px}dt{font-weight:700}dd{margin:0 0 1rem}footer{color:#d1d9df}</style><header><p>BIG SOX STUDIOS</p><h1>${title}</h1></header><main>${body}</main></html>`;
-const dashboard=member=>page('Member portal',`<section aria-labelledby="membership"><h2 id="membership">Your membership</h2><dl><dt>Role</dt><dd>${{owner:'Owner',trusted:'Trusted member',member:'Member'}[member.role]}</dd><dt>Status</dt><dd>Active</dd></dl></section><section aria-labelledby="services"><h2 id="services">Services coming soon</h2><p>Service access is not connected yet.</p></section><footer><a href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a><p>This ends your Access session across applications. It does not sign you out of your email provider. Close this tab after signing out if you use a shared device.</p></footer>`);
+// Failure responses stay intentionally tiny and avoid echoing private identifiers.
+const page=(title,body)=>'<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Big Sox Studios</title><style>body{font:16px/1.6 system-ui,sans-serif;background:#101821;color:#f6eedf;margin:0;padding:3rem max(1rem,calc((100vw - 44rem)/2))}h1{font:600 2.6rem Georgia,serif;color:#f6eedf}main{border:1px solid #5c6470;border-radius:1rem;padding:1.5rem;background:#17212c}strong{color:#f2a33b}</style><main><strong>Big Sox Studios</strong><h1>'+title+'</h1>'+body+'</main></html>';
+const dashboard=(member,mountPath)=>{
+ const role={owner:'Owner',trusted:'Trusted member',member:'Member'}[member.role];
+ const owner=mayManageMembers(member);
+ const services=member.grants.filter(x=>SERVICES.includes(x));
+ const serviceCopy=services.length?'Your granted services will be shown here once connected.':'Your studio services will appear here once connected and approved.';
+ const ownerPanel=owner?'<section class="panel wide"><div class="eyeline"><h2>Owner workspace</h2><span class="status preview">Coming next</span></div><p class="muted">Member invitations, permission controls and revocation are the next features.</p><a class="button" href="'+(mountPath==='/app'?'/app/ui-preview':'/ui-preview')+'">Preview the studio designs</a></section>':'';
+ return studioPage('Your studio, your space',
+ '<p class="lede">Welcome back to Big Sox Studios. Your access is checked securely on every visit.</p><div class="grid">'+
+ '<section class="panel"><div class="eyeline"><h2>Your membership</h2><span class="status">Active</span></div><dl><div><dt>Role</dt><dd>'+role+'</dd></div><div><dt>Status</dt><dd>Active</dd></div></dl></section>'+
+ '<section class="panel"><div class="eyeline"><h2>Services coming soon</h2><span class="status preview">Not connected</span></div><p class="muted">'+serviceCopy+'</p><p class="fine muted">Signing in does not automatically grant access to services.</p></section>'+
+ ownerPanel+'</div><p><a class="button secondary" href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a></p><p class="fine muted">Signing out ends your Access session across applications, but not your email provider session.</p>','Member portal');
+};
 
 export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/'}={}) {
  if (!['/','/app'].includes(mountPath)) throw Error('invalid mount');
@@ -36,7 +48,11 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    if (url.search) return respond(400,'Unavailable','This address is unavailable.');
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
-   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member),{status:200,headers});
+   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+   if(path==='/ui-preview') {
+    if(!mayManageMembers(member)) throw Error('denied');
+    return new Response(request.method==='HEAD'?null:studioPreview(mountPath),{status:200,headers});
+   }
    if (path==='/api/owner' && !mayManageMembers(member)) throw Error('denied');
    // Own and legacy service paths are guarded even though no service is wired.
    const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(path)?.[1];
