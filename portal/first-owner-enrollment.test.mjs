@@ -53,6 +53,29 @@ test('enrollment GET is read-only; explicit browser POST commits one atomic Owne
  assert.equal((await f.fetch(f.get())).status,403);assert.deepEqual(await snapshot(f.db),state);
 });
 
+// A normal HTML <form method=post> navigation inherits Referrer-Policy from
+// its GET document. With no-referrer, Chrome sends literal Origin: null even
+// for same-origin form navigation; same-origin retains the actual HTTPS Origin.
+// Keep this page policy and strict POST origin check in sync.
+test('enrollment GET sets same-origin referrer policy for real HTML form navigation',async t=>{
+ const f=await setup(t),form=await f.start();
+ assert.equal(form.response.headers.get('Referrer-Policy'),'same-origin');
+ assert.match(form.html,/<form method="post" action="\/owner\/enroll">/);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,0);
+ // Browser POST produced under this policy must use exact same-origin.
+ assert.equal((await f.fetch(f.post(form,{Origin:f.env.APP_ORIGIN}))).status,200);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,1);
+});
+test('opaque null or foreign Origin cannot create an Owner',async t=>{
+ const f=await setup(t),form=await f.start();
+ for(const origin of ['null','https://evil.test']){
+  const result=await f.fetch(f.post(form,{Origin:origin}));
+  assert.equal(result.status,403);
+  assert.match(await result.text(),/Check: browser-origin/);
+ }
+ assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM first_owner_bootstrap').first()).n,0);
+});
+
 test('enrollment denies CSRF, API posts, malformed form, missing GET, altered cookie/ticket with no writes',async t=>{
  const f=await setup(t),form=await f.start(),before=await snapshot(f.db);
  const cases=[

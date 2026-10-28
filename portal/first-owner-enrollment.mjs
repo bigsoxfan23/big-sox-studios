@@ -9,7 +9,7 @@ const headers={
  'Cache-Control':'private, no-store, max-age=0',
  'Content-Type':'text/html; charset=utf-8',
  'Content-Security-Policy':"default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
- 'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
+ 'Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
  'X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet',
  'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
  'Strict-Transport-Security':'max-age=31536000; includeSubDomains'
