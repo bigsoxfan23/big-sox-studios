@@ -1,3 +1,4 @@
+import {studioPage} from './studio-ui.mjs';
 import {createFirstOwnerBootstrap} from './first-owner-bootstrap.mjs';
 import {b64,unb64} from './access.mjs';
 
@@ -8,15 +9,16 @@ const need=value=>{if(!value) throw Error('enrollment denied');};
 const headers={
  'Cache-Control':'private, no-store, max-age=0',
  'Content-Type':'text/html; charset=utf-8',
- 'Content-Security-Policy':"default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+ 'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https://bigsoxstudios.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
  'Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
  'X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet',
  'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
  'Strict-Transport-Security':'max-age=31536000; includeSubDomains'
 };
 const cookie=(value,maxAge)=>`${cookieName}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`;
-const page=(body,status=200,setCookie)=>new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>First Owner enrollment</title><main><h1>First Owner enrollment</h1>${body}</main></html>`,
+const page=(body,status=200,setCookie)=>new Response(studioPage('First Owner enrollment','<section class="panel">'+body+'</section>','Owner setup'),
  {status,headers:{...headers,...(setCookie?{'Set-Cookie':setCookie}:{})}});
+
 const hash=async value=>b64(await crypto.subtle.digest('SHA-256',encoder.encode(value)));
 
 // All dependencies are trusted server source injections, never browser/env proof.

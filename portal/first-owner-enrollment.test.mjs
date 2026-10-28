@@ -40,6 +40,7 @@ test('enrollment GET is read-only; explicit browser POST commits one atomic Owne
  assert.match(form.html,/<form method="post" action="\/owner\/enroll">/);assert.doesNotMatch(form.html,/<script|person@|eyJpc3|synthetic-approval/);
  assert.match(form.response.headers.get('Set-Cookie'),/Path=\/; Secure; HttpOnly; SameSite=Strict; Max-Age=300/);
  assert.match(form.response.headers.get('Content-Security-Policy'),/form-action 'self'/);
+ assert.match(form.html,/Big Sox Studios/);assert.match(form.html,/brand\/logo\/big-sox-studios-mark.webp/);
  const result=await f.fetch(f.post(form));assert.equal(result.status,200);assert.match(await result.text(),/completed/);
  const state=await snapshot(f.db);for(const index of [0,1,2,9]) assert.equal(state[index].length,1);
  const digest=value=>createHash('sha256').update(value).digest('hex');
