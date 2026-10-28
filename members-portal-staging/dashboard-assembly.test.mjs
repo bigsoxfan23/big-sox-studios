@@ -81,6 +81,36 @@ test('owner-only studio UI preview is branded, read-only and role gated',async t
  assert.doesNotMatch(html,/\/app\/ui-preview|Owner workspace/);
 });
 
+test('owner-only members view is read-only and uses current role',async t=>{
+ const {db}=await fixture(t);await seed(db);
+ const app=assembly(),env={...config,DB:db},before=await snapshot(db);
+ let res=await app.fetch(signed('/app/manage'),env,context());
+ assert.equal(res.status,200);
+ const html=await res.text();
+ assert.match(html,/Manage your studio/);
+ assert.match(html,/person@example.test/);
+ assert.match(html,/owner\.bigsoxstudios\.com\/membership\/requests\//);
+ assert.match(html,/Recent activity/);
+ assert.doesNotMatch(html,/<form|<script|ticket=/);
+ assert.deepEqual(await snapshot(db),before);
+ await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
+ await db.prepare("UPDATE members SET role='owner',status='revoked' WHERE id='person'").run();
+ assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
+});
+
+test('Owner member view stays available as immutable audit history grows',async t=>{
+ const {db}=await fixture(t);await seed(db);
+ for(let i=0;i<62;i++) await db.prepare('INSERT INTO audit_events(actor_id,member_id,action,at) VALUES(?,?,?,?)').bind('person','person','test-event',epoch+i).run();
+ const app=assembly(),env={...config,DB:db};
+ const before=await snapshot(db),response=await app.fetch(signed('/app/manage'),env,context());
+ assert.equal(response.status,200);
+ const html=await response.text();
+ assert.match(html,/Showing the latest 60 events/);
+ assert.equal((html.match(/test-event/g)||[]).length,60);
+ assert.deepEqual(await snapshot(db),before);
+});
+
 test('assembly pins host/issuer/audience and denies absent, mismatched or non-OTP runtime identity',async t=>{
  const {db}=await fixture(t);await seed(db);
  const app=assembly(),env={...config,DB:db};

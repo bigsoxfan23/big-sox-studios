@@ -108,7 +108,7 @@ test('OFFLINE OTP: custom host only; disabled flags, unknown routes, methods, er
 });
 
 test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real ephemeral D1',async t=>{
- const names=['member-dashboard','studio-ui','otp-identity','access','identity','authorization'];
+ const names=['member-dashboard','owner-members-view','studio-ui','otp-identity','access','identity','authorization'];
  const modules=names.map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
  const entry=`import {createMemberDashboard} from './portal/member-dashboard.mjs';
  import {createAuthenticator} from './portal/access.mjs';

@@ -1,6 +1,7 @@
 import {checkOtpHost,createOtpAuthenticator} from './otp-identity.mjs';
 import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
 import {studioPage,studioPreview} from './studio-ui.mjs';
+import {ownerMembersView} from './owner-members-view.mjs';
 
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
@@ -15,7 +16,7 @@ const dashboard=(member,mountPath)=>{
  const owner=mayManageMembers(member);
  const services=member.grants.filter(x=>SERVICES.includes(x));
  const serviceCopy=services.length?'Your granted services will be shown here once connected.':'Your studio services will appear here once connected and approved.';
- const ownerPanel=owner?'<section class="panel wide"><div class="eyeline"><h2>Owner workspace</h2><span class="status preview">Coming next</span></div><p class="muted">Member invitations, permission controls and revocation are the next features.</p><a class="button" href="'+(mountPath==='/app'?'/app/ui-preview':'/ui-preview')+'">Preview the studio designs</a></section>':'';
+ const ownerPanel=owner?'<section class="panel wide"><div class="eyeline"><h2>Owner workspace</h2><span class="status preview">Coming next</span></div><p class="muted">Review your members and the existing request queue. Invitation controls are next.</p><a class="button" href="'+(mountPath==='/app'?'/app/ui-preview':'/ui-preview')+'">Preview the studio designs</a> <a class="button secondary" href="'+(mountPath==='/app'?'/app/manage':'/manage')+'">Manage members</a></section>':'';
  return studioPage('Your studio, your space',
  '<p class="lede">Welcome back to Big Sox Studios. Your access is checked securely on every visit.</p><div class="grid">'+
  '<section class="panel"><div class="eyeline"><h2>Your membership</h2><span class="status">Active</span></div><dl><div><dt>Role</dt><dd>'+role+'</dd></div><div><dt>Status</dt><dd>Active</dd></div></dl></section>'+
@@ -49,6 +50,12 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
    if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+   if(path==='/manage') {
+    if(!mayManageMembers(member)) throw Error('denied');
+    const html=await ownerMembersView(env.DB,mountPath);
+    if(Math.floor(now()/1000)>=identity.expiresAt) throw Error('expired');
+    return new Response(request.method==='HEAD'?null:html,{status:200,headers});
+   }
    if(path==='/ui-preview') {
     if(!mayManageMembers(member)) throw Error('denied');
     return new Response(request.method==='HEAD'?null:studioPreview(mountPath),{status:200,headers});
