@@ -2,6 +2,7 @@ import {checkOtpHost,createOtpAuthenticator} from './otp-identity.mjs';
 import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
 import {studioPage,studioPreview} from './studio-ui.mjs';
 import {ownerMembersView} from './owner-members-view.mjs';
+import {prepareOwnerAction,executeOwnerAction,ownerActionSetCookie} from './owner-member-actions.mjs';
 
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
@@ -44,18 +45,31 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    const at=Math.floor(now()/1000);
    if (!authorizeMember(member) || !Number.isSafeInteger(at) || at<0 ||
     identity.expiresAt<=at) throw Error('denied');
-   if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
    const url=new URL(request.url);
    if (url.search) return respond(400,'Unavailable','This address is unavailable.');
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
-   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
    if(path==='/manage') {
     if(!mayManageMembers(member)) throw Error('denied');
-    const html=await ownerMembersView(env.DB,mountPath);
-    if(Math.floor(now()/1000)>=identity.expiresAt) throw Error('expired');
-    return new Response(request.method==='HEAD'?null:html,{status:200,headers});
+    const enabled=env.PORTAL_OWNER_CONTROLS==='enabled-12-1';
+    if(request.method==='POST') {
+     if(!enabled)return respond(405,'Unavailable','This method is unavailable.');
+     await executeOwnerAction(env.DB,request,member.id,()=>Math.floor(now()/1000));
+     if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
+     return new Response(null,{status:303,headers:{...headers,Location:mountPath==='/app'?'/app/manage':'/manage'}});
+    }
+    if(!['GET','HEAD'].includes(request.method))return respond(405,'Unavailable','This method is unavailable.');
+    const csrf=enabled&&request.method==='GET'
+     ?await prepareOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000)):null;
+    const html=await ownerMembersView(env.DB,mountPath,csrf);
+    if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
+    const privateHeaders=csrf?{...headers,
+     'Content-Security-Policy':headers['Content-Security-Policy'].replace("form-action 'none'","form-action 'self'"),
+     'Set-Cookie':ownerActionSetCookie(csrf)}:headers;
+    return new Response(request.method==='HEAD'?null:html,{status:200,headers:privateHeaders});
    }
+   if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
+   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
    if(path==='/ui-preview') {
     if(!mayManageMembers(member)) throw Error('denied');
     return new Response(request.method==='HEAD'?null:studioPreview(mountPath),{status:200,headers});
