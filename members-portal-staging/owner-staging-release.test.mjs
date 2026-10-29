@@ -103,3 +103,60 @@ test('release config pins existing separate Owner Access audience and exact Phas
  assert.match(settings,new RegExp('database_id = "'+phase2DatabaseId+'"'));
  assert.doesNotMatch(settings,/bss-membership-requests|migrations_dir/);
 });
+
+
+test('Owner-only identity check probes the actual dashboard route without writes or exposing error details',async t=>{
+ const {db,env}=await setup(t);
+ await db.prepare("INSERT INTO members VALUES('owner','person@example.test','owner','active',?)").bind(epoch).run();
+ await db.prepare("INSERT INTO identities VALUES('otp','person@example.test','owner',?)").bind(epoch).run();
+ const at=Math.floor(Date.now()/1000);
+ const signedPath=path=>request(token({
+  iss:dashboardConfig.ACCESS_ISSUER,aud:[dashboardConfig.ACCESS_AUDIENCE],
+  iat:at-20,nbf:at-20,exp:at+900
+ }),path,dashboardConfig.APP_ORIGIN);
+ const candidate=createOwnerStagingRelease({fetcher:certFetch,now:()=>Date.now()});
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=certFetch; // legacy diagnostic's public signing-key fetch; never calls the network
+ try {
+  const before=await count(db,'audit_events');
+  const checked=await candidate.fetch(signedPath('/owner/identity-check'),env,context());
+  assert.equal(checked.status,200);
+  const html=await checked.text();
+  assert.match(html,/<dt>portalOtpSessionVerified<\/dt><dd>true<\/dd>/);
+  assert.match(html,/<dt>portalOwnerActive<\/dt><dd>true<\/dd>/);
+  assert.match(html,/<dt>portalAppRouteAccepted<\/dt><dd>true<\/dd>/);
+  assert.match(html,/<dt>portalAppFailureStage<\/dt><dd>none<\/dd>/);
+  assert.doesNotMatch(html,/person@example.test|access-session|BEGIN PRIVATE|jwt=[^<]+/);
+  assert.equal(await count(db,'audit_events'),before);
+  assert.equal(await count(db,'owner_action_nonces'),0);
+
+  let identityReads=0;
+  const flaky={access:{aud:dashboardConfig.ACCESS_AUDIENCE,async getIdentity(){
+   if(++identityReads===3) throw Error('synthetic-only downstream identity failure');
+   return {idp:{type:'onetimepin'},email:'person@example.test'};
+  }}};
+  const failure=await candidate.fetch(signedPath('/owner/identity-check'),env,flaky);
+  assert.equal(failure.status,200);
+  const failureHtml=await failure.text();
+  assert.match(failureHtml,/<dt>portalOtpSessionVerified<\/dt><dd>true<\/dd>/);
+  assert.match(failureHtml,/<dt>portalOwnerActive<\/dt><dd>true<\/dd>/);
+  assert.match(failureHtml,/<dt>portalAppRouteAccepted<\/dt><dd>false<\/dd>/);
+  assert.match(failureHtml,/<dt>portalAppFailureStage<\/dt><dd>jwt-otp<\/dd>/);
+  assert.doesNotMatch(failureHtml,/synthetic-only downstream identity failure|person@example.test/);
+
+  const drifted={...env,BOOTSTRAP_DATABASE_ID:'wrong-isolated-database'};
+  assert.equal((await candidate.fetch(signedPath('/app'),drifted,context())).status,503);
+  const driftDiagnostic=await candidate.fetch(signedPath('/owner/identity-check'),drifted,context());
+  assert.equal(driftDiagnostic.status,200);
+  const driftHtml=await driftDiagnostic.text();
+  assert.match(driftHtml,/<dt>portalOwnerActive<\/dt><dd>true<\/dd>/);
+  assert.match(driftHtml,/<dt>portalAppRouteAccepted<\/dt><dd>false<\/dd>/);
+  assert.match(driftHtml,/<dt>portalAppFailureStage<\/dt><dd>deployment-guard<\/dd>/);
+
+  const denied=await candidate.fetch(signedPath('/owner/identity-check'),env,context('google'));
+  assert.equal(denied.status,200);
+  assert.doesNotMatch(await denied.text(),/portalAppRouteAccepted/);
+ } finally {
+  globalThis.fetch=originalFetch;
+ }
+});

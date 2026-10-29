@@ -30,23 +30,29 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  return {async fetch(request,env,ctx) {
   const respond=(status,title,body)=>new Response(request.method==='HEAD'?null:page(title,`<p>${body}</p>`),{status,headers});
+  let stage='host';
   try {
    checkOtpHost(request,env);
+   stage='jwt-otp';
    const identity=await authenticate(request,env,ctx);
+   stage='d1-lookup';
    // One live snapshot, every path/method. No login writes, no email fallback,
    // no owner shortcut and no cached membership, roles or service grants.
    const member=await env.DB.prepare(`SELECT m.id,m.role,m.status,
     COALESCE(json_group_array(g.service) FILTER(WHERE g.service IS NOT NULL),'[]') AS grants
     FROM identities i JOIN members m ON m.id=i.member_id LEFT JOIN service_grants g ON g.member_id=m.id
     WHERE i.provider=? AND i.subject=? GROUP BY m.id`).bind(identity.provider,identity.subject).first();
+   stage='member-decode';
    if (!member || typeof member.id!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(member.id)) throw Error('denied');
    member.grants=JSON.parse(member.grants);
+   stage='authorization';
    // The signed session must still be current after the live D1 read.
    const at=Math.floor(now()/1000);
    if (!authorizeMember(member) || !Number.isSafeInteger(at) || at<0 ||
     identity.expiresAt<=at) throw Error('denied');
    const url=new URL(request.url);
    if (url.search) return respond(400,'Unavailable','This address is unavailable.');
+   stage='route';
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
    if(path==='/manage') {
@@ -70,7 +76,10 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
     return new Response(request.method==='HEAD'?null:html,{status:200,headers:privateHeaders});
    }
    if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
-   if (path==='/') return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+   if (path==='/') {
+    stage='dashboard-render';
+    return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+   }
    if(path==='/ui-preview') {
     if(!mayManageMembers(member)) throw Error('denied');
     return new Response(request.method==='HEAD'?null:studioPreview(mountPath),{status:200,headers});
@@ -80,7 +89,12 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(path)?.[1];
    if (service && (!SERVICES.includes(service) || !authorizeMember(member,service))) throw Error('denied');
    return respond(404,'Unavailable','This resource is not connected.');
-  } catch { return respond(403,'Access unavailable','Access could not be verified.'); }
+  } catch {
+   // Server-internal callback is supplied only during an existing Owner-only
+   // identity check. No error message, user identifier, cookie or JWT is emitted.
+   try { if(typeof env?.__bssOwnerRouteProbe==='function') env.__bssOwnerRouteProbe(stage); } catch { /* Fail closed. */ }
+   return respond(403,'Access unavailable','Access could not be verified.');
+  }
  }};
 }
 // Deployment remains safe-off in members-portal-staging/worker.mjs.

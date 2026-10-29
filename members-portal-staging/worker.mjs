@@ -117,7 +117,7 @@ function diagnosticResponse(fields, status = 200) {
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Identity field check</title><style>body{font:18px system-ui;max-width:40rem;margin:2rem auto;padding:0 1rem}dt{overflow-wrap:anywhere;margin-top:1rem}dd{margin:.25rem 0;font-weight:bold}</style><h1>Identity field check</h1><p>${status === 200 ? 'Sanitized runtime identity checks only.' : 'Identity fields unavailable.'} MFA NOT VERIFIED — field presence does not prove independent MFA.</p><dl>${rows}</dl></html>`, { status, headers: diagnosticHeaders });
 }
 
-async function identityCheck(request, env, ctx) {
+async function identityCheck(request, env, ctx, memberApp=null) {
   const url = new URL(request.url);
   const deny = status => new Response(status === 404 ? 'Not found' : 'Access verification required', { status, headers: diagnosticHeaders });
   if (url.hostname !== DIAGNOSTIC_HOST || url.host !== DIAGNOSTIC_HOST || url.protocol !== 'https:' ||
@@ -193,6 +193,23 @@ async function identityCheck(request, env, ctx) {
           authorizeMember({...row,grants:JSON.parse(row.grants)});
       } catch { /* Keep all identity and authorization details private. */ }
     }
+    // Owner-only end-to-end probe of the ACTUAL /app handler, not a second
+    // reconstruction of the JWT/OTP/D1 gates. GET /app never writes to D1.
+    // Only sanitized status and a fixed stage label are returned.
+    if(fields.portalOwnerActive===true && fields.portalOtpSessionVerified===true &&
+       fields.portalStrictJwtVerified===true && memberApp?.fetch) {
+      fields.portalAppRouteAccepted=false;
+      fields.portalAppFailureStage='unavailable';
+      try {
+        const target=new URL('/app',url.origin);
+        const internalRequest=new Request(target,{method:'GET',headers:request.headers});
+        let failedStage='unknown';
+        const internalEnv={...env,__bssOwnerRouteProbe:stage=>{failedStage=stage;}};
+        const appResponse=await memberApp.fetch(internalRequest,internalEnv,ctx);
+        fields.portalAppRouteAccepted=appResponse.status===200;
+        fields.portalAppFailureStage=fields.portalAppRouteAccepted?'none':failedStage;
+      } catch { /* Do not expose errors or sensitive request state. */ }
+    }
     return diagnosticResponse(fields);
   } catch { return diagnosticResponse(fields, 503); }
 }
@@ -202,7 +219,7 @@ async function identityCheck(request, env, ctx) {
 export function createStagingWorker({memberApp}={}) {
  return {
   async fetch(request, env, ctx) {
-    if (new URL(request.url).pathname === '/owner/identity-check') return identityCheck(request, env, ctx);
+    if (new URL(request.url).pathname === '/owner/identity-check') return identityCheck(request, env, ctx, memberApp);
     const url = new URL(request.url);
     if (url.pathname==='/app' || url.pathname.startsWith('/app/')) {
       // Never expose the private portal on direct workers.dev, previews, aliases or unknown hosts.

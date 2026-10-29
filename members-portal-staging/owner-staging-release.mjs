@@ -7,13 +7,22 @@ import {unb64} from '../portal/access.mjs';
 // This is not the Task #11 membership-request database.
 export const phase2DatabaseId='43a8a15b-e195-4712-9198-1dcc9f0152af';
 export const ownerSourceRevision='task12-cloudflare-mfa-20261026-v1';
-const blank=createStagingWorker();
 const noStore={'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow'};
 
 export function createOwnerStagingRelease({fetcher=fetch,now=()=>Date.now()}={}) {
  // One verifier per isolate reuses public Access signing keys for their short
  // validated cache TTL; every request still re-verifies JWT and reads live D1.
  const dashboard=createStagingDashboard({fetcher,now});
+ // Use the EXACT same D1 isolation guard in both the live route and the
+ // Owner-only in-process diagnostic. A direct dashboard call would omit it.
+ const guardedDashboard={fetch(request,env,ctx){
+  if (!env?.DB || env.BOOTSTRAP_DATABASE_ID!==phase2DatabaseId) {
+   try { if(typeof env?.__bssOwnerRouteProbe==='function') env.__bssOwnerRouteProbe('deployment-guard'); } catch { /* Diagnostic callback must never affect authorization. */ }
+   return new Response('Members Portal setup unavailable',{status:503,headers:noStore});
+  }
+  return dashboard.fetch(request,env,ctx);
+ }};
+ const blank=createStagingWorker({memberApp:guardedDashboard});
  return {async fetch(request,env,ctx) {
   const url=new URL(request.url);
   if (url.pathname!=='/owner/enroll' && url.pathname!=='/app' && !url.pathname.startsWith('/app/'))
@@ -21,9 +30,7 @@ export function createOwnerStagingRelease({fetcher=fetch,now=()=>Date.now()}={})
   // Once enrollment is accepted, the confirmation key can be retired without
   // disabling existing, D1-authorized member logins. There is no JIT here.
   if (url.pathname==='/app' || url.pathname.startsWith('/app/')) {
-   if (!env?.DB || env.BOOTSTRAP_DATABASE_ID!==phase2DatabaseId)
-    return new Response('Members Portal setup unavailable',{status:503,headers:noStore});
-   return dashboard.fetch(request,env,ctx);
+   return guardedDashboard.fetch(request,env,ctx);
   }
   try {
    // All values originate in reviewed server configuration, never query/form
