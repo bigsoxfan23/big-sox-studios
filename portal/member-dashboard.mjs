@@ -54,7 +54,8 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
     const enabled=env.PORTAL_OWNER_CONTROLS==='enabled-12-1';
     if(request.method==='POST') {
      if(!enabled)return respond(405,'Unavailable','This method is unavailable.');
-     await executeOwnerAction(env.DB,request,member.id,()=>Math.floor(now()/1000));
+     if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
+     await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
      if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
      return new Response(null,{status:303,headers:{...headers,Location:mountPath==='/app'?'/app/manage':'/manage'}});
     }
