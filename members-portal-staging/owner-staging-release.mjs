@@ -17,7 +17,7 @@ export function createOwnerStagingRelease({fetcher=fetch,now=()=>Date.now()}={})
  // Owner-only in-process diagnostic. A direct dashboard call would omit it.
  const guardedDashboard={fetch(request,env,ctx){
   if (!env?.DB || env.BOOTSTRAP_DATABASE_ID!==phase2DatabaseId) {
-   try { if(typeof env?.__bssOwnerRouteProbe==='function') env.__bssOwnerRouteProbe('deployment-guard'); } catch {}
+   try { if(typeof env?.__bssOwnerRouteProbe==='function') env.__bssOwnerRouteProbe('deployment-guard'); } catch { /* Diagnostic callback must never affect authorization. */ }
    return new Response('Members Portal setup unavailable',{status:503,headers:noStore});
   }
   return dashboard.fetch(request,env,ctx);
