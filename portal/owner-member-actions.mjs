@@ -30,6 +30,8 @@ export async function prepareOwnerAction(db,request,ownerId,expiresAt,now=clock)
  requireThat(Number.isSafeInteger(at)&&Number.isSafeInteger(until)&&until>at);
  const csrf=randomToken();
  const digest=await hash(csrf),sessionDigest=await hash(sessionToken(request));
+ // This table holds only disposable anti-replay state; never delete audit history.
+ await db.prepare('DELETE FROM owner_action_nonces WHERE expires_at<=?').bind(at).run();
  await db.prepare(`INSERT INTO owner_action_nonces(digest,actor_id,session_digest,issued_at,expires_at)
  VALUES(?,?,?,?,?)`).bind(digest,ownerId,sessionDigest,at,until).run();
  return csrf;
