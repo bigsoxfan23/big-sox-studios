@@ -125,11 +125,12 @@ export function createRepository(db, {now=clock,sessionExpiresAt=null}={}) {
    await owner(actor); const at=time();
    if(typeof invitationId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(invitationId)) throw Error('invalid invitation');
    // D1 transition trigger retains immutable history and clears the claim digest.
-   const row=await stmt(`UPDATE invitations SET status='revoked',digest=NULL,changed_at=?,actor_id=?
+   const sql=`UPDATE invitations SET status='revoked',digest=NULL,changed_at=?,actor_id=?
     WHERE id=? AND status IN ('blocked','projected','delivered')
     AND EXISTS(SELECT 1 FROM members m WHERE m.id=invitations.member_id AND m.status='pending')
-    AND EXISTS(SELECT 1 FROM members m WHERE m.id=? AND m.status='active' AND m.role='owner')
-    RETURNING id`,at,actor,invitationId,actor).first();
+    AND EXISTS(SELECT 1 FROM members m WHERE m.id=? AND m.status='active' AND m.role='owner')`+
+    (guarded?" AND unixepoch('now') < ?":"")+" RETURNING id";
+   const row=await stmt(sql,at,actor,invitationId,actor,...(guarded?[sessionExpiresAt]:[])).first();
    changed(row);
   },
   async revoke(actor,memberId) {
