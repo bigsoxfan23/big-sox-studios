@@ -41,14 +41,20 @@ export function createRepository(db, {now=clock}={}) {
     stmt("INSERT INTO audit_events(actor_id,member_id,action,at) VALUES(?,?,'membership-approved',?)",actor,id,at)
    ]); return id;
   },
-  async issue(actor,memberId) {
-   await owner(actor); const at=time();
+  async issue(actor,memberId,{expectedPredecessorId=undefined}={}) {
+   await owner(actor);
    const member=await stmt("SELECT recipient FROM members WHERE id=? AND status='pending'",memberId).first();
    if (!member) throw Error('pending member required');
    const last=await stmt('SELECT id,revision FROM invitations WHERE member_id=? ORDER BY revision DESC LIMIT 1',memberId).first();
+   // Caller may pin the exact predecessor. The D1 issue_guard trigger validates
+   // this again atomically on INSERT to defeat concurrent issue/reissue races.
+   if(expectedPredecessorId!==undefined && expectedPredecessorId!==(last?.id??null)) throw Error('stale invitation action');
    const bytes=crypto.getRandomValues(new Uint8Array(32));
    const secret=btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
    const id=crypto.randomUUID(), digest=await digestSecret(secret);
+   // Check the current operation clock after asynchronous reads and hashing;
+   // the Owner UI provides a session-expiry guarded clock.
+   const at=time();
    // Single SQL statement + triggers: CAS predecessor, supersede, insert and audit
    // roll back together. A concurrent stale writer must retry explicitly.
    await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
