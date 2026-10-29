@@ -65,8 +65,15 @@ export function createRepository(db, {now=clock,sessionExpiresAt=null}={}) {
    const at=time();
    // Single SQL statement + triggers: CAS predecessor, supersede, insert and audit
    // roll back together. A concurrent stale writer must retry explicitly.
-   await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,'blocked')`,id,memberId,member.recipient,actor,(last?.revision??0)+1,last?.id??null,digest,at,at+604800,at,actor).run();
+   const args=[id,memberId,member.recipient,actor,(last?.revision??0)+1,last?.id??null,digest,at,at+604800,at,actor];
+   if(guarded) {
+    changed(await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
+     SELECT ?,?,?,?,?,?,?,?,?,?,?,'blocked' WHERE unixepoch('now') < ? RETURNING id`,
+     ...args,sessionExpiresAt).first());
+   }else {
+    await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,'blocked')`,...args).run();
+   }
    // Sensitive result: ephemeral custody only; never log/serialize to tracking.
    return {id,secret,expiresAt:at+604800};
   },
