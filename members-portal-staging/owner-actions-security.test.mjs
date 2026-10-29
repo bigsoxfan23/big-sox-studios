@@ -52,3 +52,16 @@ test('database clock enforces JWT deadline at every Owner D1 mutation',async t=>
  assert.equal(status.status,'blocked');
  assert.match(status.digest,/^[0-9a-f]{64}$/);
 });
+
+test('explicit invitation predecessor prevents stale issue and reissue',async t=>{
+ const {db,repo}=await fixture(t);
+ const member=await repo.createPending('owner','stale@example.test');
+ const first=await repo.issue('owner',member,{expectedPredecessorId:null});
+ await assert.rejects(repo.issue('owner',member,{expectedPredecessorId:null}));
+ const second=await repo.issue('owner',member,{expectedPredecessorId:first.id});
+ await assert.rejects(repo.issue('owner',member,{expectedPredecessorId:first.id}));
+ const rows=(await db.prepare('SELECT revision,status FROM invitations WHERE member_id=? ORDER BY revision').bind(member).all()).results;
+ assert.equal(rows.length,2);
+ assert.deepEqual(rows.map(row=>row.status),['superseded','blocked']);
+ assert.ok(second.id!==first.id);
+});
