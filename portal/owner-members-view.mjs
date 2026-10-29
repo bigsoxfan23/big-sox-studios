@@ -17,7 +17,7 @@ export async function ownerMembersView(db,mountPath='/app',actionToken=null) {
   const fields='<input type="hidden" name="member" value="'+e(row.id)+'">';
   let actions='';
   if(row.role!=='owner' && row.status==='pending'){
-   actions+=form(row.invite_id?'reissue':'issue',fields,row.invite_id?'Reissue draft invitation':'Create draft invitation');
+   actions+=form(row.invite_id?'reissue':'issue',fields+(row.invite_id?'<input type="hidden" name="previous" value="'+e(row.invite_id)+'">':''),row.invite_id?'Reissue draft invitation':'Create draft invitation');
    if(row.invite_id&&['blocked','projected','delivered'].includes(row.invite_status))
     actions+=form('cancel','<input type="hidden" name="member" value="'+e(row.invite_id)+'">','Cancel invitation');
   }
