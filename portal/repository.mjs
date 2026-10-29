@@ -12,7 +12,11 @@ export function equalDigest(a,b) {
  if (typeof a !== 'string' || typeof b !== 'string' || !/^[a-f0-9]{64}$/.test(a) || !/^[a-f0-9]{64}$/.test(b)) return false;
  let diff=0; for (let i=0;i<64;i++) diff |= a.charCodeAt(i)^b.charCodeAt(i); return diff===0;
 }
-export function createRepository(db, {now=clock}={}) {
+export function createRepository(db, {now=clock,sessionExpiresAt=null}={}) {
+ if(sessionExpiresAt!==null && (!Number.isSafeInteger(sessionExpiresAt)||sessionExpiresAt<0)) throw Error('invalid session deadline');
+ // Optional write-time guard: the existing offline/non-Owner repository behavior
+ // is unchanged. Live Owner POST mutations use D1's clock at SQL execution time.
+ const guarded=sessionExpiresAt!==null;
  const stmt = (sql,...args) => db.prepare(sql).bind(...args);
  const time = () => checkTime(now());
  const owner = async actor => {
@@ -36,8 +40,12 @@ export function createRepository(db, {now=clock}={}) {
   async authorize(identity,service) { return authorizeMember(await lookup(identity),service); },
   async createPending(actor,email) {
    await owner(actor); const at=time(), id=crypto.randomUUID(), recipient=normalizeEmail(email);
+   const sql="INSERT INTO members(id,recipient,role,status,created_at) SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner')"+
+    (guarded?" AND unixepoch('now') < ?":"");
+   // Single transaction: if the SQL deadline rejects the member insert, the
+   // following mandatory FK-backed audit insert fails and rolls everything back.
    await db.batch([
-    stmt("INSERT INTO members(id,recipient,role,status,created_at) SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner')",id,recipient,at,actor),
+    stmt(sql,id,recipient,at,actor,...(guarded?[sessionExpiresAt]:[])),
     stmt("INSERT INTO audit_events(actor_id,member_id,action,at) VALUES(?,?,'membership-approved',?)",actor,id,at)
    ]); return id;
   },
