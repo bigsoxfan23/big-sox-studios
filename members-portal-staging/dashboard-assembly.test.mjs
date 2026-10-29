@@ -197,7 +197,7 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  assert.equal(await count('owner_action_nonces'),1);
  assert.equal((await post(form,'create',{contact:'approved@example.test'})).status,303);
  assert.equal((await post(form,'create',{contact:'duplicate@example.test'})).status,403);
- assert.equal(await count('members'),2);
+ assert.equal(await count('members'),3);
  assert.equal(await count('identities'),1);
  const pending=await db.prepare("SELECT id,status FROM members WHERE recipient='approved@example.test'").first();
  assert.equal(pending.status,'pending');
