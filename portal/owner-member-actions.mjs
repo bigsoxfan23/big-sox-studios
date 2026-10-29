@@ -88,7 +88,7 @@ export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now
  requireThat(claimed?.digest===digest);
  safeNow(); // A D1 wait must never permit action mutation after session expiry.
  // Repository calls verify the live Owner role AND this session deadline at write time.
- const repo=createRepository(db,{now:safeNow});
+ const repo=createRepository(db,{now:safeNow,sessionExpiresAt});
  const action=form.get('action'),member=form.get('member');
  if(action==='create') await repo.createPending(ownerId,form.get('contact'));
  else if(action==='issue')
