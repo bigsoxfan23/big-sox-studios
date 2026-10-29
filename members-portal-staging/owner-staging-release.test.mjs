@@ -144,6 +144,15 @@ test('Owner-only identity check probes the actual dashboard route without writes
   assert.match(failureHtml,/<dt>portalAppFailureStage<\/dt><dd>jwt-otp<\/dd>/);
   assert.doesNotMatch(failureHtml,/synthetic-only downstream identity failure|person@example.test/);
 
+  const drifted={...env,BOOTSTRAP_DATABASE_ID:'wrong-isolated-database'};
+  assert.equal((await candidate.fetch(signedPath('/app'),drifted,context())).status,503);
+  const driftDiagnostic=await candidate.fetch(signedPath('/owner/identity-check'),drifted,context());
+  assert.equal(driftDiagnostic.status,200);
+  const driftHtml=await driftDiagnostic.text();
+  assert.match(driftHtml,/<dt>portalOwnerActive<\/dt><dd>true<\/dd>/);
+  assert.match(driftHtml,/<dt>portalAppRouteAccepted<\/dt><dd>false<\/dd>/);
+  assert.match(driftHtml,/<dt>portalAppFailureStage<\/dt><dd>deployment-guard<\/dd>/);
+
   const denied=await candidate.fetch(signedPath('/owner/identity-check'),env,context('google'));
   assert.equal(denied.status,200);
   assert.doesNotMatch(await denied.text(),/portalAppRouteAccepted/);
