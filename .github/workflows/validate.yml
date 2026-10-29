@@ -28,5 +28,6 @@ jobs:
       - run: npm run test:membership
       - run: npm run test:public
       - run: npm run test:notify
+      - run: node --test --test-concurrency=1 portal/*.test.mjs members-portal-staging/*.test.mjs
       - run: npm test --prefix owner-launchpad
       - run: npm run check --prefix owner-launchpad

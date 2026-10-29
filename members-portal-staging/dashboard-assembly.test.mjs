@@ -155,3 +155,84 @@ test('staging configs retain inert entrypoint; D1 example is existing Phase2 onl
  assert.match(example,/REPLACE_WITH_EXISTING_APPROVED_PHASE2_DATABASE_UUID/);
  assert.doesNotMatch(example,/21e13fa1-0ab3-4573-8d20-983c847ba0e9|migrations_dir\s*=|ENABLE_PORTAL\s*=/);
 });
+
+
+test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF for pending/invite/reissue/cancel',async t=>{
+ const {db}=await fixture(t);await seed(db);
+ const app=assembly();
+ const readonly=await app.fetch(signed('/app/manage'),{...config,DB:db},context());
+ assert.equal(readonly.status,200);
+ assert.equal(readonly.headers.get('Set-Cookie'),null);
+ assert.doesNotMatch(await readonly.text(),/Create pending member|name="csrf"/);
+ const disabledPost=await app.fetch(new Request(signed('/app/manage'),{method:'POST'}),{...config,DB:db},context());
+ assert.equal(disabledPost.status,405);
+
+ const env={...config,DB:db,PORTAL_OWNER_CONTROLS:'enabled-12-1'};
+ const get=async()=> {
+  const response=await app.fetch(signed('/app/manage'),env,context());
+  assert.equal(response.status,200);
+  assert.match(response.headers.get('Content-Security-Policy'),/form-action 'self'/);
+  const html=await response.text(),csrf=/name="csrf" value="([A-Za-z0-9_-]{43})"/.exec(html)?.[1];
+  assert.ok(csrf);
+  const cookie=response.headers.get('Set-Cookie');
+  assert.match(cookie,/Secure; HttpOnly; SameSite=Strict/);
+  return {csrf,cookie:cookie.split(';')[0],html};
+ };
+ const post=async(page,action,fields={},overrides={})=>{
+  const initial=signed('/app/manage'),headers=new Headers(initial.headers);
+  headers.set('Origin',config.APP_ORIGIN);
+  headers.set('Cookie',page.cookie);
+  headers.set('Content-Type','application/x-www-form-urlencoded');
+  for(const [key,value] of Object.entries(overrides))headers.set(key,value);
+  const req=new Request(initial,{method:'POST',headers,body:new URLSearchParams({csrf:page.csrf,action,...fields}).toString()});
+  return app.fetch(req,env,context());
+ };
+ const count=async(table)=>Number((await db.prepare(`SELECT count(*) AS n FROM ${table}`).first()).n);
+ const head=await app.fetch(new Request(signed('/app/manage'),{method:'HEAD'}),env,context());
+ assert.equal(head.status,200);assert.equal(head.headers.get('Set-Cookie'),null);
+ assert.equal(await count('owner_action_nonces'),0);
+
+ let form=await get();
+ assert.match(form.html,/Create pending member/);
+ assert.equal(await count('owner_action_nonces'),1);
+ assert.equal((await post(form,'create',{contact:'approved@example.test'})).status,303);
+ assert.equal((await post(form,'create',{contact:'duplicate@example.test'})).status,403);
+ assert.equal(await count('members'),3);
+ assert.equal(await count('identities'),1);
+ const pending=await db.prepare("SELECT id,status FROM members WHERE recipient='approved@example.test'").first();
+ assert.equal(pending.status,'pending');
+
+ const a=await get(),b=await get();
+ const results=await Promise.all([post(a,'issue',{member:pending.id}),post(b,'issue',{member:pending.id})]);
+ assert.deepEqual(results.map(x=>x.status).sort(),[303,403]);
+ let rows=(await db.prepare('SELECT id,revision,status,digest FROM invitations WHERE member_id=? ORDER BY revision').bind(pending.id).all()).results;
+ assert.equal(rows.length,1);assert.equal(rows[0].status,'blocked');assert.match(rows[0].digest,/^[0-9a-f]{64}$/);
+ assert.equal((await db.prepare('SELECT count(*) AS n FROM identities').first()).n,1);
+
+ form=await get();
+ assert.equal((await post(form,'reissue',{member:pending.id,previous:rows[0].id})).status,303);
+ rows=(await db.prepare('SELECT id,revision,status,digest FROM invitations WHERE member_id=? ORDER BY revision').bind(pending.id).all()).results;
+ assert.equal(rows.length,2);assert.equal(rows[0].status,'superseded');assert.equal(rows[0].digest,null);
+ assert.equal(rows[1].status,'blocked');assert.equal(rows[1].revision,2);
+
+ form=await get();
+ assert.equal((await post(form,'cancel',{member:rows[1].id})).status,303);
+ const cancelled=await db.prepare('SELECT status,digest FROM invitations WHERE id=?').bind(rows[1].id).first();
+ assert.deepEqual(cancelled,{status:'revoked',digest:null});
+ assert.ok(await count('audit_events')>=5);
+ assert.equal(await count('service_grants'),0);
+ assert.equal(await count('identities'),1);
+
+ form=await get();
+ const blocked=await post(form,'issue',{member:'person'},{'Sec-Fetch-Site':'cross-site'});
+ assert.equal(blocked.status,403);
+ assert.equal((await post(form,'cancel',{member:rows[1].id},{Origin:'https://cross-origin.example'})).status,403);
+ assert.equal((await post(form,'issue',{member:'person'},{Cookie:''})).status,403);
+ assert.equal((await post(form,'issue',{member:'person'})).status,403); // cannot invite active Owner
+ const last=await get();
+ assert.match(last.html,/approved@example.test/);
+ assert.match(last.html,/Recent activity/);
+ assert.doesNotMatch(last.html,/name="secret"|claim\?token=/);
+ await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
+});

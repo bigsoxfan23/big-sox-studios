@@ -12,7 +12,11 @@ export function equalDigest(a,b) {
  if (typeof a !== 'string' || typeof b !== 'string' || !/^[a-f0-9]{64}$/.test(a) || !/^[a-f0-9]{64}$/.test(b)) return false;
  let diff=0; for (let i=0;i<64;i++) diff |= a.charCodeAt(i)^b.charCodeAt(i); return diff===0;
 }
-export function createRepository(db, {now=clock}={}) {
+export function createRepository(db, {now=clock,sessionExpiresAt=null}={}) {
+ if(sessionExpiresAt!==null && (!Number.isSafeInteger(sessionExpiresAt)||sessionExpiresAt<0)) throw Error('invalid session deadline');
+ // Optional write-time guard: the existing offline/non-Owner repository behavior
+ // is unchanged. Live Owner POST mutations use D1's clock at SQL execution time.
+ const guarded=sessionExpiresAt!==null;
  const stmt = (sql,...args) => db.prepare(sql).bind(...args);
  const time = () => checkTime(now());
  const owner = async actor => {
@@ -36,23 +40,40 @@ export function createRepository(db, {now=clock}={}) {
   async authorize(identity,service) { return authorizeMember(await lookup(identity),service); },
   async createPending(actor,email) {
    await owner(actor); const at=time(), id=crypto.randomUUID(), recipient=normalizeEmail(email);
+   const sql="INSERT INTO members(id,recipient,role,status,created_at) SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner')"+
+    (guarded?" AND unixepoch('now') < ?":"");
+   // Single transaction: if the SQL deadline rejects the member insert, the
+   // following mandatory FK-backed audit insert fails and rolls everything back.
    await db.batch([
-    stmt("INSERT INTO members(id,recipient,role,status,created_at) SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='active' AND role='owner')",id,recipient,at,actor),
+    stmt(sql,id,recipient,at,actor,...(guarded?[sessionExpiresAt]:[])),
     stmt("INSERT INTO audit_events(actor_id,member_id,action,at) VALUES(?,?,'membership-approved',?)",actor,id,at)
    ]); return id;
   },
-  async issue(actor,memberId) {
-   await owner(actor); const at=time();
+  async issue(actor,memberId,{expectedPredecessorId=undefined}={}) {
+   await owner(actor);
    const member=await stmt("SELECT recipient FROM members WHERE id=? AND status='pending'",memberId).first();
    if (!member) throw Error('pending member required');
    const last=await stmt('SELECT id,revision FROM invitations WHERE member_id=? ORDER BY revision DESC LIMIT 1',memberId).first();
+   // Caller may pin the exact predecessor. The D1 issue_guard trigger validates
+   // this again atomically on INSERT to defeat concurrent issue/reissue races.
+   if(expectedPredecessorId!==undefined && expectedPredecessorId!==(last?.id??null)) throw Error('stale invitation action');
    const bytes=crypto.getRandomValues(new Uint8Array(32));
    const secret=btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
    const id=crypto.randomUUID(), digest=await digestSecret(secret);
+   // Check the current operation clock after asynchronous reads and hashing;
+   // the Owner UI provides a session-expiry guarded clock.
+   const at=time();
    // Single SQL statement + triggers: CAS predecessor, supersede, insert and audit
    // roll back together. A concurrent stale writer must retry explicitly.
-   await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,'blocked')`,id,memberId,member.recipient,actor,(last?.revision??0)+1,last?.id??null,digest,at,at+604800,at,actor).run();
+   const args=[id,memberId,member.recipient,actor,(last?.revision??0)+1,last?.id??null,digest,at,at+604800,at,actor];
+   if(guarded) {
+    changed(await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
+     SELECT ?,?,?,?,?,?,?,?,?,?,?,'blocked' WHERE unixepoch('now') < ? RETURNING id`,
+     ...args,sessionExpiresAt).first());
+   }else {
+    await stmt(`INSERT INTO invitations(id,member_id,recipient,issuer_id,revision,predecessor_id,digest,created_at,expires_at,changed_at,actor_id,status)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,'blocked')`,...args).run();
+   }
    // Sensitive result: ephemeral custody only; never log/serialize to tracking.
    return {id,secret,expiresAt:at+604800};
   },
@@ -99,6 +120,18 @@ export function createRepository(db, {now=clock}={}) {
   async commitLink(actor,id) {
    await owner(actor); const at=time();
    changed(await stmt("UPDATE link_requests SET status='committed',committed_at=? WHERE id=? AND status='approved' AND approved_by=? AND expires_at>? RETURNING id",at,id,actor,at).first());
+  },
+  async cancelInvitation(actor,invitationId) {
+   await owner(actor); const at=time();
+   if(typeof invitationId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(invitationId)) throw Error('invalid invitation');
+   // D1 transition trigger retains immutable history and clears the claim digest.
+   const sql=`UPDATE invitations SET status='revoked',digest=NULL,changed_at=?,actor_id=?
+    WHERE id=? AND status IN ('blocked','projected','delivered')
+    AND EXISTS(SELECT 1 FROM members m WHERE m.id=invitations.member_id AND m.status='pending')
+    AND EXISTS(SELECT 1 FROM members m WHERE m.id=? AND m.status='active' AND m.role='owner')`+
+    (guarded?" AND unixepoch('now') < ?":"")+" RETURNING id";
+   const row=await stmt(sql,at,actor,invitationId,actor,...(guarded?[sessionExpiresAt]:[])).first();
+   changed(row);
   },
   async revoke(actor,memberId) {
    await owner(actor); const at=time();
