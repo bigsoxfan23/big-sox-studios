@@ -100,6 +100,17 @@ export function createRepository(db, {now=clock}={}) {
    await owner(actor); const at=time();
    changed(await stmt("UPDATE link_requests SET status='committed',committed_at=? WHERE id=? AND status='approved' AND approved_by=? AND expires_at>? RETURNING id",at,id,actor,at).first());
   },
+  async cancelInvitation(actor,invitationId) {
+   await owner(actor); const at=time();
+   if(typeof invitationId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(invitationId)) throw Error('invalid invitation');
+   // D1 transition trigger retains immutable history and clears the claim digest.
+   const row=await stmt(`UPDATE invitations SET status='revoked',digest=NULL,changed_at=?,actor_id=?
+    WHERE id=? AND status IN ('blocked','projected','delivered')
+    AND EXISTS(SELECT 1 FROM members m WHERE m.id=invitations.member_id AND m.status='pending')
+    AND EXISTS(SELECT 1 FROM members m WHERE m.id=? AND m.status='active' AND m.role='owner')
+    RETURNING id`,at,actor,invitationId,actor).first();
+   changed(row);
+  },
   async revoke(actor,memberId) {
    await owner(actor); const at=time();
    await stmt('INSERT INTO revocations(id,member_id,actor_id,at) VALUES(?,?,?,?)',crypto.randomUUID(),memberId,actor,at).run();
