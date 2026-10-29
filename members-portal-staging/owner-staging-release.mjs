@@ -7,13 +7,13 @@ import {unb64} from '../portal/access.mjs';
 // This is not the Task #11 membership-request database.
 export const phase2DatabaseId='43a8a15b-e195-4712-9198-1dcc9f0152af';
 export const ownerSourceRevision='task12-cloudflare-mfa-20261026-v1';
-const blank=createStagingWorker();
 const noStore={'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow'};
 
 export function createOwnerStagingRelease({fetcher=fetch,now=()=>Date.now()}={}) {
  // One verifier per isolate reuses public Access signing keys for their short
  // validated cache TTL; every request still re-verifies JWT and reads live D1.
  const dashboard=createStagingDashboard({fetcher,now});
+ const blank=createStagingWorker({memberApp:dashboard});
  return {async fetch(request,env,ctx) {
   const url=new URL(request.url);
   if (url.pathname!=='/owner/enroll' && url.pathname!=='/app' && !url.pathname.startsWith('/app/'))
