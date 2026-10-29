@@ -202,14 +202,15 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  const pending=await db.prepare("SELECT id,status FROM members WHERE recipient='approved@example.test'").first();
  assert.equal(pending.status,'pending');
 
- form=await get();
- assert.equal((await post(form,'issue',{member:pending.id})).status,303);
+ const a=await get(),b=await get();
+ const results=await Promise.all([post(a,'issue',{member:pending.id}),post(b,'issue',{member:pending.id})]);
+ assert.deepEqual(results.map(x=>x.status).sort(),[303,403]);
  let rows=(await db.prepare('SELECT id,revision,status,digest FROM invitations WHERE member_id=? ORDER BY revision').bind(pending.id).all()).results;
  assert.equal(rows.length,1);assert.equal(rows[0].status,'blocked');assert.match(rows[0].digest,/^[0-9a-f]{64}$/);
  assert.equal((await db.prepare('SELECT count(*) AS n FROM identities').first()).n,1);
 
  form=await get();
- assert.equal((await post(form,'reissue',{member:pending.id})).status,303);
+ assert.equal((await post(form,'reissue',{member:pending.id,previous:rows[0].id})).status,303);
  rows=(await db.prepare('SELECT id,revision,status,digest FROM invitations WHERE member_id=? ORDER BY revision').bind(pending.id).all()).results;
  assert.equal(rows.length,2);assert.equal(rows[0].status,'superseded');assert.equal(rows[0].digest,null);
  assert.equal(rows[1].status,'blocked');assert.equal(rows[1].revision,2);
