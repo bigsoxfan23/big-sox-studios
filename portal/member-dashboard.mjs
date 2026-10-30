@@ -61,7 +61,19 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
     if(request.method==='POST') {
      if(!enabled)return respond(405,'Unavailable','This method is unavailable.');
      if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
-     await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
+     // The opt-in staging diagnostic displays ONLY a fixed validation-stage
+     // label to an already JWT+OTP+D1-verified active Owner. No token, address,
+     // cookie, form value, SQL error or identity is reflected or logged.
+     let postStage='owner-post-entry';
+     try {
+      await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,
+       ()=>Math.floor(now()/1000),value=>{postStage=value;});
+     } catch {
+      if(env.PORTAL_OWNER_POST_TRACE==='enabled-12-1') {
+       return respond(403,'Access unavailable','Access could not be verified. Owner action reference: '+postStage+'.');
+      }
+      throw Error('owner action denied');
+     }
      // DB-time expiry is checked atomically at mutation. Do not report 403 after a committed write.
      return new Response(null,{status:303,headers:{...headers,Location:mountPath==='/app'?'/app/manage':'/manage'}});
     }
