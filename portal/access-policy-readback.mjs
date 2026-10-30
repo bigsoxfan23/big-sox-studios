@@ -6,6 +6,8 @@ export const stagingAccessTarget=Object.freeze({
  accountId:'4c36a1a54dbe7ce85839b555fefb2b72',
  applicationId:'42fd6150-5f0e-4a1c-a0ba-952148b73b18',
  ownerPolicyId:'b3cf1b27-c1ac-4a7a-adb7-f31c344b47a0',
+ launcherApplicationId:'fc6b8306-bab6-449b-8260-151bf144d06b',
+ launcherHost:'old-hill-995d.cloudflareaccess.com',
  host:'members-staging.bigsoxstudios.com',
  audience:'f3ad2eeca58fc7e607b96e47b28672b78a920d34474f97a15e56a6235fc1cdbe'
 });
@@ -38,6 +40,13 @@ function matchingDomain(domain,host){
  return hostname===host||(hostname.startsWith('*.')&&host.endsWith(hostname.slice(1)));
 }
 function routes(app){
+ // The account inventory also includes its built-in App Launcher. Pin its
+ // identity and host; never skip it or accept a routing-capable variant.
+ if(app.type==='app_launcher'){
+  need(app.id===stagingAccessTarget.launcherApplicationId&&app.domain===stagingAccessTarget.launcherHost);
+  need(app.destinations==null&&app.self_hosted_domains==null);
+  return [app.domain];
+ }
  need(app.type==='self_hosted');
  const domains=[];
  if(app.domain!=null){need(typeof app.domain==='string'&&app.domain.length>0);matchingDomain(app.domain,'unused.example');domains.push(app.domain);}
@@ -97,13 +106,20 @@ export function createAccessPolicyReader({fetcher=fetch,now=()=>Math.floor(Date.
   }
   async function inventorySnapshot(){
    const apps=await list('/apps');need(apps.length>0&&apps.length<=20);
-   const inventory=[];
-   for(const summary of apps.sort((a,b)=>a.id.localeCompare(b.id))){
-    const app=(await get('/apps/'+summary.id)).result;need(app&&app.id===summary.id);
-    const policies=(await list('/apps/'+summary.id+'/policies')).sort((a,b)=>a.id.localeCompare(b.id));
-    need(Array.isArray(app.policies)&&sameSet(app.policies.map(p=>p.id),policies.map(p=>p.id)));
-    inventory.push({app,policies});
-   }
+   const sorted=apps.sort((a,b)=>a.id.localeCompare(b.id));
+   const inventory=new Array(sorted.length);let next=0;
+   // Two applications at a time, each with independent detail/policy reads:
+   // at most four external requests, below the Worker connection limit.
+   await Promise.all(Array.from({length:Math.min(2,sorted.length)},async()=>{
+    for(;;){
+     const index=next++;if(index>=sorted.length)return;const summary=sorted[index];
+     const [detail,policyRows]=await Promise.all([get('/apps/'+summary.id),list('/apps/'+summary.id+'/policies')]);
+     const app=detail.result;need(app&&app.id===summary.id);
+     const policies=policyRows.sort((a,b)=>a.id.localeCompare(b.id));
+     need(Array.isArray(app.policies)&&sameSet(app.policies.map(p=>p.id),policies.map(p=>p.id)));
+     inventory[index]={app,policies};
+    }
+   }));
    return inventory;
   }
   try{

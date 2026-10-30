@@ -69,13 +69,13 @@ test('live readback denies partial pagination, redirects, API failures, drift an
   const f=apiFixture();let n=0,at=1800000000;
   const fetcher=async(url,opts)=>{
    if(kind==='failure')throw Error('synthetic-read-token-only-123456789');
-   const res=await f.fetcher(url,opts);n++;
+   const res=await f.fetcher(url,opts);const call=++n;
    if(kind==='slow')at+=3;
    if(kind==='redirect')return new Response(null,{status:302,headers:{Location:'https://external.example/'}});
    if(kind==='oversized')return new Response(' '.repeat(1048577));
    const body=await res.json();
    if(kind==='partial'&&body.result_info)body.result_info.total_count++;
-   if(kind==='drift'&&n===7)body.result.session_duration='12h';
+   if(kind==='drift'&&call===7)body.result.session_duration='12h';
    return Response.json(body);
   };
   await assert.rejects(()=>createAccessPolicyReader({...options(fetcher),now:()=>at}).read('owner@example.test'),{message:'Access policy readback unavailable'});
@@ -110,4 +110,27 @@ test('live receipt rejects changed D1 and missing credential; helper never chang
 test('documented public URI and Worker destination shapes are supported without bypass overrides',async()=>{
  const f=apiFixture(x=>{x.app.destinations=[{type:'public',uri:target.host}];delete x.other.domain;x.other.destinations=[{type:'worker',worker_id:'big-sox-studios-members-staging'}];});
  assert.deepEqual((await createAccessPolicyReader(options(f.fetcher)).read('owner@example.test')).contacts,['owner@example.test','person@example.test']);
+});
+
+const launcherFixture=change=>apiFixture(f=>{
+ f.other.id=target.launcherApplicationId;f.other.type='app_launcher';
+ f.other.domain=target.launcherHost;change?.(f);
+});
+test('known built-in launcher remains in both inventories and policy reuse checks',async()=>{
+ const f=launcherFixture();
+ assert.equal((await createAccessPolicyReader(options(f.fetcher)).read('owner@example.test')).contacts.length,2);
+ assert.equal(f.calls.filter(c=>c.url.includes('/'+target.launcherApplicationId)).length,4);
+ const reused=launcherFixture(x=>{x.otherPolicies.push(x.policies[1]);x.other.policies.push({id:invitePolicy});});
+ await assert.rejects(()=>createAccessPolicyReader(options(reused.fetcher)).read('owner@example.test'));
+});
+for(const [name,change] of [
+ ['unrecognized launcher ID',f=>{f.other.id=otherId;}],
+ ['different launcher host',f=>{f.other.domain='other.cloudflareaccess.com';}],
+ ['launcher overlapping target host',f=>{f.other.domain=target.host;}],
+ ['launcher destination',f=>{f.other.destinations=[{type:'public',uri:target.host}];}],
+ ['launcher alias',f=>{f.other.self_hosted_domains=[target.host];}],
+ ['unsupported application type',f=>{f.other.type='saas';}]
+])test('live readback denies '+name,async()=>{
+ const f=launcherFixture(change);
+ await assert.rejects(()=>createAccessPolicyReader(options(f.fetcher)).read('owner@example.test'));
 });

@@ -63,3 +63,13 @@ Primary API references:
 - https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/get/
 - https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/subresources/policies/methods/list/
 - https://developers.cloudflare.com/cloudflare-one/access-controls/policies/mfa-requirements/
+
+Live API compatibility (October 30): the complete inventory also includes the
+built-in App Launcher, which is absent from the self-hosted-app dashboard list.
+Its exact existing ID and tenant hostname are pinned in source; destination or
+alias fields remain unsupported and block readiness. It stays in both repeated
+inventories and recipient-policy reuse checks. Unknown app types still fail shut.
+
+Two applications are read concurrently, each with parallel detail and policy
+reads (at most four external requests in flight); the 15-second deadline and 40-GET cap remain unchanged. The full
+seven-app live inventory requires 30 GETs across both repeated snapshots.
