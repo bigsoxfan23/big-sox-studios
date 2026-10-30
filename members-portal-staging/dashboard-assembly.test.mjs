@@ -230,7 +230,7 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  assert.match(await blocked.text(),/Owner action reference: request-fetch-site/);
  const crossOrigin=await post(form,'cancel',{member:rows[1].id},{Origin:'https://cross-origin.example'});
  assert.equal(crossOrigin.status,403);
- assert.match(await crossOrigin.text(),/Owner action reference: request-origin/);
+ assert.doesNotMatch(await crossOrigin.text(),/Owner action reference:/); // Host gate rejects first.
  const noCookie=await post(form,'issue',{member:'person'},{Cookie:''});
  assert.equal(noCookie.status,403);
  assert.match(await noCookie.text(),/Owner action reference: request-cookie/);
@@ -245,9 +245,10 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  assert.match(await deniedOwnerTarget.text(),/Owner action reference: owner-action-write/);
  const replay=await post(form,'issue',{member:'person'});
  assert.equal(replay.status,403);
- assert.match(await replay.text(),/Owner action reference: nonce-consumption/);
+ const replayHtml=await replay.text();
+ assert.match(replayHtml,/Owner action reference: nonce-consumption/);
  // No private identifiers, form contents or JWT material in diagnostic errors.
- assert.doesNotMatch(await replay.text(),/approved@example\.test|access-session|Cf-Access-Jwt|__Host-bss|<input/);
+ assert.doesNotMatch(replayHtml,/approved@example\.test|access-session|Cf-Access-Jwt|__Host-bss|<input/);
  delete env.PORTAL_OWNER_POST_TRACE;
  const last=await get();
  assert.match(last.html,/approved@example.test/);
