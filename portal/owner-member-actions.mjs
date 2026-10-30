@@ -1,4 +1,5 @@
-// Task 12.1: staging-only Owner actions. No sends, claims, grants or account activation.
+// Task12.1/12.2 staging-only Owner actions. No sends, service grants or account activation.
+// Task12.2 private code custody requires genuine projection; delivery is a separate Owner confirmation.
 // Requires explicit feature flag and the reviewed Phase 2 D1 nonce migration.
 import {createRepository} from './repository.mjs';
 
@@ -55,7 +56,7 @@ async function getForm(request) {
  const form=new URLSearchParams(new TextDecoder('utf-8',{fatal:true}).decode(raw));
  requireThat([...form.keys()].every(k=>allowedKeys.has(k)&&form.getAll(k).length===1));
  const action=form.get('action'),contact=form.get('contact'),member=form.get('member'),previous=form.get('previous');
- requireThat(['create','issue','reissue','cancel'].includes(action) && form.has('csrf'));
+ requireThat(['create','issue','reissue','cancel','deliver'].includes(action) && form.has('csrf'));
  if(action==='create')requireThat(contact!==null && contact.length<=254 && member===null && previous===null);
  else requireThat(contact===null && typeof member==='string' && validId.test(member));
  if(action==='reissue')requireThat(typeof previous==='string' && validId.test(previous));
@@ -71,7 +72,7 @@ function tokenCookie(request) {
 }
 // Consume the nonce on the shared D1 BEFORE action. Even concurrent duplicate
 // submissions can enter at most one action. A failed action needs a fresh form.
-export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now=clock) {
+export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now=clock,{projectInvitation,allowDelivery=false}={}) {
  requireThat(validId.test(ownerId) && Number.isSafeInteger(sessionExpiresAt));
  const safeNow=()=>{
   const at=now();
@@ -91,10 +92,21 @@ export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now
  const repo=createRepository(db,{now:safeNow,sessionExpiresAt});
  const action=form.get('action'),member=form.get('member');
  if(action==='create') await repo.createPending(ownerId,form.get('contact'));
- else if(action==='issue')
-  await repo.issue(ownerId,member,{expectedPredecessorId:null}); // first draft only
- else if(action==='reissue')
-  await repo.issue(ownerId,member,{expectedPredecessorId:form.get('previous')});
+ else if(action==='issue'||action==='reissue') {
+  const invite=await repo.issue(ownerId,member,{expectedPredecessorId:action==='issue'?null:form.get('previous')});
+  if(typeof projectInvitation==='function') {
+   try {
+    const receipt=await projectInvitation(db,invite.id,safeNow());
+    safeNow(); await repo.confirmProjection(ownerId,invite.id,receipt);
+    await repo.recordProjectionAttempt(ownerId,invite.id,'confirmed');
+    return {action,invitation:invite};
+   } catch {
+    try {await repo.recordProjectionAttempt(ownerId,invite.id,'failed-or-drift');} catch { /* State may be committed; disclose no proof and request status readback. */ }
+    return {action,unreleased:true};
+   }
+  }
+ }
+ else if(action==='deliver') {requireThat(allowDelivery);await repo.confirmOwnerDelivery(ownerId,member);}
  else if(action==='cancel') await repo.cancelInvitation(ownerId,member);
  return action;
 }

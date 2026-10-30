@@ -1,3 +1,4 @@
+import {handleInvitationClaim,scriptCsp} from './invitation-claim.mjs';
 import {checkOtpHost,createOtpAuthenticator} from './otp-identity.mjs';
 import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
 import {studioPage,studioPreview} from './studio-ui.mjs';
@@ -27,7 +28,7 @@ const dashboard=(member,mountPath)=>{
  ownerPanel+'</div><p><a class="button secondary" href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a></p><p class="fine muted">Signing out ends your Access session across applications, but not your email provider session.</p>','Member portal');
 };
 
-export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/'}={}) {
+export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/',projectInvitation}={}) {
  if (!['/','/app'].includes(mountPath)) throw Error('invalid mount');
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  return {async fetch(request,env,ctx) {
@@ -37,6 +38,9 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    checkOtpHost(request,env);
    stage='jwt-otp';
    const identity=await authenticate(request,env,ctx);
+   const claimUrl=new URL(request.url);
+   if(claimUrl.pathname===(mountPath==='/app'?'/app/invite':'/invite') && env.PORTAL_INVITATIONS==='enabled-12-2')
+    return await handleInvitationClaim(request,env,identity,mountPath==='/app'?'/app':'',()=>Math.floor(now()/1000));
    stage='d1-lookup';
    // One live snapshot, every path/method. No login writes, no email fallback,
    // no owner shortcut and no cached membership, roles or service grants.
@@ -63,14 +67,24 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
     if(request.method==='POST') {
      if(!enabled)return respond(405,'Unavailable','This method is unavailable.');
      if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
-     await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
+     const outcome=await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000),{allowDelivery:env.PORTAL_INVITATIONS==='enabled-12-2',projectInvitation:env.PORTAL_INVITATIONS==='enabled-12-2'?(projectInvitation??(async()=>{throw Error('Access eligibility unavailable');})):undefined});
+     if(outcome?.invitation) {
+      const deliveryCsrf=await prepareOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
+      const invite=outcome.invitation,prefix=mountPath==='/app'?'/app':'';
+      const link=env.APP_ORIGIN+prefix+'/invite';
+      const code=invite.id+'.'+invite.secret;
+      const script="document.getElementById('copy-invitation').addEventListener('click',async()=>{const field=document.getElementById('claim-link');field.select();try{await navigator.clipboard.writeText(field.value);document.getElementById('copy-result').textContent='Link copied. Copy the separate invitation code privately too.';}catch{document.getElementById('copy-result').textContent='Select and copy the link above.';}});document.getElementById('copy-code').addEventListener('click',async()=>{const field=document.getElementById('claim-code');field.select();try{await navigator.clipboard.writeText(field.value);document.getElementById('copy-result').textContent='Invitation code copied';}catch{document.getElementById('copy-result').textContent='Select and copy the code above.';}});";
+      const html=studioPage('Your invitation is ready','<section class="panel"><p>Expires '+new Date(invite.expiresAt*1000).toISOString()+'. Share the sign-in link and separate code privately with the approved recipient. The code is shown once. Keep the code out of browser addresses.</p><label>Sign-in link <textarea id="claim-link" readonly>'+link+'</textarea></label><button id="copy-invitation">Copy sign-in link</button><label>Private invitation code <textarea id="claim-code" readonly>'+code+'</textarea></label><button id="copy-code">Copy invitation code</button><p id="copy-result" role="status"></p><p>After privately sharing both items with the approved recipient, confirm delivery to enable acceptance.</p><form method="post" action="'+prefix+'/manage"><input type="hidden" name="csrf" value="'+deliveryCsrf+'"><input type="hidden" name="action" value="deliver"><input type="hidden" name="member" value="'+invite.id+'"><button type="submit">Confirm private delivery</button></form><a class="button" href="'+prefix+'/manage">Back to members</a></section><script>'+script+'</script>','Owner workspace');
+      return new Response(html,{status:200,headers:{...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("form-action 'none'","form-action 'self'")+'; script-src '+await scriptCsp(script),'Set-Cookie':ownerActionSetCookie(deliveryCsrf)}});
+     }
+     if(outcome?.unreleased)return respond(409,'Invitation not ready','Access eligibility or delivery readiness could not be confirmed. No invitation code was released. Reload the member list to check the current invitation status.');
      // DB-time expiry is checked atomically at mutation. Do not report 403 after a committed write.
      return new Response(null,{status:303,headers:{...headers,Location:mountPath==='/app'?'/app/manage':'/manage'}});
     }
     if(!['GET','HEAD'].includes(request.method))return respond(405,'Unavailable','This method is unavailable.');
     const csrf=enabled&&request.method==='GET'
      ?await prepareOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000)):null;
-    const html=await ownerMembersView(env.DB,mountPath,csrf);
+    const html=await ownerMembersView(env.DB,mountPath,csrf,env.PORTAL_INVITATIONS==='enabled-12-2');
     if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
     const privateHeaders=csrf?{...headers,
      'Content-Security-Policy':headers['Content-Security-Policy'].replace("form-action 'none'","form-action 'self'"),
