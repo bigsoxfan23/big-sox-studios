@@ -28,7 +28,7 @@ const dashboard=(member,mountPath)=>{
  ownerPanel+'</div><p><a class="button secondary" href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a></p><p class="fine muted">Signing out ends your Access session across applications, but not your email provider session.</p>','Member portal');
 };
 
-export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/',projectInvitation}={}) {
+export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/',projectInvitation,preflightInvitation}={}) {
  if (!['/','/app'].includes(mountPath)) throw Error('invalid mount');
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  return {async fetch(request,env,ctx) {
@@ -61,6 +61,16 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    stage='route';
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
+   if(path==='/manage/invitation-preflight'){
+    if(!mayManageMembers(member)||env.PORTAL_INVITATIONS!=='enabled-12-2')throw Error('denied');
+    if(!['GET','HEAD'].includes(request.method))return respond(405,'Unavailable','This method is unavailable.');
+    if(typeof preflightInvitation!=='function')return respond(503,'Invitation setup unavailable','Policy readiness could not be verified. No invitation was created.');
+    try{
+     const result=await preflightInvitation(env.DB);
+     if(result?.ready!==true||Math.floor(now()/1000)>=identity.expiresAt)throw Error('unavailable');
+     return respond(200,'Invitation setup ready','Access policy readback passed. No invitation was created.');
+    }catch{return respond(503,'Invitation setup unavailable','Policy readiness could not be verified. No invitation was created.');}
+   }
    if(path==='/manage') {
     if(!mayManageMembers(member)) throw Error('denied');
     const enabled=env.PORTAL_OWNER_CONTROLS==='enabled-12-1';

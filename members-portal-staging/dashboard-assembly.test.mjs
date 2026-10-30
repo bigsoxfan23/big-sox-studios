@@ -237,3 +237,31 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
 });
+
+test('live readback is lazy: missing/revoked temporary credential cannot break Owner or Member login; preflight is private and read-only',async t=>{
+ const {db}=await fixture(t);
+ await db.prepare("INSERT INTO identities VALUES('otp','owner@example.test','owner',?)").bind(epoch).run();
+ let reads=0;
+ const app=createStagingDashboard({now:()=>epoch*1000,fetcher:async(url,options)=>{
+  if(String(url).startsWith('https://api.cloudflare.com/')){reads++;return Response.json({success:false,errors:[{code:403}]},{status:403});}
+  return certFetch(url,options);
+ }});
+ const env={...config,DB:db,PORTAL_INVITATIONS:'enabled-12-2',ACCESS_POLICY_EXPECTED_IDPS:'["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]',ACCESS_POLICY_RECIPIENT:'person@example.test'};
+ const ctx=context({email:'owner@example.test'}),req=path=>signed(path,{email:'owner@example.test'});
+ for(const secret of [undefined,'revoked-synthetic-token-123456789']){
+  env.ACCESS_POLICY_READ_TOKEN=secret;
+  const before=await snapshot(db),priorReads=reads;
+  assert.equal((await app.fetch(req('/app'),env,ctx)).status,200);
+  assert.equal(reads,priorReads);
+  const res=await app.fetch(req('/app/manage/invitation-preflight'),env,ctx);
+  assert.equal(res.status,503);assert.match(await res.text(),/No invitation was created/);
+  assert.deepEqual(await snapshot(db),before);
+  assert.equal((await app.fetch(new Request(req('/app/manage/invitation-preflight'),{method:'POST'}),env,ctx)).status,405);
+ }
+ await db.prepare("INSERT INTO members VALUES('member','person@example.test','member','active',?)").bind(epoch).run();
+ await db.prepare("INSERT INTO identities VALUES('otp','person@example.test','member',?)").bind(epoch).run();
+ const before=reads;
+ assert.equal((await app.fetch(signed('/app'),env,context())).status,200);
+ assert.equal((await app.fetch(signed('/app/manage/invitation-preflight'),env,context())).status,403);
+ assert.equal(reads,before);
+});
