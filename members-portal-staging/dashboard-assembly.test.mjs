@@ -94,7 +94,11 @@ test('owner-only members view is read-only and uses current role',async t=>{
  assert.doesNotMatch(html,/<form|<script|ticket=/);
  assert.deepEqual(await snapshot(db),before);
  await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ env.PORTAL_OWNER_POST_TRACE='enabled-12-1';
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
+ const notOwner=await post(form,'create',{contact:'not-owner@example.test'});
+ assert.equal(notOwner.status,403);
+ assert.doesNotMatch(await notOwner.text(),/Owner action reference:/);
  await db.prepare("UPDATE members SET role='owner',status='revoked' WHERE id='person'").run();
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
 });
@@ -224,11 +228,31 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  assert.equal(await count('identities'),1);
 
  form=await get();
+ env.PORTAL_OWNER_POST_TRACE='enabled-12-1';
  const blocked=await post(form,'issue',{member:'person'},{'Sec-Fetch-Site':'cross-site'});
  assert.equal(blocked.status,403);
- assert.equal((await post(form,'cancel',{member:rows[1].id},{Origin:'https://cross-origin.example'})).status,403);
- assert.equal((await post(form,'issue',{member:'person'},{Cookie:''})).status,403);
- assert.equal((await post(form,'issue',{member:'person'})).status,403); // cannot invite active Owner
+ assert.match(await blocked.text(),/Owner action reference: request-fetch-site/);
+ const crossOrigin=await post(form,'cancel',{member:rows[1].id},{Origin:'https://cross-origin.example'});
+ assert.equal(crossOrigin.status,403);
+ assert.match(await crossOrigin.text(),/Owner action reference: request-origin/);
+ const noCookie=await post(form,'issue',{member:'person'},{Cookie:''});
+ assert.equal(noCookie.status,403);
+ assert.match(await noCookie.text(),/Owner action reference: request-cookie/);
+ const mismatched=await post({...form,csrf:'A'.repeat(43)},'issue',{member:'person'});
+ assert.equal(mismatched.status,403);
+ assert.match(await mismatched.text(),/Owner action reference: request-csrf/);
+ const badType=await post(form,'issue',{member:'person'},{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'});
+ assert.equal(badType.status,403);
+ assert.match(await badType.text(),/Owner action reference: request-method-type/);
+ const deniedOwnerTarget=await post(form,'issue',{member:'person'});
+ assert.equal(deniedOwnerTarget.status,403);
+ assert.match(await deniedOwnerTarget.text(),/Owner action reference: owner-action-write/);
+ const replay=await post(form,'issue',{member:'person'});
+ assert.equal(replay.status,403);
+ assert.match(await replay.text(),/Owner action reference: nonce-consumption/);
+ // No private identifiers, form contents or JWT material in diagnostic errors.
+ assert.doesNotMatch(await replay.text(),/approved@example\.test|access-session|Cf-Access-Jwt|__Host-bss|<input/);
+ delete env.PORTAL_OWNER_POST_TRACE;
  const last=await get();
  assert.match(last.html,/approved@example.test/);
  assert.match(last.html,/Recent activity/);
