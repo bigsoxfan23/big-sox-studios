@@ -36,12 +36,16 @@ export async function prepareOwnerAction(db,request,ownerId,expiresAt,now=clock)
  VALUES(?,?,?,?,?)`).bind(digest,ownerId,sessionDigest,at,until).run();
  return csrf;
 }
-async function getForm(request) {
+async function getForm(request,report=()=>{}) {
+ report('request-method-type');
  requireThat(request.method==='POST' && request.headers.get('Content-Type')==='application/x-www-form-urlencoded');
  const origin=new URL(request.url).origin;
+ report('request-origin');
  requireThat(request.headers.get('Origin')===origin);
  const site=request.headers.get('Sec-Fetch-Site');
+ report('request-fetch-site');
  requireThat(!site || site==='same-origin');
+ report('request-body');
  const reader=request.body?.getReader();requireThat(reader);
  let bytes=0;const chunks=[];
  try {
@@ -52,8 +56,11 @@ async function getForm(request) {
  }finally{await reader.cancel().catch(()=>{});}
  const raw=new Uint8Array(bytes);let offset=0;
  for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.length;}
+ report('request-encoding');
  const form=new URLSearchParams(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+ report('request-fields');
  requireThat([...form.keys()].every(k=>allowedKeys.has(k)&&form.getAll(k).length===1));
+ report('request-action');
  const action=form.get('action'),contact=form.get('contact'),member=form.get('member'),previous=form.get('previous');
  requireThat(['create','issue','reissue','cancel'].includes(action) && form.has('csrf'));
  if(action==='create')requireThat(contact!==null && contact.length<=254 && member===null && previous===null);
@@ -71,23 +78,31 @@ function tokenCookie(request) {
 }
 // Consume the nonce on the shared D1 BEFORE action. Even concurrent duplicate
 // submissions can enter at most one action. A failed action needs a fresh form.
-export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now=clock) {
+export async function executeOwnerAction(db,request,ownerId,sessionExpiresAt,now=clock,report=()=>{}) {
  requireThat(validId.test(ownerId) && Number.isSafeInteger(sessionExpiresAt));
  const safeNow=()=>{
   const at=now();
   requireThat(Number.isSafeInteger(at) && at>=0 && at<sessionExpiresAt);
   return at;
  };
- const form=await getForm(request),csrf=form.get('csrf'),cookie=tokenCookie(request);
+ const form=await getForm(request,report),csrf=form.get('csrf');
+ report('request-cookie');
+ const cookie=tokenCookie(request);
+ report('request-csrf');
  requireThat(validToken.test(csrf) && csrf===cookie);
+ report('session-deadline');
  const at=safeNow();
+ report('session-binding');
  const digest=await hash(csrf),sessionDigest=await hash(sessionToken(request));
+ report('nonce-consumption');
  const claimed=await db.prepare(`UPDATE owner_action_nonces SET used_at=? WHERE digest=? AND actor_id=?
  AND session_digest=? AND used_at IS NULL AND expires_at>? RETURNING digest`)
   .bind(at,digest,ownerId,sessionDigest,at).first();
  requireThat(claimed?.digest===digest);
+ report('post-nonce-deadline');
  safeNow(); // A D1 wait must never permit action mutation after session expiry.
  // Repository calls verify the live Owner role AND this session deadline at write time.
+ report('owner-action-write');
  const repo=createRepository(db,{now:safeNow,sessionExpiresAt});
  const action=form.get('action'),member=form.get('member');
  if(action==='create') await repo.createPending(ownerId,form.get('contact'));
