@@ -6,7 +6,7 @@ import {applySchema,envConfig,epoch,jwk,token} from './test-support.mjs';
 const origin='https://owner.example.test';
 const ownerToken=changes=>token({aud:['owner-test'],sub:'owner-session',...changes});
 test('OFFLINE owner admin: signed Owner app JWT + synthetic trusted context + workerd D1',async t=>{
- const modules=['owner-admin','access','repository','identity','authorization','projection'].map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
+ const modules=['owner-admin','access','repository','identity','authorization','projection','access-policy-readback'].map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
  const entry=`import {createOwnerAdminWorker} from './portal/owner-admin.mjs';
  import {createAuthenticator} from './portal/access.mjs';
  const verify=createAuthenticator({now:()=>${epoch}000,fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})});
