@@ -94,11 +94,7 @@ test('owner-only members view is read-only and uses current role',async t=>{
  assert.doesNotMatch(html,/<form|<script|ticket=/);
  assert.deepEqual(await snapshot(db),before);
  await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
- env.PORTAL_OWNER_POST_TRACE='enabled-12-1';
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
- const notOwner=await post(form,'create',{contact:'not-owner@example.test'});
- assert.equal(notOwner.status,403);
- assert.doesNotMatch(await notOwner.text(),/Owner action reference:/);
  await db.prepare("UPDATE members SET role='owner',status='revoked' WHERE id='person'").run();
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
 });
@@ -258,5 +254,9 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
  assert.match(last.html,/Recent activity/);
  assert.doesNotMatch(last.html,/name="secret"|claim\?token=/);
  await db.prepare("UPDATE members SET role='member' WHERE id='person'").run();
+ env.PORTAL_OWNER_POST_TRACE='enabled-12-1';
  assert.equal((await app.fetch(signed('/app/manage'),env,context())).status,403);
+ const notOwner=await post(form,'create',{contact:'not-owner@example.test'});
+ assert.equal(notOwner.status,403);
+ assert.doesNotMatch(await notOwner.text(),/Owner action reference:/);
 });
