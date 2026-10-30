@@ -7,7 +7,9 @@ import {prepareOwnerAction,executeOwnerAction,ownerActionSetCookie} from './owne
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
  'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https://bigsoxstudios.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
- 'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
+ // Native same-origin form POSTs need a non-opaque Origin; no-referrer makes browsers send null.
+ // Keep exact Origin validation and suppress referrers for cross-origin navigation.
+ 'Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
  'X-Robots-Tag':'noindex, nofollow, noarchive','Content-Type':'text/html; charset=utf-8'
 };
 // Failure responses stay intentionally tiny and avoid echoing private identifiers.

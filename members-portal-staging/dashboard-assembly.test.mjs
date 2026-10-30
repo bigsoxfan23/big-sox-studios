@@ -124,7 +124,7 @@ test('assembly pins host/issuer/audience and denies absent, mismatched or non-OT
  for(const ctx of [{},context({idp:{type:'google'}}),context({email:'Person@example.test'}),{access:{aud:'owner-test',getIdentity:async()=>({})}},{access:{aud:config.ACCESS_AUDIENCE,getIdentity:async()=>{throw Error('private');}}}]){
   assert.equal((await app.fetch(signed(),env,ctx)).status,403);
  }
- for(const extra of [{Host:'evil.example.test'},{Origin:'https://evil.example.test'}]){
+ for(const extra of [{Host:'evil.example.test'},{Origin:'https://evil.example.test'},{Origin:'null'}]){
   const req=new Request(signed(),{headers:{...Object.fromEntries(signed().headers),...extra}});
   assert.ok([403,404].includes((await app.fetch(req,env,context())).status));
  }
@@ -172,6 +172,7 @@ test('12.1 Owner controls stay safe-off and, when staged, use one-use D1 CSRF fo
   const response=await app.fetch(signed('/app/manage'),env,context());
   assert.equal(response.status,200);
   assert.match(response.headers.get('Content-Security-Policy'),/form-action 'self'/);
+  assert.equal(response.headers.get('Referrer-Policy'),'same-origin');
   const html=await response.text(),csrf=/name="csrf" value="([A-Za-z0-9_-]{43})"/.exec(html)?.[1];
   assert.ok(csrf);
   const cookie=response.headers.get('Set-Cookie');
