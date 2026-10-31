@@ -81,7 +81,7 @@ export function createAccessPolicyReader({fetcher=fetch,now=()=>Math.floor(Date.
   async function get(path){
    // Leave headroom within the existing Free-plan external subrequest budget.
    need(++calls<=40&&now()-started<=15);
-   const res=await fetcher(base+path,{method:'GET',redirect:'error',signal:controller.signal,headers:{Authorization:'Bearer '+token,Accept:'application/json','Cache-Control':'no-store'}});
+   const res=await fetcher(base+path,{method:'GET',redirect:'manual',signal:controller.signal,headers:{Authorization:'Bearer '+token,Accept:'application/json','Cache-Control':'no-store'}});
    need(res.ok&&!res.redirected);
    const reader=res.body?.getReader();need(reader);let count=0;const chunks=[];
    try{for(;;){const {done,value}=await reader.read();if(done)break;count+=value.length;need(count<=1048576);chunks.push(value);}}
