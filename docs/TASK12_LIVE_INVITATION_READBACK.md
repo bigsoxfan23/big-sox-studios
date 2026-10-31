@@ -73,3 +73,7 @@ inventories and recipient-policy reuse checks. Unknown app types still fail shut
 Two applications are read concurrently, each with parallel detail and policy
 reads (at most four external requests in flight); the 15-second deadline and 40-GET cap remain unchanged. The full
 seven-app live inventory requires 30 GETs across both repeated snapshots.
+
+Worker runtime compatibility: requests use manual redirects; the existing
+non-2xx/redirected-response checks deny every redirect without forwarding the
+credential. An actual workerd Request-constructor regression covers this mode.
