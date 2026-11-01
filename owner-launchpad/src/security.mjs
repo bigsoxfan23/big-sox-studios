@@ -110,6 +110,8 @@ export function createAuthenticator({ fetcher = fetch, now = () => Date.now() } 
    if (cached.inFlight) await cached.inFlight;
    const key = cached.keys.get(header.kid); requireThat(key);
    requireThat(await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, encoder.encode(`${parts[0]}.${parts[1]}`)));
+   return Object.freeze({expiresAt:claims.exp});
   } catch { throw new Error('unauthorized'); }
  };
 }
+

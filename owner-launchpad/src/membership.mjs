@@ -1,3 +1,4 @@
+import {onboardingRoute,onboardingEnabled,onboardingApi} from './onboarding-route.mjs';
 import { DAY, clean, db, escapeHTML as e, hmac, readBody, requireThat, sameSite, secret } from '../../membership/common.mjs';
 const BASE = '/membership/requests/';
 const COOKIE = '__Host-bss-membership-csrf';
@@ -29,8 +30,10 @@ export async function pendingBadge(env) {
  try { const row = await db(env).prepare("SELECT COUNT(*) AS count FROM membership_requests WHERE status='pending'").first(); return String(row.count); }
  catch { return 'unavailable'; }
 }
-export async function membershipRoute(request, env, {now = () => Date.now(), respond}) {
+export async function membershipRoute(request, env, {now = () => Date.now(), respond,expiresAt}) {
  const url = new URL(request.url);
+ const setup=await onboardingRoute(request,env,{now,respond,expiresAt,issue,check,css,cookie:COOKIE});
+ if(setup)return setup;
  const decision = /^\/membership\/requests\/([a-f0-9-]{36})\/decision$/.exec(url.pathname);
  if (url.pathname !== BASE && !decision) return respond(404,'Not found');
  const allowed = decision ? ['POST'] : ['GET','HEAD'];
@@ -56,6 +59,10 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
    // D1 meta.changes may include trigger writes; RETURNING identifies the
    // conditional application update itself without relying on that counter.
    requireThat(updated?.id===decision[1],409);
+   if(current.status==='pending' && status==='approved' && onboardingEnabled(env)) {
+    try { await (await onboardingApi(env,expiresAt,now)).link(decision[1],revision+1); }
+    catch { return respond(503,`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Setup needs attention · Big Sox Studios</title><main><h1>Request approved. Setup needs attention.</h1><p>Your approval was saved, but the pending Member link could not be confirmed. No email was sent and website access is not active.</p><a href="${BASE}${e(decision[1])}/setup">Continue member setup</a><p><a href="${BASE}?view=invite-ready">Return to Setting Up</a></p></main></html>`); }
+   }
    return respond(303,null,{Location:viewURL(viewForStatus(status))});
   }
   const params = url.searchParams;
@@ -72,6 +79,7 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
   const token = await issue(request,env,now());
   const items = rows.results.slice(0,20).map(row=>`<article><header><span class="initial" aria-hidden="true">${e((row.name || '?').trim().slice(0,1).toUpperCase())}</span><h2>${e(row.name || 'Details removed')}</h2><span class="status">${e(labels[row.status])}</span></header>
    <p>${e(row.email)} <small>Submitted email · not yet verified</small></p><p>${e(row.reason)}</p><p>Received ${e(new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeZone:'America/Chicago'}).format(new Date(row.created_at)))}${row.status==='approved' && row.created_at<=now()-365*DAY ? ' · Annual owner review due' : ''}</p>
+   ${row.status==='approved' && onboardingEnabled(env)?`<p><a href="${BASE}${e(row.id)}/setup">Continue member setup</a></p>`:''}
    ${row.status==='approved' ? '<p>Membership approved. Manual Jellyfin setup and a welcome email are still separate steps. Approval alone does not activate website access.</p>' : ''}
    ${row.pii_cleared_at !== null ? '<p>Personal details cleared under retention policy.</p>' : `<details><summary>Review Request</summary><form method="post" action="${BASE}${e(row.id)}/decision">
    <input type="hidden" name="csrf" value="${e(token)}"><input type="hidden" name="revision" value="${row.revision}">
