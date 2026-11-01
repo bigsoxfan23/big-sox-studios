@@ -4,6 +4,8 @@ import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
 import {studioPage,studioPreview} from './studio-ui.mjs';
 import {ownerMembersView} from './owner-members-view.mjs';
 import {prepareOwnerAction,executeOwnerAction,ownerActionSetCookie} from './owner-member-actions.mjs';
+import {createApprovedMemberAdmission} from './approved-member-admission.mjs';
+import {simplifiedMemberDashboard,loadSimplifiedMember} from './simplified-member-dashboard.mjs';
 
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
@@ -39,15 +41,31 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    stage='jwt-otp';
    const identity=await authenticate(request,env,ctx);
    const claimUrl=new URL(request.url);
-   if(claimUrl.pathname===(mountPath==='/app'?'/app/invite':'/invite') && env.PORTAL_INVITATIONS==='enabled-12-2')
+   const approvedMode=env.PORTAL_APPROVED_MEMBERS==='enabled-12-approved';
+   const approvedPath=mountPath==='/'?claimUrl.pathname:(claimUrl.pathname==='/app'?'/':claimUrl.pathname.startsWith('/app/')?claimUrl.pathname.slice(4):null);
+   if(approvedMode&&claimUrl.search)return respond(400,'Unavailable','This address is unavailable.');
+   if(approvedMode&&approvedPath===null)throw Error('denied');
+   if(!approvedMode && claimUrl.pathname===(mountPath==='/app'?'/app/invite':'/invite') && env.PORTAL_INVITATIONS==='enabled-12-2')
     return await handleInvitationClaim(request,env,identity,mountPath==='/app'?'/app':'',()=>Math.floor(now()/1000));
    stage='d1-lookup';
-   // One live snapshot, every path/method. No login writes, no email fallback,
-   // no owner shortcut and no cached membership, roles or service grants.
-   const member=await env.DB.prepare(`SELECT m.id,m.role,m.status,
+   // Legacy lookup is read-only. Explicitly enabled approved admission below
+   // can bind a first OTP identity; no email fallback or cached authorization.
+   const readMember=()=>env.DB.prepare(`SELECT m.id,m.role,m.status,
     COALESCE(json_group_array(g.service) FILTER(WHERE g.service IS NOT NULL),'[]') AS grants
     FROM identities i JOIN members m ON m.id=i.member_id LEFT JOIN service_grants g ON g.member_id=m.id
     WHERE i.provider=? AND i.subject=? GROUP BY m.id`).bind(identity.provider,identity.subject).first();
+   let member=await readMember();
+   if(approvedMode && member?.role!=='owner'){
+    // This switch stays OFF in live staging. Enabling it requires a separately
+    // reviewed request-DB binding/Access plan and approved real activation.
+    if(env.APP_ORIGIN!=='https://members-staging.bigsoxstudios.com'||!env.APPROVED_REQUESTS_DB
+     ||env.APPROVED_REQUESTS_ID!=='48b0a0cc-40ad-4495-8883-a42b4a938b71'
+     ||env.APPROVED_MEMBER_DB_ID!=='43a8a15b-e195-4712-9198-1dcc9f0152af')throw Error('admission unavailable');
+    if((!member||member.status!=='active')&&(!['GET','HEAD'].includes(request.method)
+     ||!['/','/services/jellyfin'].includes(approvedPath)))throw Error('denied');
+    await createApprovedMemberAdmission({memberDb:env.DB,requestDb:env.APPROVED_REQUESTS_DB,sourceDatabase:env.APPROVED_REQUESTS_ID,now:()=>Math.floor(now()/1000)}).admit(identity);
+    member=await readMember();
+   }
    stage='member-decode';
    if (!member || typeof member.id!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(member.id)) throw Error('denied');
    member.grants=JSON.parse(member.grants);
@@ -104,7 +122,9 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
    if (path==='/') {
     stage='dashboard-render';
-    return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+    const html=env.PORTAL_SIMPLIFIED_MEMBER_UI==='enabled-12'&&member.role==='member'
+     ?await simplifiedMemberDashboard(env.DB,identity,{now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN}):dashboard(member,mountPath);
+    return new Response(request.method==='HEAD'?null:html,{status:200,headers});
    }
    if(path==='/ui-preview') {
     if(!mayManageMembers(member)) throw Error('denied');
@@ -114,6 +134,10 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    // Own and legacy service paths are guarded even though no service is wired.
    const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(path)?.[1];
    if (service && (!SERVICES.includes(service) || !authorizeMember(member,service))) throw Error('denied');
+   if(service==='jellyfin'&&path==='/services/jellyfin'&&member.role==='member'&&env.PORTAL_SIMPLIFIED_MEMBER_UI==='enabled-12'){
+    const allowed=await loadSimplifiedMember(env.DB,identity,{now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN});
+    if(!allowed.jellyfinURL)throw Error('denied');return new Response(null,{status:303,headers:{...headers,Location:allowed.jellyfinURL}});
+   }
    return respond(404,'Unavailable','This resource is not connected.');
   } catch {
    // Server-internal callback is supplied only during an existing Owner-only
@@ -125,3 +149,4 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
 }
 // Deployment remains safe-off in members-portal-staging/worker.mjs.
 export default createMemberDashboard();
+
