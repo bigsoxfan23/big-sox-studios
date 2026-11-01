@@ -155,7 +155,7 @@ export function evaluateApprovedMemberStagingReadiness(input) {
   if(approval.decision!=='approve'||approval.actorRef!==p.ownerRef||approval.applicationId!==target.applicationId||
    approval.accessDigest!==a.digest||approval.sourceRevision!==s.revision||approval.artifactDigest!==s.artifactDigest||
    approval.deploymentId!==d.id||approval.requestsDigest!==r.digest||!same(approval.memberRefs,p.memberRefs)||
-   approval.recordedAt>now||approval.expiresAt<=now||approval.expiresAt<=approval.recordedAt||
+   approval.recordedAt>now||approval.recordedAt>approvals.capturedAt||approval.expiresAt<=now||approval.expiresAt<=approval.recordedAt||
    approval.expiresAt-approval.recordedAt>300)add('OWNER_APPROVAL_NOT_BOUND_OR_CURRENT');
  }
  return result();

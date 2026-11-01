@@ -138,6 +138,7 @@ const cases=[
  ['wrong approval actor',f=>{f.approvals.records[0].actorRef='test-01';},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
  ['expired approval',f=>{f.approvals.records[0].expiresAt=now;},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
  ['future approval',f=>{f.approvals.records[0].recordedAt=now+1;},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
+ ['approval postdates its own snapshot',f=>{f.approvals.capturedAt=now-60;},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
  ['unbounded approval',f=>{f.approvals.records[0].expiresAt=now+301;},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
  ['old policy approval',f=>{f.approvals.records[0].accessDigest='e'.repeat(64);},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
  ['old request approval',f=>{f.approvals.records[0].requestsDigest='e'.repeat(64);},'OWNER_APPROVAL_NOT_BOUND_OR_CURRENT'],
@@ -162,6 +163,7 @@ for(const name of ['access','source','deployment','requests','approvals'])test(n
  const boundary=fixture();boundary[name].capturedAt=now-60;
  // Acceptance cannot postdate its request readback.
  if(name==='requests')boundary.requests.rows[0].welcomeAcceptedAt=now-60;
+ if(name==='approvals')boundary.approvals.records.forEach(record=>{record.recordedAt=now-60;});
  assert.equal(evaluate(boundary).snapshotAnalysis,'CONSISTENT_ONLY');
 });
 
