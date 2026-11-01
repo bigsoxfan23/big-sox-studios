@@ -7,7 +7,9 @@ const uuid = s => typeof s === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f
 const email = s => typeof s === 'string' && s.length <= 254 && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s) && s === s.toLowerCase();
 const senderSafe = s => typeof s === 'string' && s.length <= 254 && !/[\r\n<>]/.test(s) && email(s);
 const subject = 'Welcome to Big Sox Studios';
-const safeText = s => typeof s === 'string' && s.length > 0 && s.length <= 12000 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(s);
+const safeText = s => typeof s === 'string' && s.length > 0 && s.length <= 12000 && [...s].every(c => {
+ const n=c.codePointAt(0); return n===9||n===10||n===13||(n>=32&&n!==127);
+});
 const locked = Object.freeze({state:'UNKNOWN',activationAuthorized:false,mayRetry:false});
 const refused = Object.freeze({state:'failed',activationAuthorized:false,mayRetry:false});
 
