@@ -56,13 +56,13 @@ export function createWelcomeReview({onboarding,actorId,sessionBinding,signingKe
    if(confirmed!==true || typeof review!=='string'||review.length>200)fail();
    const m=review.match(/^(\d{1,12})\.(\d{1,12})\.([a-f0-9]{32})\.([a-f0-9]{64})$/);if(!m)fail();
    const [,start,end,nonce,signature]=m,issued=Number(start),until=Number(end),t=time();
-   if(issued>t||until<=t||until>expiresAt||until<=issued||until>issued+300)fail();
+   if(String(issued)!==start||String(until)!==end||issued>t||until<=t||until>expiresAt||until<=issued||until>issued+300)fail();
    const {row,mail}=await content(requestId,requestRevision,form);
    const ok=await crypto.subtle.verify('HMAC',await key(),Uint8Array.from(signature.match(/../g),x=>parseInt(x,16)),bytes(value(row,requestId,requestRevision,mail,issued,until,nonce)));
    if(!ok||time()>=until)fail();
    // Transient only. Caller must still enforce durable deduplication, uncertainty
    // locks, provider policy and current authorization at its dispatch boundary.
-   return Object.freeze({...mail,memberId:row.member_id,onboardingRevision:row.revision});
+   return Object.freeze({...mail,memberId:row.member_id,onboardingRevision:row.revision,reviewExpiresAt:until});
   }
  });
 }

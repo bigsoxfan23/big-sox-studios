@@ -42,6 +42,10 @@ test('review expires at five minutes or earlier Owner session deadline; clock re
  }
  const f=fixture(),p=await f.api.preview('request',3,form);f.clock(999);await assert.rejects(f.api.confirm('request',3,form,{review:p.review,confirmed:true}));
 });
+test('review rejects noncanonical timestamps so alternate encodings cannot bypass durable one-use fingerprints',async()=>{
+ const f=fixture(),p=await f.api.preview('request',3,form),parts=p.review.split('.');
+ for(const index of [0,1]){const altered=[...parts];altered[index]='0'+altered[index];await assert.rejects(f.api.confirm('request',3,form,{review:altered.join('.'),confirmed:true}));}
+});
 test('rejects malformed fields and header/body credential injection without leaking values in errors',async()=>{
  const f=fixture();
  for(const change of [{password:'x\ny'},{password:' secret '},{password:'\u202eunsafe'},{password:''},{password:'p'.repeat(129)},{message:'\0secret'},{message:''},{message:'m'.repeat(4001)},{extra:'unapproved'}]){
