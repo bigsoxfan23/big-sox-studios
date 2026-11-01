@@ -150,5 +150,14 @@ test('new source modules are not imported by existing source or Worker routes',(
  const walk=dir=>readdirSync(new URL(dir,import.meta.url),{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(dir+e.name+'/'):[dir+e.name]);
  const files=[...walk('./'),...walk('../owner-launchpad/src/')].filter(p=>/\.(mjs|js|ts)$/.test(p)
   && !p.includes('/test/') && !p.endsWith('.test.mjs') && !p.endsWith('/welcome-live-delivery.mjs') && !p.endsWith('/welcome-reconciliation.mjs'));
- for (const file of files) assert.doesNotMatch(readFileSync(new URL(file,import.meta.url),'utf8'),/\b(?:import|export)\b[^;]*welcome-(?:live-delivery|reconciliation)\.mjs/,file);
+ for (const file of files) {
+  const code=readFileSync(new URL(file,import.meta.url),'utf8');
+  if (file.endsWith('/owner-launchpad/src/welcome-live-route.mjs')) {
+   // Route integration is explicitly source-only and requires independent staging gates.
+   assert.match(code,/PORTAL_WELCOME_LIVE_ROUTE==='review-only-12'/);
+   assert.match(code,/PORTAL_WELCOME_LIVE_SEND==='enabled-12'/);
+   continue;
+  }
+  assert.doesNotMatch(code,/\b(?:import|export)\b[^;]*welcome-(?:live-delivery|reconciliation)\.mjs/,file);
+ }
 });
