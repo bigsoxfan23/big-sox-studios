@@ -7,6 +7,6 @@
   },
   "scripts": {
     "test": "node --test --experimental-test-isolation=none test/*.test.mjs",
-    "check": "node --check src/security.mjs && node --check src/worker.mjs && node --check src/membership.mjs && node --check test/launchpad.test.mjs && node --check test/membership.test.mjs && node --check ../portal/request-onboarding.mjs && node --check test/onboarding.test.mjs"
+    "check": "node --check src/security.mjs && node --check src/worker.mjs && node --check src/membership.mjs && node --check test/launchpad.test.mjs && node --check test/membership.test.mjs && node --check ../portal/request-onboarding.mjs && node --check test/onboarding.test.mjs && node --check src/onboarding-route.mjs && node --check test/onboarding-route.test.mjs"
   }
 }

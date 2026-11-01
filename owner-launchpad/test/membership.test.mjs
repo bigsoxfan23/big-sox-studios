@@ -234,7 +234,7 @@ test('real local workerd/D1 executes filtered SQL, stable pagination and authent
   modules:[{type:'ESModule',path:'entry.mjs',contents:`
    import {createWorker} from './owner-launchpad/src/worker.mjs';
    export default createWorker({now:()=>${TIME},fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})});
-  `},...['owner-launchpad/src/worker.mjs','owner-launchpad/src/security.mjs','owner-launchpad/src/membership.mjs','membership/common.mjs'].map(path=>({type:'ESModule',path,contents:readFileSync(new URL('../../'+path,import.meta.url),'utf8')}))],
+  `},...['owner-launchpad/src/worker.mjs','owner-launchpad/src/security.mjs','owner-launchpad/src/membership.mjs','membership/common.mjs','owner-launchpad/src/onboarding-route.mjs','portal/request-onboarding.mjs','portal/identity.mjs'].map(path=>({type:'ESModule',path,contents:readFileSync(new URL('../../'+path,import.meta.url),'utf8')}))],
   outboundService:()=>{throw Error('External services forbidden');}
  }));
  try {
