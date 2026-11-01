@@ -30,7 +30,11 @@ test('rejects wrong audience, expired tokens, and altered signatures', async () 
   const valid = token(hosts['members-staging.bigsoxstudios.com']);
   await assert.rejects(verifyAccessJwt(valid, hosts['big-sox-studios-members-staging.fridman-greg.workers.dev'], certFetch));
   await assert.rejects(verifyAccessJwt(token(hosts['members-staging.bigsoxstudios.com'], { exp: 1 }), hosts['members-staging.bigsoxstudios.com'], certFetch));
-  await assert.rejects(verifyAccessJwt(valid.slice(0, -2) + 'ab', hosts['members-staging.bigsoxstudios.com'], certFetch));
+  // Always alter a signature byte; replacing the final two base64url characters
+  // can coincidentally reproduce the original random signature.
+  const parts = valid.split('.');
+  parts[2] = (parts[2][0] === 'A' ? 'B' : 'A') + parts[2].slice(1);
+  await assert.rejects(verifyAccessJwt(parts.join('.'), hosts['members-staging.bigsoxstudios.com'], certFetch));
 });
 
 test('serves only verified identity on either known hostname', async () => {
