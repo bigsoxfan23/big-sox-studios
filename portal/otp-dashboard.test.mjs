@@ -108,7 +108,7 @@ test('OFFLINE OTP: custom host only; disabled flags, unknown routes, methods, er
 });
 
 test('OFFLINE OTP: full isolated dashboard in workerd with signed JWT and real ephemeral D1',async t=>{
- const names=['invitation-claim','member-dashboard','owner-members-view','owner-member-actions','repository','projection','access-policy-readback','studio-ui','otp-identity','access','identity','authorization'];
+ const names=['invitation-claim','member-dashboard','owner-members-view','owner-member-actions','repository','projection','access-policy-readback','studio-ui','otp-identity','access','identity','authorization','approved-member-admission','simplified-member-dashboard'];
  const modules=names.map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
  const entry=`import {createMemberDashboard} from './portal/member-dashboard.mjs';
  import {createAuthenticator} from './portal/access.mjs';
@@ -142,3 +142,4 @@ for (const stage of ['identity','database']) test(`OFFLINE OTP: ${stage} wait ex
  const response=await app.fetch(request(token({exp:epoch+10})),{...config,DB:stage==='database'?delayed:db},context);
  assert.equal(response.status,403);assert.match(response.headers.get('Cache-Control'),/no-store/);
 });
+

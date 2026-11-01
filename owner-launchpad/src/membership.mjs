@@ -1,5 +1,6 @@
 import {onboardingRoute,onboardingEnabled,onboardingApi} from './onboarding-route.mjs';
 import {welcomeRoute} from './welcome-route.mjs';
+import {memberRemovalRoute} from './member-removal-route.mjs';
 import { DAY, clean, db, escapeHTML as e, hmac, readBody, requireThat, sameSite, secret } from '../../membership/common.mjs';
 const BASE = '/membership/requests/';
 const COOKIE = '__Host-bss-membership-csrf';
@@ -33,6 +34,8 @@ export async function pendingBadge(env) {
 }
 export async function membershipRoute(request, env, {now = () => Date.now(), respond,expiresAt}) {
  const url = new URL(request.url);
+ const removal=await memberRemovalRoute(request,env,{now,respond,expiresAt,css});
+ if(removal)return removal;
  const welcome=await welcomeRoute(request,env,{now,respond,expiresAt,issue,check,css,cookie:COOKIE});
  if(welcome)return welcome;
  const setup=await onboardingRoute(request,env,{now,respond,expiresAt,issue,check,css,cookie:COOKIE});
