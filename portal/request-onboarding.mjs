@@ -58,9 +58,12 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
     // Once the existing pending Member is linked to the approved request, retire
     // its legacy claim code in the SAME D1 transaction. Preserve the invitation
     // and its immutable audit history; never leave another admission route live.
+    // Expiration is checked by the preceding atomic INSERT. Retire the code even
+    // if it crosses expiry before this UPDATE; otherwise a linked pending account
+    // could commit while the legacy delivered claim remains unretired.
     ...(contact ? [query(`UPDATE invitations SET status='superseded',digest=NULL,changed_at=?,actor_id=?
      WHERE member_id=? AND issuer_id=? AND recipient=? AND status='delivered'
-     AND expires_at>unixepoch('now') AND EXISTS(SELECT 1 FROM member_onboarding
+     AND EXISTS(SELECT 1 FROM member_onboarding
       WHERE source_database=? AND request_id=? AND member_id=? AND request_revision=?)`,
      at,actorId,memberId,actorId,request.recipient,sourceDatabase,requestId,memberId,revision)] : [])
    ]);
