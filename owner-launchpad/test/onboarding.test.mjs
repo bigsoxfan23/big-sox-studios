@@ -175,6 +175,24 @@ test('legacy adoption fails closed if identity is bound after request precheck b
  assert.equal(f.members.prepare("SELECT status FROM invitations WHERE id='legacy-current'").get().status,'delivered');
 });
 
+test('legacy expiry crossing between onboarding INSERT and invite retirement still clears old claim',async()=>{
+ const f=legacyFixture();let clock=at();
+ // SQLite evaluates unixepoch('now') per statement; simulate crossing the
+ // historical invitation expiry after linking but before its retirement.
+ f.members.function('unixepoch',{varargs:true},()=>clock);
+ const batch=f.opts.memberDb.batch;
+ f.opts.memberDb.batch=statements=>batch(statements.map((stmt,index)=>index===2?{
+  run(){clock+=604900;return stmt.run();}
+ }:stmt));
+ const linked=await f.api.link('request',1);
+ assert.equal(linked.member_id,'legacy');
+ assert.equal(f.count('member_onboarding'),1);
+ const oldCode=f.members.prepare("SELECT status,digest FROM invitations WHERE id='legacy-current'").get();
+ assert.equal(oldCode.status,'superseded');assert.equal(oldCode.digest,null);
+ assert.equal(f.count('service_grants'),0);assert.equal(f.count('identities'),0);
+ assert.deepEqual(f.members.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
 test('legacy invitation transition failure rolls back onboarding and audit atomically',async()=>{
  const f=legacyFixture(),before=f.count('audit_events');
  f.members.exec("CREATE TRIGGER test_block_invitation_retirement BEFORE UPDATE ON invitations WHEN NEW.status='superseded' BEGIN SELECT RAISE(ABORT,'block retirement'); END;");
