@@ -36,7 +36,6 @@ function legacyFixture() {
  invite(f,{id:'legacy-history',createdAt:at()-20});invite(f);
  return f;
 }
-const memberSnapshot=f=>Object.fromEntries(['members','member_onboarding','audit_events','invitations','identities','service_grants','revocations','revocation_tasks'].map(table=>[table,f.members.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
 function beforeBatch(f,change) {
  const batch=f.opts.memberDb.batch;
  f.opts.memberDb.batch=statements=>{change();return batch(statements);};
