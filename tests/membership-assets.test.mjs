@@ -20,8 +20,15 @@ test('request CSP permits exactly the existing inline theme code, Turnstile fram
  for(const script of scripts)assert.ok(headers.includes(`'sha256-${createHash('sha256').update(script).digest('base64')}'`));
  assert.match(headers,/frame-src https:\/\/challenges.cloudflare.com/);assert.match(headers,/form-action 'self'/);assert.match(headers,/frame-ancestors 'none'/);assert.ok(!headers.includes("script-src 'unsafe-inline'"));
 });
-test('members page links to form and preserves future invite-only and coming-soon sign-in',()=>{
- const html=read('dist/members/index.html');assert.match(html,/href="\/members\/request\/"/);assert.ok(!html.includes("There isn't an online application"));assert.match(html,/future invite-only/);assert.match(html,/Member Sign In <small[^>]*>Coming Soon/);
+test('members page links to the request form and describes approved prelaunch onboarding',()=>{
+ const html=read('dist/members/index.html');
+ assert.match(html,/href="\/members\/request\/"/);
+ assert.match(html,/Become a Member/);
+ assert.match(html,/Membership requests open/);
+ assert.match(html,/Member sign-in is not live yet/);
+ assert.match(html,/Jellyfin uses its own credentials/);
+ assert.match(html,/Member Sign In <small[^>]*>Coming Soon/);
+ for(const obsolete of [/future invite-only/,/Google, Apple/,/mandatory multi-factor/])assert.doesNotMatch(html,obsolete);
 });
 test('Wrangler preserves static routing and dedicated production D1 with daily public retention cron; owner configs have no cron and review stays unbound',()=>{
  const config=read('wrangler.toml');assert.match(config,/run_worker_first = \["\/api\/membership\/\*"\]/);assert.match(config,/not_found_handling = "404-page"/);assert.match(config,/html_handling = "auto-trailing-slash"/);assert.match(config,/binding = "ASSETS"/);assert.match(config,/simple = \{ limit = 6, period = 60 \}/);
