@@ -6,20 +6,20 @@ const benefits=[
   {number:'03',icon:'◷',title:'A clear service check',description:'See simple online, offline, or paused indicators for the services shared with you—without exposing private server controls.',note:'Status · Planned'}
 ];
 const steps=[
-  {n:'1',title:'Get invited',body:'Send a membership request for Greg to review. Access is personal, limited, and approved individually—not open registration.'},
-  {n:'2',title:'Verify it\'s you',body:'Once the portal launches, sign in with Google, Apple, or an email login code, then complete the required extra security check.'},
-  {n:'3',title:'Open your services',body:'Your dashboard shows only the services approved for your account. Some services, including Jellyfin, may require a separate service login.'}
+  {n:'1',title:'Request membership',body:'Tell Greg a little about yourself and why you would like to join. He personally reviews every request.'},
+  {n:'2',title:'Get your welcome',body:'After approval, Greg sets up any shared Jellyfin access manually, then sends one personalized welcome email with instructions.'},
+  {n:'3',title:'Sign in securely',body:'When your Member access is active, sign in with a code sent to your approved email or a verified Google account. Jellyfin has a separate login.'}
 ];
 ---
-<BaseLayout title="Members" description="A preview of the invitation-only Big Sox Studios members area for family, friends and approved members.">
+<BaseLayout title="Members" description="Learn how to request membership in the private Big Sox Studios area for friends and family.">
   <section class="members-hero container" aria-labelledby="members-title">
     <div class="hero-copy">
       <p class="eyebrow">BIG SOX STUDIOS / MEMBERS</p>
-      <p class="status"><span aria-hidden="true"></span> In development · Invite only</p>
+      <p class="status"><span aria-hidden="true"></span> Membership requests open · Portal in development</p>
       <h1 id="members-title">Good company.<br/><span>A little more access.</span></h1>
-      <p class="lead">A private home for friends, family, and invited members of the studio. One spot for shared media, game servers, and simple updates on what's available.</p>
+      <p class="lead">A private home for friends, family, and approved members of the studio. One spot for shared media, game servers, and simple updates on what's available.</p>
       <div class="hero-actions">
-        <a class="primary-button" href="#how-to-join">How to get access <span aria-hidden="true">↗</span></a>
+        <a class="primary-button" href="/members/request/">Become a Member <span aria-hidden="true">↗</span></a>
         <a class="quiet-link" href="#whats-inside">Explore member perks <span aria-hidden="true">↓</span></a>
       </div>
     </div>
@@ -39,7 +39,7 @@ const steps=[
     <div class="benefits">
       {benefits.map((b)=><article class="benefit"><div class="benefit-top"><span class="benefit-icon" aria-hidden="true">{b.icon}</span><span class="number">{b.number}</span></div><h3>{b.title}</h3><p>{b.description}</p><div class="benefit-note">{b.note}</div></article>)}
     </div>
-    <p class="fine-print">Features are planned, not live. Service availability may change, and an invitation doesn't guarantee access to every service.</p>
+    <p class="fine-print">Member features are still in development. Service availability may change, and requesting membership doesn't guarantee approval or access to every service.</p>
   </section>
 
   <section class="how-band" aria-labelledby="how-title">
@@ -51,7 +51,7 @@ const steps=[
 
   <section id="how-to-join" class="join container" aria-labelledby="join-title">
     <div class="join-card">
-      <div><p class="eyebrow">REQUESTING ACCESS</p><h2 id="join-title">Know someone at the studio?</h2><p>Members are invited personally by Greg. You can now send a request for Greg to consider for future invite-only membership. Requests create no account and send no email; the portal is not open yet.</p><p><a class="primary-button" href="/members/request/">Request membership <span aria-hidden="true">↗</span></a></p><p class="join-note"><strong>Not accepting logins yet.</strong> Google, Apple, email codes, and mandatory multi-factor verification are being built and tested. We'll open member access after the security checks pass.</p></div>
+      <div><p class="eyebrow">REQUESTING ACCESS</p><h2 id="join-title">Know someone at the studio?</h2><p>Membership requests are open for friends and family. Greg reviews each application personally. Approval alone does not create a login or send a welcome email; shared Jellyfin access is set up manually first.</p><p><a class="primary-button" href="/members/request/">Become a Member <span aria-hidden="true">↗</span></a></p><p class="join-note"><strong>Member sign-in is not live yet.</strong> After setup and a personal welcome, approved Members will use a verified email code or Google sign-in. Jellyfin uses its own credentials.</p></div>
       <div class="join-stamp" aria-hidden="true"><span>INVITE</span><strong>ONLY</strong><small>SOCKS OPTIONAL</small></div>
     </div>
     <div class="bottom-links"><a href="/">← Back to the studio</a><span>Big Sox Studios · A small studio for big ideas.</span></div>
