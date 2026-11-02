@@ -29,19 +29,48 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
    const request=await approved(requestId,revision);
    const existing=await query('SELECT member_id FROM member_onboarding WHERE source_database=? AND request_id=?',sourceDatabase,requestId).first();
    if(existing) return linked(requestId,revision);
-   // Stable id makes concurrent retries and uncertain D1 outcomes converge. The
-   // existing unique contact index refuses adoption of any other account.
-   const memberId='request_'+(await digest(JSON.stringify([sourceDatabase,requestId]))).slice(0,40),at=now();
+   // A contact collision is only a candidate, never permission to reuse it.
+   // Recheck every reuse condition in the atomic onboarding INSERT below.
+   const contact=await query('SELECT id FROM members WHERE lower(recipient)=lower(?)',request.recipient).first();
+   const memberId=contact?.id ?? 'request_'+(await digest(JSON.stringify([sourceDatabase,requestId]))).slice(0,40);
+   if((await approved(requestId,revision)).recipient!==request.recipient) deny();
+   const at=now();
    if(!safeTime(at) || at>=expiresAt) deny();
-   await memberDb.batch([
+   const results=await memberDb.batch([
     query(`INSERT INTO members(id,recipient,role,status,created_at)
      SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
-     AND unixepoch('now')<? ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt),
+     AND unixepoch('now')<? AND ?=0 ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt,Number(!!contact)),
     query(`INSERT INTO member_onboarding(source_database,request_id,request_revision,member_id,actor_id,approved_at)
-     VALUES(?,?,?,(SELECT id FROM members WHERE id=? AND recipient=? AND role='member' AND status='pending'
-     AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<?),?,?)
-     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,actorId,at)
+     SELECT ?,?,?,(SELECT m.id FROM members m WHERE m.id=? AND m.recipient=? AND m.role='member' AND m.status='pending'
+     AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<?
+     AND (?=0 OR (
+      EXISTS(SELECT 1 FROM invitations i WHERE i.member_id=m.id AND i.recipient=m.recipient AND i.issuer_id=?
+       AND i.status='delivered' AND i.expires_at>unixepoch('now') AND i.expires_at>?
+       AND i.claimed_at IS NULL AND i.claim_provider IS NULL AND i.claim_subject IS NULL)
+      AND NOT EXISTS(SELECT 1 FROM identities WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM service_grants WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM revocations WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM revocation_tasks WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM member_onboarding WHERE member_id=m.id)
+     ))),?,?
+     WHERE NOT EXISTS(SELECT 1 FROM member_onboarding WHERE source_database=? AND request_id=?)
+     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,Number(!!contact),actorId,at,actorId,at,sourceDatabase,requestId),
+    // Once the existing pending Member is linked to the approved request, retire
+    // its legacy claim code in the SAME D1 transaction. Preserve the invitation
+    // and its immutable audit history; never leave another admission route live.
+    ...(contact ? [query(`UPDATE invitations SET status='superseded',digest=NULL,changed_at=?,actor_id=?
+     WHERE member_id=? AND issuer_id=? AND recipient=? AND status='delivered'
+     AND expires_at>unixepoch('now') AND EXISTS(SELECT 1 FROM member_onboarding
+      WHERE source_database=? AND request_id=? AND member_id=? AND request_revision=?)`,
+     at,actorId,memberId,actorId,request.recipient,sourceDatabase,requestId,memberId,revision)] : [])
    ]);
+   // The concurrent retry may observe the first transaction's complete link and
+   // retired invitation; that is safe idempotence, not a second adoption.
+   if(contact && results[2]?.meta?.changes!==1){
+    const row=await linked(requestId,revision);
+    if(row.member_id!==memberId || await query("SELECT id FROM invitations WHERE member_id=? AND status='delivered'",memberId).first()) deny();
+    return row;
+   }
    // Cross-DB operations are not atomic. A withdrawn/revised request fails this
    // fresh read. Its pending row grants no access and is never activated here.
    return linked(requestId,revision);
