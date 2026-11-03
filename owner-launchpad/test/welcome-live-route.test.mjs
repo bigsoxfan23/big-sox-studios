@@ -17,7 +17,9 @@ async function ready(t,{enabled=true,send=false}={}){
  if(enabled)f.env.PORTAL_WELCOME_LIVE_ROUTE='review-only-12';
  f.env.MEMBER_LOGIN_URL='https://members-staging.bigsoxstudios.com/app';
  if(send)Object.assign(f.env,{PORTAL_WELCOME_LIVE_SEND:'enabled-12',RESEND_API_KEY:'re_synthetic12345678',SENDER_EMAIL:'welcome@example.test'});
- const id=seed(f.storage,{status:'approved'}),setup=`/membership/requests/${id}/setup`,path=`/membership/requests/${id}/welcome-live`;
+ const id=seed(f.storage,{status:'approved'});
+ if(send)f.env.PORTAL_WELCOME_LIVE_REQUEST_ID=id;
+ const setup=`/membership/requests/${id}/setup`,path=`/membership/requests/${id}/welcome-live`;
  assert.equal((await f.post(setup,await f.form(setup),{request_revision:'1',action:'start',confirm:'yes'})).status,303);
  assert.equal((await f.post(setup,await f.form(setup),{request_revision:'1',revision:'1',action:'jellyfin-ready',confirm:'yes',username:'synthetic',url:'https://jellyfin.example.test/'})).status,303);
  return {...f,id,path,setup,count:table=>f.portal.prepare(`SELECT count(*) n FROM ${table}`).get().n};
@@ -82,6 +84,21 @@ test('send/inspect/record gates and invalid credential/sender refuse before any 
  }
  assert.equal(f.count('welcome_intents'),0);assert.equal(calls.length,0);
 });
+test('live gate authorizes only the exact approved request before any D1 read or provider call',async t=>{
+ const calls=mockProvider(t),f=await ready(t,{send:true}),p=await preview(f);
+ const db=f.env.PORTAL_DB,reqDb=f.env.MEMBERSHIP_DB;
+ let touched=0;
+ f.env.PORTAL_DB=f.env.MEMBERSHIP_DB={prepare(){touched++;throw Error('unexpected D1 access');}};
+ for(const value of [undefined,'',crypto.randomUUID(),f.id.toUpperCase()]){
+  f.env.PORTAL_WELCOME_LIVE_REQUEST_ID=value;
+  assert.equal((await f.post(f.path,p,sendFields(p))).status,403);
+ }
+ assert.equal(touched,0);
+ assert.equal(calls.length,0);
+ f.env.PORTAL_DB=db;f.env.MEMBERSHIP_DB=reqDb;
+ assert.equal(f.count('welcome_intents'),0);
+});
+
 test('strict forms, CSRF, Origin, changed message/proof and expired review cannot claim or dispatch',async t=>{
  const calls=mockProvider(t),f=await ready(t,{send:true}),p=await preview(f);
  for(const kind of ['csrf','origin','missing-origin','duplicate','extra','confirm','proof','message','revision','content-type','session','expired-csrf']){

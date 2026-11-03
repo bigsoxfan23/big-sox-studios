@@ -42,6 +42,11 @@ export async function welcomeLiveRoute(request,env,{now,respond,expiresAt,issue,
    if(action!=='preview'){
     // Validate all send configuration BEFORE any D1 operation or durable claim.
     requireThat(env.PORTAL_WELCOME_LIVE_SEND==='enabled-12',503);
+    // While staging the single Owner-approved live-send test, reject other
+    // requests before D1 access or provider transport. Production's separate
+    // approved rollout does not inherit this staging-only test restriction.
+    if(env.APP_ORIGIN==='https://bss-owner-launchpad-staging.fridman-greg.workers.dev')
+     requireThat(env.PORTAL_WELCOME_LIVE_REQUEST_ID===match[1],403);
     adapter=createResendWelcomeTransport({enabled:true,apiKey:env.RESEND_API_KEY,sender:env.SENDER_EMAIL,fetcher});
    }
   }
