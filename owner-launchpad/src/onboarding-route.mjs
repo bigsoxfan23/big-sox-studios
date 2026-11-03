@@ -46,5 +46,7 @@ export async function onboardingRoute(request,env,{now,respond,expiresAt,issue,c
 }
 export async function render(title,body,request,respond,css,setCookie){
  const hash=btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(css)))));
- return respond(200,`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(title)} · Big Sox Studios</title><style>${css}</style></head><body><main><a href="/">← Owner Dashboard</a><h1>${e(title)}</h1>${body}<a href="/membership/requests/?view=invite-ready">Approved requests</a></main></body></html>`,{'Content-Security-Policy':`default-src 'none'; script-src 'none'; style-src 'sha256-${hash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`,...(request.method==='GET'?{'Referrer-Policy':'same-origin'}:{}),...(setCookie?{'Set-Cookie':setCookie}:{})});
+ // POST-rendered welcome previews contain a second form. Preserving same-origin
+ // referrer policy prevents browsers from sending Origin: null on that POST.
+ return respond(200,`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(title)} · Big Sox Studios</title><style>${css}</style></head><body><main><a href="/">← Owner Dashboard</a><h1>${e(title)}</h1>${body}<a href="/membership/requests/?view=invite-ready">Approved requests</a></main></body></html>`,{'Content-Security-Policy':`default-src 'none'; script-src 'none'; style-src 'sha256-${hash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`,'Referrer-Policy':'same-origin',...(setCookie?{'Set-Cookie':setCookie}:{})});
 }
