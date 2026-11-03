@@ -40,7 +40,7 @@ export function createWelcomeReview({onboarding,actorId,sessionBinding,signingKe
   const u=https(row.jellyfin_url);if(u.origin!==jellyfinOrigin)fail();
   let recipient;try{recipient=normalizeEmail(row.recipient);}catch{fail();}
   const mail={recipient,subject:'Welcome to Big Sox Studios',text:[message,'','Your Big Sox Studios membership',
-   'Sign in with your approved email using an email code or Google.',
+   'Sign in using the one-time code sent to your approved email.',
    `Member sign-in: ${memberLoginUrl}`,`Approved email: ${recipient}`,'','Jellyfin',`Website: ${u.href}`,
    `Username: ${row.jellyfin_username}`,`Temporary password: ${password}`,
    'Jellyfin uses a separate account from your Member sign-in. Change your temporary password after signing in when available.','','— Greg'].join('\n')};

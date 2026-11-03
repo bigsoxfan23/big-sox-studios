@@ -15,6 +15,7 @@ test('welcome preview and explicit confirmation preserve exact transient plain-t
  const f=fixture(),p=await f.api.preview('request',3,form);
  assert.equal(p.recipient,'friend@example.test');assert.ok(p.text.startsWith(form.message));assert.ok(p.text.includes('Temporary password: '+form.password));
  assert.ok(p.text.includes('separate account'));assert.ok(p.text.includes('https://members.example.test/app'));
+ assert.ok(p.text.includes('one-time code sent to your approved email'));assert.ok(!p.text.includes('Google'));
  const c=await f.api.confirm('request',3,form,{review:p.review,confirmed:true});assert.equal(c.text,p.text);assert.equal(c.memberId,f.row.member_id);
  assert.ok(!p.review.includes(form.password));assert.ok(!p.review.includes(form.message));assert.ok(!p.review.includes(p.recipient));
 });
