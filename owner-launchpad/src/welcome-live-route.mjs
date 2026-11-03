@@ -8,6 +8,12 @@ import {onboardingApi,onboardingEnabled,render} from './onboarding-route.mjs';
 import {escapeHTML as e,hmac,readBody,requireThat,sameSite} from '../../membership/common.mjs';
 
 export const welcomeLiveEnabled=env=>onboardingEnabled(env)&&env.PORTAL_WELCOME_LIVE_ROUTE==='review-only-12';
+// A reviewed live welcome must never point production Members to staging.
+// Both destinations stay disabled until their exact Access host is approved.
+export const expectedMemberLoginUrl=env=>env?.APP_ORIGIN==='https://owner.bigsoxstudios.com'
+ ?'https://members.bigsoxstudios.com/app'
+ :env?.APP_ORIGIN==='https://bss-owner-launchpad-staging.fridman-greg.workers.dev'
+  ?'https://members-staging.bigsoxstudios.com/app':null;
 const schemas={
  preview:['message','password'],send:['message','password','review','confirm'],
  inspect:['intent_id','provider_id'],record:['evidence','issued_at','expires_at','nonce','signature','confirm'],
@@ -39,6 +45,8 @@ export async function welcomeLiveRoute(request,env,{now,respond,expiresAt,issue,
     adapter=createResendWelcomeTransport({enabled:true,apiKey:env.RESEND_API_KEY,sender:env.SENDER_EMAIL,fetcher});
    }
   }
+  const memberLoginUrl=expectedMemberLoginUrl(env);
+  requireThat(memberLoginUrl!==null&&env.MEMBER_LOGIN_URL===memberLoginUrl,503);
   const api=await onboardingApi(env,expiresAt,now),requestId=match[1];
   const owners=(await env.PORTAL_DB.prepare("SELECT id,recipient FROM members WHERE role='owner' AND status='active' LIMIT 2").all()).results;
   requireThat(owners?.length===1&&owners[0].recipient===env.OWNER_EMAIL,403);
@@ -48,7 +56,7 @@ export async function welcomeLiveRoute(request,env,{now,respond,expiresAt,issue,
   const sessionBinding=await hmac(env.MEMBERSHIP_CSRF_KEY,'welcome-live-session:'+request.headers.get('Cf-Access-Jwt-Assertion'));
   const base={enabled:true,memberDb:env.PORTAL_DB,sourceDatabase:env.ONBOARDING_SOURCE_ID,actorId,expiresAt,now:seconds};
   const review=createWelcomeReview({onboarding:api,actorId,sessionBinding,signingKey:env.MEMBERSHIP_CSRF_KEY,expiresAt,
-   jellyfinOrigin:env.JELLYFIN_ORIGIN,memberLoginUrl:'https://members-staging.bigsoxstudios.com/app',now:seconds});
+   jellyfinOrigin:env.JELLYFIN_ORIGIN,memberLoginUrl,now:seconds});
   const delivery=createWelcomeLiveDelivery({...base,onboarding:api,review,adapter:adapter||{send:async()=>{throw Error('disabled');}}});
   const token=await issue(request,env,now()),common=hidden('csrf',token)+hidden('request_revision',source.revision);
   let body='';
