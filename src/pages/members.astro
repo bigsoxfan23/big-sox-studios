@@ -8,7 +8,7 @@ const benefits=[
 const steps=[
   {n:'1',title:'Request membership',body:'Tell Greg a little about yourself and why you would like to join. He personally reviews every request.'},
   {n:'2',title:'Get your welcome',body:'After approval, Greg sets up any shared Jellyfin access manually, then sends one personalized welcome email with instructions.'},
-  {n:'3',title:'Sign in securely',body:'When your Member access is active, sign in with a code sent to your approved email or a verified Google account. Jellyfin has a separate login.'}
+  {n:'3',title:'Sign in securely',body:'When your Member access is active, sign in using a one-time code sent to your approved email. Jellyfin has a separate login.'}
 ];
 ---
 <BaseLayout title="Members" description="Learn how to request membership in the private Big Sox Studios area for friends and family.">
@@ -51,7 +51,7 @@ const steps=[
 
   <section id="how-to-join" class="join container" aria-labelledby="join-title">
     <div class="join-card">
-      <div><p class="eyebrow">REQUESTING ACCESS</p><h2 id="join-title">Know someone at the studio?</h2><p>Membership requests are open for friends and family. Greg reviews each application personally. Approval alone does not create a login or send a welcome email; shared Jellyfin access is set up manually first.</p><p><a class="primary-button" href="/members/request/">Become a Member <span aria-hidden="true">↗</span></a></p><p class="join-note"><strong>Member sign-in is not live yet.</strong> After setup and a personal welcome, approved Members will use a verified email code or Google sign-in. Jellyfin uses its own credentials.</p></div>
+      <div><p class="eyebrow">REQUESTING ACCESS</p><h2 id="join-title">Know someone at the studio?</h2><p>Membership requests are open for friends and family. Greg reviews each application personally. Approval alone does not create a login or send a welcome email; shared Jellyfin access is set up manually first.</p><p><a class="primary-button" href="/members/request/">Become a Member <span aria-hidden="true">↗</span></a></p><p class="join-note"><strong>Member sign-in is not live yet.</strong> After setup and a personal welcome, approved Members will sign in using a one-time email code. Jellyfin uses its own credentials.</p></div>
       <div class="join-stamp" aria-hidden="true"><span>INVITE</span><strong>ONLY</strong><small>SOCKS OPTIONAL</small></div>
     </div>
     <div class="bottom-links"><a href="/">← Back to the studio</a><span>Big Sox Studios · A small studio for big ideas.</span></div>
