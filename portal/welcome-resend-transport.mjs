@@ -27,7 +27,9 @@ export function createResendWelcomeTransport({enabled=false,apiKey,sender,fetche
    const headers={'Authorization':'Bearer '+apiKey,'Accept':'application/json'};
    if(body!==undefined){headers['Content-Type']='application/json';headers['Idempotency-Key']='bss-welcome/'+intentId;}
    const response=await fetcher(resource,{method,headers,body:body===undefined?undefined:JSON.stringify(body),
-    signal:controller.signal,redirect:'error',cache:'no-store'});
+    // Cloudflare Workers rejects redirect:'error' before dispatch. 'manual' is
+    // supported and lets us fail closed on all 3xx without forwarding secrets.
+    signal:controller.signal,redirect:'manual',cache:'no-store'});
    if(!(response instanceof Response)||response.redirected)failure();
    let data=null;
    if(response.status===200){
