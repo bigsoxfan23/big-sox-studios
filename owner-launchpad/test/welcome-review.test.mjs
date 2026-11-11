@@ -66,6 +66,7 @@ test('actual onboarding SQL is re-read and preview/confirmation leave every data
  requests.exec(readFileSync(new URL('../../membership/migrations/0001_membership.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
+ members.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  members.prepare("INSERT INTO members VALUES('owner','greg@example.test','owner','active',?)").run(at);
  requests.prepare("INSERT INTO membership_requests(id,email_hash,email,status,created_at,updated_at) VALUES('request','hash','friend@example.test','approved',?,?)").run(at*1000,at*1000);
  const adapter=sqlite=>{const wrap=(sql,args=[])=>({bind(...v){return wrap(sql,v);},async first(){return sqlite.prepare(sql).get(...args)||null;},async run(){return sqlite.prepare(sql).run(...args);}});return {prepare:sql=>wrap(sql),async batch(statements){sqlite.exec('BEGIN');try{for(const s of statements)await s.run();sqlite.exec('COMMIT');}catch(e){sqlite.exec('ROLLBACK');throw e;}}};};

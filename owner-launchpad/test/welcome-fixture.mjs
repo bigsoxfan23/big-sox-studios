@@ -13,6 +13,7 @@ export async function welcomeFixture(){
  portal.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  portal.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
  portal.exec(readFileSync(new URL('../../portal/migrations/0005-welcome-intents.sql',import.meta.url),'utf8'));
+ portal.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  portal.prepare("INSERT INTO members VALUES('owner','owner@example.test','owner','active',?)").run(Math.floor(Date.now()/1000));
  const env={ACCESS_ISSUER:'https://synthetic.cloudflareaccess.com',ACCESS_AUDIENCE:'preview-aud',OWNER_EMAIL:'owner@example.test',APP_ORIGIN:origin,MAIL_DESK_URL:'https://mail.example.test/',MEMBERSHIP_DB:storage,MEMBERSHIP_CSRF_KEY:'synthetic-csrf-key-12345678901234567890',PORTAL_DB:memberDb(portal),PORTAL_WELCOME:'simulation-12',PORTAL_ONBOARDING:'staging-12',ONBOARDING_SOURCE_ID:'48b0a0cc-40ad-4495-8883-a42b4a938b71',ONBOARDING_MEMBER_DB_ID:'43a8a15b-e195-4712-9198-1dcc9f0152af',JELLYFIN_ORIGIN:'https://jellyfin.example.test'};
  const worker=createWorker({fetcher:async()=>Response.json({keys:[jwk]})});

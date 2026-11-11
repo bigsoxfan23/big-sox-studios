@@ -20,11 +20,32 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
  async function linked(requestId,revision) {
   const request=await approved(requestId,revision);
   const row=await query(`SELECT o.*,m.recipient,m.role,m.status FROM member_onboarding o
-   JOIN members m ON m.id=o.member_id WHERE o.source_database=? AND o.request_id=?`,sourceDatabase,requestId).first();
+   JOIN members m ON m.id=o.member_id WHERE o.source_database=? AND o.request_id=?
+   AND NOT EXISTS(SELECT 1 FROM member_approval_holds h
+    WHERE h.source_database=o.source_database AND h.request_id=o.request_id)`,sourceDatabase,requestId).first();
   if(!row || row.request_revision>revision || row.recipient!==request.recipient || row.role!=='member' || row.status!=='pending') deny();
   return row;
  }
  return {
+  // Called ONLY by the verified Owner withdrawal path, before Requests D1
+  // changes status. This durable, terminal hold serializes with the Member
+  // admission batch in the SAME Members D1. Never revoke from a Member GET.
+  async holdAdmission(requestId,revision) {
+   await approved(requestId,revision);
+   const at=now();if(!safeTime(at)||at>=expiresAt)deny();
+   const held=await query(`INSERT INTO member_approval_holds
+    (source_database,request_id,actor_id,request_revision,held_at)
+    SELECT ?,?,?,?,? WHERE EXISTS(
+     SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
+    AND unixepoch('now')<? ON CONFLICT(source_database,request_id) DO NOTHING
+    RETURNING request_id`,sourceDatabase,requestId,actorId,revision,at,actorId,expiresAt).first();
+   if(!held) {
+    const previous=await query(`SELECT request_id,actor_id,request_revision
+     FROM member_approval_holds WHERE source_database=? AND request_id=?`,sourceDatabase,requestId).first();
+    if(!previous||previous.actor_id!==actorId||previous.request_revision!==revision)deny();
+   }
+   return Object.freeze({requestId,held:true});
+  },
   async link(requestId,revision) {
    const request=await approved(requestId,revision);
    const existing=await query('SELECT member_id FROM member_onboarding WHERE source_database=? AND request_id=?',sourceDatabase,requestId).first();
@@ -39,7 +60,9 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
    const results=await memberDb.batch([
     query(`INSERT INTO members(id,recipient,role,status,created_at)
      SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
-     AND unixepoch('now')<? AND ?=0 ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt,Number(!!contact)),
+     AND unixepoch('now')<? AND ?=0
+     AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+     ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt,Number(!!contact),sourceDatabase,requestId),
     query(`INSERT INTO member_onboarding(source_database,request_id,request_revision,member_id,actor_id,approved_at)
      SELECT ?,?,?,(SELECT m.id FROM members m WHERE m.id=? AND m.recipient=? AND m.role='member' AND m.status='pending'
      AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<?
@@ -54,7 +77,8 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
       AND NOT EXISTS(SELECT 1 FROM member_onboarding WHERE member_id=m.id)
      ))),?,?
      WHERE NOT EXISTS(SELECT 1 FROM member_onboarding WHERE source_database=? AND request_id=?)
-     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,Number(!!contact),actorId,at,actorId,at,sourceDatabase,requestId),
+     AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,Number(!!contact),actorId,at,actorId,at,sourceDatabase,requestId,sourceDatabase,requestId),
     // Once the existing pending Member is linked to the approved request, retire
     // its legacy claim code in the SAME D1 transaction. Preserve the invitation
     // and its immutable audit history; never leave another admission route live.
@@ -89,7 +113,9 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
    const result=await query(`UPDATE member_onboarding SET jellyfin_ready_at=?,jellyfin_username=?,jellyfin_url=?,revision=revision+1
     WHERE source_database=? AND request_id=? AND revision=? AND jellyfin_ready_at IS NULL
     AND EXISTS(SELECT 1 FROM members WHERE id=member_onboarding.member_id AND role='member' AND status='pending')
-    AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<? RETURNING member_id`,at,username,url,sourceDatabase,requestId,expectedRevision,actorId,expiresAt).first();
+    AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
+    AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+    AND unixepoch('now')<? RETURNING member_id`,at,username,url,sourceDatabase,requestId,expectedRevision,actorId,sourceDatabase,requestId,expiresAt).first();
    if(!result) deny(); return linked(requestId,requestRevision);
   }
  };

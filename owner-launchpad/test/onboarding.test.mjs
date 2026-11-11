@@ -14,6 +14,7 @@ function fixture() {
  requests.exec(readFileSync(new URL('../../membership/migrations/0001_membership.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
+ members.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  members.prepare("INSERT INTO members VALUES('owner','greg@example.test','owner','active',?)").run(at());
  requests.prepare("INSERT INTO membership_requests(id,email_hash,name,email,status,created_at,updated_at) VALUES('request','hash','Synthetic','new@example.test','approved',?,?)").run(at()*1000,at()*1000);
  const opts={requestDb:adapter(requests),memberDb:adapter(members),sourceDatabase:'synthetic-source',actorId:'owner',expiresAt:at()+600,jellyfinOrigin:'https://jellyfin.example.test'};
@@ -108,7 +109,7 @@ test('real local workerd/D1 creates idempotent audited pending links and manual 
  try{
   const requestDb=await mf.getD1Database('REQUESTS'),memberDb=await mf.getD1Database('MEMBERS');
   const probes=new Map([[requestDb,{sqlite:new DatabaseSync(':memory:'),seen:new Set()}],[memberDb,{sqlite:new DatabaseSync(':memory:'),seen:new Set()}]]);
-  for(const [database,path]of [[requestDb,'membership/migrations/0001_membership.sql'],[memberDb,'portal/schema.sql'],[memberDb,'portal/migrations/0004-request-onboarding.sql']]){
+  for(const [database,path]of [[requestDb,'membership/migrations/0001_membership.sql'],[memberDb,'portal/schema.sql'],[memberDb,'portal/migrations/0004-request-onboarding.sql'],[memberDb,'portal/migrations/0007-owner-admission-withdrawal-holds.sql']]){
    const sql=readFileSync(new URL('../../'+path,import.meta.url),'utf8');
    // SQLite itself parses complete trigger bodies, including nested CASE END.
    const probe=probes.get(database);probe.sqlite.exec(sql);

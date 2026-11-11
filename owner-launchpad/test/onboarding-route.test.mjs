@@ -14,6 +14,7 @@ async function fixture(){
  const storage=database(),portal=new DatabaseSync(':memory:');
  portal.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  portal.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
+ portal.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  portal.prepare("INSERT INTO members VALUES('owner','owner@example.test','owner','active',?)").run(Math.floor(Date.now()/1000));
  const env={ACCESS_ISSUER:'https://synthetic.cloudflareaccess.com',ACCESS_AUDIENCE:'preview-aud',OWNER_EMAIL:'owner@example.test',APP_ORIGIN:origin,MAIL_DESK_URL:'https://mail.example.test/',MEMBERSHIP_DB:storage,MEMBERSHIP_CSRF_KEY:'synthetic-csrf-key-12345678901234567890',PORTAL_DB:memberDb(portal),PORTAL_ONBOARDING:'staging-12',ONBOARDING_SOURCE_ID:'48b0a0cc-40ad-4495-8883-a42b4a938b71',ONBOARDING_MEMBER_DB_ID:'43a8a15b-e195-4712-9198-1dcc9f0152af',JELLYFIN_ORIGIN:'https://jellyfin.example.test'};
  const worker=createWorker({fetcher:async()=>Response.json({keys:[jwk]})});
@@ -62,4 +63,47 @@ test('bridge failure reports saved approval and safe setup retry instead of impl
  const r=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'approved',note:''});assert.equal(r.status,503);
  const body=await r.text();assert.match(body,/Your approval was saved/);assert.match(body,/Continue member setup/);
  assert.equal(f.storage.rows()[0].status,'approved');assert.equal(f.portal.prepare('SELECT count(*) n FROM member_onboarding').get().n,0);
+});
+
+test('authenticated Owner withdrawal installs durable hold BEFORE revoking the approved request',async()=>{
+ const f=await fixture(),id=seed(f.storage,{status:'approved'}),setup=`/membership/requests/${id}/setup`;
+ const page=await f.form(setup);assert.equal(page.r.status,200);
+ assert.equal((await f.post(setup,page,{request_revision:'1',action:'start',confirm:'yes'})).status,303);
+ const form=await f.form('/membership/requests/?view=invite-ready');
+ const result=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'revoked',note:'Synthetic withdrawal'});
+ assert.equal(result.status,303);
+ assert.equal(f.storage.rows()[0].status,'revoked');
+ assert.equal(f.storage.rows()[0].revision,2);
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,1);
+ assert.equal(f.portal.prepare("SELECT count(*) n FROM audit_events WHERE action='owner-approval-withdrawal-hold'").get().n,1);
+ assert.equal(f.portal.prepare("SELECT status FROM members WHERE role='member'").get().status,'pending');
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM identities').get().n,0);
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM service_grants').get().n,0);
+});
+test('Owner withdrawal seals admission even if approved request has no Member linkage yet',async()=>{
+ const f=await fixture(),id=seed(f.storage,{status:'approved'}),form=await f.form('/membership/requests/?view=invite-ready');
+ const result=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'revoked',note:''});
+ assert.equal(result.status,303);
+ assert.equal(f.storage.rows()[0].status,'revoked');
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,1);
+ assert.equal(f.portal.prepare("SELECT count(*) n FROM audit_events WHERE action='owner-approval-withdrawal-hold' AND member_id='owner'").get().n,1);
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM member_onboarding').get().n,0);
+});
+test('missing hold table fails closed: Owner cannot silently withdraw approval without the admission barrier',async()=>{
+ const f=await fixture(),id=seed(f.storage,{status:'approved'}),form=await f.form('/membership/requests/?view=invite-ready');
+ f.portal.exec('DROP TABLE member_approval_holds');
+ const result=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'revoked',note:''});
+ assert.equal(result.status,503);
+ assert.equal(f.storage.rows()[0].status,'approved');
+ assert.equal(f.storage.rows()[0].revision,1);
+});
+test('forged or stale Owner withdrawal never creates an admission hold',async()=>{
+ const f=await fixture(),id=seed(f.storage,{status:'approved'}),form=await f.form('/membership/requests/?view=invite-ready');
+ const bad=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'revoked',note:'',csrf:'fake'});
+ assert.equal(bad.status,403);
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,0);
+ const stale=await f.post(`/membership/requests/${id}/decision`,form,{revision:'2',status:'revoked',note:''});
+ assert.equal(stale.status,409);
+ assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,0);
+ assert.equal(f.storage.rows()[0].status,'approved');
 });

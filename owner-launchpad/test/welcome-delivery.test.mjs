@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {createRequestOnboarding} from '../../portal/request-onboarding.mjs';
 import {createWelcomeReview} from '../../portal/welcome-review.mjs';
 import {createWelcomeDelivery,simulatedWelcomeProvider} from '../../portal/welcome-delivery.mjs';
-const schemas=['membership/migrations/0001_membership.sql','portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql'];
+const schemas=['membership/migrations/0001_membership.sql','portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql','portal/migrations/0007-owner-admission-withdrawal-holds.sql'];
 const content={message:'Welcome, synthetic friend!',password:'synthetic-only-secret'};
 function adapter(sqlite){const wrap=(sql,args=[])=>({bind(...v){return wrap(sql,v);},async first(){return sqlite.prepare(sql).get(...args)||null;},async all(){return{results:sqlite.prepare(sql).all(...args)};},async run(){return sqlite.prepare(sql).run(...args);}});return{prepare:sql=>wrap(sql),async batch(ss){sqlite.exec('BEGIN');try{for(const s of ss)await s.run();sqlite.exec('COMMIT');}catch(e){sqlite.exec('ROLLBACK');throw e;}}};}
 async function fixture(options={}){
