@@ -23,11 +23,13 @@ test('accepted response preserves one intent ID; never claims delivery or activa
  const out=await a.send(msg);assert.equal(out.state,'accepted');assert.equal(out.providerId,providerId);
  assert.equal(out.activationAuthorized,false);assert.equal(out.delivered,false);assert.equal(seen.length,1);
  assert.equal(seen[0].url,'https://api.resend.com/emails');assert.equal(seen[0].opt.method,'POST');
+ assert.equal(seen[0].opt.redirect,'manual');assert.equal(seen[0].opt.cache,'no-store');
  assert.equal(seen[0].opt.headers['Idempotency-Key'],'bss-welcome/'+id);
  assert.deepEqual(JSON.parse(seen[0].opt.body),{from:sender,to:[msg.recipient],subject:msg.subject,text:msg.text});
 });
 test('uncertain, malformed, conflict, rate-limited or timed-out outcomes stay locked without retries',async()=>{
- for(const response of [new Response('',{status:409}),new Response('',{status:429}),new Response('',{status:503}),
+ for(const response of [new Response('',{status:302,headers:{Location:'https://redirect.example.invalid'}}),
+  new Response('',{status:409}),new Response('',{status:429}),new Response('',{status:503}),
   Response.json({}),Response.json({id:'other'}),null]){
   let calls=0;const a=adapter(async()=>{calls++;if(response===null)throw Error('provider could have accepted');return response});
   const out=await a.send(msg);assert.equal(out.state,'UNKNOWN');assert.equal(out.mayRetry,false);assert.equal(out.activationAuthorized,false);assert.equal(calls,1);
@@ -42,6 +44,7 @@ test('definite provider refusal is not an accepted message',async()=>{
 test('read-only lookup checks provider ID and exact recipient without exposing body',async()=>{
  let requests=0;
  const a=adapter(async(url,opt)=>{requests++;assert.equal(opt.method,'GET');assert.equal(url,'https://api.resend.com/emails/'+providerId);
+  assert.equal(opt.redirect,'manual');
   return Response.json({id:providerId,to:[msg.recipient],last_event:'delivered',text:'SECRET-DO-NOT-RETURN'});});
  const result=await a.inspect({providerId,recipient:msg.recipient});
  assert.equal(result.state,'provider-observed');assert.equal(result.providerStatus,'delivered');

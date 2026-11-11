@@ -15,6 +15,7 @@ test('welcome preview and explicit confirmation preserve exact transient plain-t
  const f=fixture(),p=await f.api.preview('request',3,form);
  assert.equal(p.recipient,'friend@example.test');assert.ok(p.text.startsWith(form.message));assert.ok(p.text.includes('Temporary password: '+form.password));
  assert.ok(p.text.includes('separate account'));assert.ok(p.text.includes('https://members.example.test/app'));
+ assert.ok(p.text.includes('one-time code sent to your approved email'));assert.ok(!p.text.includes('Google'));
  const c=await f.api.confirm('request',3,form,{review:p.review,confirmed:true});assert.equal(c.text,p.text);assert.equal(c.memberId,f.row.member_id);
  assert.ok(!p.review.includes(form.password));assert.ok(!p.review.includes(form.message));assert.ok(!p.review.includes(p.recipient));
 });
@@ -65,6 +66,7 @@ test('actual onboarding SQL is re-read and preview/confirmation leave every data
  requests.exec(readFileSync(new URL('../../membership/migrations/0001_membership.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  members.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
+ members.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  members.prepare("INSERT INTO members VALUES('owner','greg@example.test','owner','active',?)").run(at);
  requests.prepare("INSERT INTO membership_requests(id,email_hash,email,status,created_at,updated_at) VALUES('request','hash','friend@example.test','approved',?,?)").run(at*1000,at*1000);
  const adapter=sqlite=>{const wrap=(sql,args=[])=>({bind(...v){return wrap(sql,v);},async first(){return sqlite.prepare(sql).get(...args)||null;},async run(){return sqlite.prepare(sql).run(...args);}});return {prepare:sql=>wrap(sql),async batch(statements){sqlite.exec('BEGIN');try{for(const s of statements)await s.run();sqlite.exec('COMMIT');}catch(e){sqlite.exec('ROLLBACK');throw e;}}};};

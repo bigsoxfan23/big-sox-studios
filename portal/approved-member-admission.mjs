@@ -11,7 +11,9 @@ export function createApprovedMemberAdmission({memberDb,requestDb,sourceDatabase
  function clock(identity){const at=now();if(!Number.isSafeInteger(at)||at<0)deny();requireOtpIdentity(identity,at);if(identity.provider!=='otp')deny();return at;}
  const eligibility=`m.role='member' AND m.status IN ('pending','active') AND o.source_database=?
   AND o.jellyfin_ready_at IS NOT NULL AND w.mode='live' AND w.state='accepted'
-  AND w.member_id=m.id AND w.recipient=m.recipient AND w.onboarding_revision=o.revision`;
+  AND w.member_id=m.id AND w.recipient=m.recipient AND w.onboarding_revision=o.revision
+  AND NOT EXISTS(SELECT 1 FROM member_approval_holds h
+   WHERE h.source_database=o.source_database AND h.request_id=o.request_id)`;
  const joins=`members m JOIN member_onboarding o ON o.member_id=m.id
   JOIN welcome_intents w ON w.source_database=o.source_database AND w.request_id=o.request_id`;
  async function candidate(identity) {

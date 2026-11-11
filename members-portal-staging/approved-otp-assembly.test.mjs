@@ -42,9 +42,10 @@ async function fixture(t,{mode='live',workerd=false}={}){
   ({db}=await workerdFixture(t));
   await applySchema(db,'./migrations/0004-request-onboarding.sql');
   await applySchema(db,'./migrations/0005-welcome-intents.sql');
+  await applySchema(db,'./migrations/0007-owner-admission-withdrawal-holds.sql');
  }else{
   sqlite=new DatabaseSync(':memory:');t.after(()=>sqlite.close());
-  for(const path of ['portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql'])sqlite.exec(sql(path));
+  for(const path of ['portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql','portal/migrations/0007-owner-admission-withdrawal-holds.sql'])sqlite.exec(sql(path));
   db=d1(sqlite);
   await db.prepare("INSERT INTO members VALUES('owner','owner@example.test','owner','active',?)").bind(epoch).run();
  }

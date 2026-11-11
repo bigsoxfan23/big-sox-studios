@@ -2,7 +2,11 @@ import {createRequestOnboarding} from '../../portal/request-onboarding.mjs';
 import {db,escapeHTML as e,readBody,requireThat,sameSite,secret} from '../../membership/common.mjs';
 const SOURCE='48b0a0cc-40ad-4495-8883-a42b4a938b71';
 const TARGET='43a8a15b-e195-4712-9198-1dcc9f0152af';
-export const onboardingEnabled=env=>env.PORTAL_ONBOARDING==='staging-12' && env.APP_ORIGIN==='https://bss-owner-launchpad-staging.fridman-greg.workers.dev';
+const STAGING_OWNER_ORIGIN='https://bss-owner-launchpad-staging.fridman-greg.workers.dev';
+export const onboardingEnabled=env=>env.PORTAL_ONBOARDING==='staging-12' && env.APP_ORIGIN===STAGING_OWNER_ORIGIN;
+// A staging flag downgrade must NEVER allow an approved -> revoked request
+// transition to skip its Members-D1 hold. Production has a distinct origin.
+export const withdrawalHoldRequired=env=>env.APP_ORIGIN===STAGING_OWNER_ORIGIN || env.PORTAL_ONBOARDING==='staging-12';
 export async function onboardingApi(env,expiresAt,now) {
  requireThat(onboardingEnabled(env) && env.ONBOARDING_SOURCE_ID===SOURCE && env.ONBOARDING_MEMBER_DB_ID===TARGET && env.PORTAL_DB?.prepare,503);
  const owners=(await env.PORTAL_DB.prepare("SELECT id,recipient FROM members WHERE role='owner' AND status='active' LIMIT 2").all()).results;
@@ -46,5 +50,7 @@ export async function onboardingRoute(request,env,{now,respond,expiresAt,issue,c
 }
 export async function render(title,body,request,respond,css,setCookie){
  const hash=btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(css)))));
- return respond(200,`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(title)} · Big Sox Studios</title><style>${css}</style></head><body><main><a href="/">← Owner Dashboard</a><h1>${e(title)}</h1>${body}<a href="/membership/requests/?view=invite-ready">Approved requests</a></main></body></html>`,{'Content-Security-Policy':`default-src 'none'; script-src 'none'; style-src 'sha256-${hash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`,...(request.method==='GET'?{'Referrer-Policy':'same-origin'}:{}),...(setCookie?{'Set-Cookie':setCookie}:{})});
+ // POST-rendered welcome previews contain a second form. Preserving same-origin
+ // referrer policy prevents browsers from sending Origin: null on that POST.
+ return respond(200,`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(title)} · Big Sox Studios</title><style>${css}</style></head><body><main><a href="/">← Owner Dashboard</a><h1>${e(title)}</h1>${body}<a href="/membership/requests/?view=invite-ready">Approved requests</a></main></body></html>`,{'Content-Security-Policy':`default-src 'none'; script-src 'none'; style-src 'sha256-${hash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`,'Referrer-Policy':'same-origin',...(setCookie?{'Set-Cookie':setCookie}:{})});
 }

@@ -20,28 +20,101 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
  async function linked(requestId,revision) {
   const request=await approved(requestId,revision);
   const row=await query(`SELECT o.*,m.recipient,m.role,m.status FROM member_onboarding o
-   JOIN members m ON m.id=o.member_id WHERE o.source_database=? AND o.request_id=?`,sourceDatabase,requestId).first();
+   JOIN members m ON m.id=o.member_id WHERE o.source_database=? AND o.request_id=?
+   AND NOT EXISTS(SELECT 1 FROM member_approval_holds h
+    WHERE h.source_database=o.source_database AND h.request_id=o.request_id)`,sourceDatabase,requestId).first();
   if(!row || row.request_revision>revision || row.recipient!==request.recipient || row.role!=='member' || row.status!=='pending') deny();
   return row;
  }
  return {
+  // Called ONLY by the verified Owner withdrawal path, before Requests D1
+  // changes status. This durable, terminal hold serializes with the Member
+  // admission batch in the SAME Members D1. Never revoke from a Member GET.
+  async holdAdmission(requestId,revision) {
+   await approved(requestId,revision);
+   const at=now();if(!safeTime(at)||at>=expiresAt)deny();
+   const held=await query(`INSERT INTO member_approval_holds
+    (source_database,request_id,actor_id,request_revision,held_at)
+    SELECT ?,?,?,?,? WHERE EXISTS(
+     SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
+    AND unixepoch('now')<? ON CONFLICT(source_database,request_id) DO NOTHING
+    RETURNING request_id`,sourceDatabase,requestId,actorId,revision,at,actorId,expiresAt).first();
+   if(!held) {
+    // Recheck the active Owner and DB deadline on a previously committed hold:
+    // INSERT may have been rejected after a session/deadline crossing.
+    const previous=await query(`SELECT h.request_id,h.actor_id,h.request_revision
+     FROM member_approval_holds h JOIN members m ON m.id=h.actor_id
+     WHERE h.source_database=? AND h.request_id=?
+     AND m.id=? AND m.role='owner' AND m.status='active'
+     AND unixepoch('now')<?`,sourceDatabase,requestId,actorId,expiresAt).first();
+    const retryAt=now();if(!safeTime(retryAt)||retryAt>=expiresAt)deny();
+    // A private note may advance Requests D1 after the immutable hold commits.
+    // Only the original active Owner can retry with the latest approved revision.
+    if(!previous||previous.actor_id!==actorId||previous.request_revision>revision)deny();
+   }
+   return Object.freeze({requestId,held:true});
+  },
+  async withdrawalHolds(requestIds) {
+   if(!Array.isArray(requestIds)||requestIds.length>20||requestIds.some(x=>!id(x)))deny();
+   const at=now();if(!safeTime(at)||at>=expiresAt)deny();
+   if(!await query("SELECT id FROM members WHERE id=? AND role='owner' AND status='active'",actorId).first())deny();
+   if(!requestIds.length)return [];
+   const marks=requestIds.map(()=>'?').join(',');
+   return (await query(`SELECT request_id,request_revision FROM member_approval_holds
+    WHERE source_database=? AND request_id IN (${marks})`,sourceDatabase,...requestIds).all()).results;
+  },
   async link(requestId,revision) {
    const request=await approved(requestId,revision);
    const existing=await query('SELECT member_id FROM member_onboarding WHERE source_database=? AND request_id=?',sourceDatabase,requestId).first();
    if(existing) return linked(requestId,revision);
-   // Stable id makes concurrent retries and uncertain D1 outcomes converge. The
-   // existing unique contact index refuses adoption of any other account.
-   const memberId='request_'+(await digest(JSON.stringify([sourceDatabase,requestId]))).slice(0,40),at=now();
+   // A contact collision is only a candidate, never permission to reuse it.
+   // Recheck every reuse condition in the atomic onboarding INSERT below.
+   const contact=await query('SELECT id FROM members WHERE lower(recipient)=lower(?)',request.recipient).first();
+   const memberId=contact?.id ?? 'request_'+(await digest(JSON.stringify([sourceDatabase,requestId]))).slice(0,40);
+   if((await approved(requestId,revision)).recipient!==request.recipient) deny();
+   const at=now();
    if(!safeTime(at) || at>=expiresAt) deny();
-   await memberDb.batch([
+   const results=await memberDb.batch([
     query(`INSERT INTO members(id,recipient,role,status,created_at)
      SELECT ?,?,'member','pending',? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
-     AND unixepoch('now')<? ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt),
+     AND unixepoch('now')<? AND ?=0
+     AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+     ON CONFLICT(id) DO NOTHING`,memberId,request.recipient,at,actorId,expiresAt,Number(!!contact),sourceDatabase,requestId),
     query(`INSERT INTO member_onboarding(source_database,request_id,request_revision,member_id,actor_id,approved_at)
-     VALUES(?,?,?,(SELECT id FROM members WHERE id=? AND recipient=? AND role='member' AND status='pending'
-     AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<?),?,?)
-     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,actorId,at)
+     SELECT ?,?,?,(SELECT m.id FROM members m WHERE m.id=? AND m.recipient=? AND m.role='member' AND m.status='pending'
+     AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<?
+     AND (?=0 OR (
+      EXISTS(SELECT 1 FROM invitations i WHERE i.member_id=m.id AND i.recipient=m.recipient AND i.issuer_id=?
+       AND i.status='delivered' AND i.expires_at>unixepoch('now') AND i.expires_at>?
+       AND i.claimed_at IS NULL AND i.claim_provider IS NULL AND i.claim_subject IS NULL)
+      AND NOT EXISTS(SELECT 1 FROM identities WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM service_grants WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM revocations WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM revocation_tasks WHERE member_id=m.id)
+      AND NOT EXISTS(SELECT 1 FROM member_onboarding WHERE member_id=m.id)
+     ))),?,?
+     WHERE NOT EXISTS(SELECT 1 FROM member_onboarding WHERE source_database=? AND request_id=?)
+     AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+     ON CONFLICT(source_database,request_id) DO NOTHING`,sourceDatabase,requestId,revision,memberId,request.recipient,actorId,expiresAt,Number(!!contact),actorId,at,actorId,at,sourceDatabase,requestId,sourceDatabase,requestId),
+    // Once the existing pending Member is linked to the approved request, retire
+    // its legacy claim code in the SAME D1 transaction. Preserve the invitation
+    // and its immutable audit history; never leave another admission route live.
+    // Expiration is checked by the preceding atomic INSERT. Retire the code even
+    // if it crosses expiry before this UPDATE; otherwise a linked pending account
+    // could commit while the legacy delivered claim remains unretired.
+    ...(contact ? [query(`UPDATE invitations SET status='superseded',digest=NULL,changed_at=?,actor_id=?
+     WHERE member_id=? AND issuer_id=? AND recipient=? AND status='delivered'
+     AND EXISTS(SELECT 1 FROM member_onboarding
+      WHERE source_database=? AND request_id=? AND member_id=? AND request_revision=?)`,
+     at,actorId,memberId,actorId,request.recipient,sourceDatabase,requestId,memberId,revision)] : [])
    ]);
+   // The concurrent retry may observe the first transaction's complete link and
+   // retired invitation; that is safe idempotence, not a second adoption.
+   if(contact && results[2]?.meta?.changes!==1){
+    const row=await linked(requestId,revision);
+    if(row.member_id!==memberId || await query("SELECT id FROM invitations WHERE member_id=? AND status='delivered'",memberId).first()) deny();
+    return row;
+   }
    // Cross-DB operations are not atomic. A withdrawn/revised request fails this
    // fresh read. Its pending row grants no access and is never activated here.
    return linked(requestId,revision);
@@ -57,7 +130,9 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
    const result=await query(`UPDATE member_onboarding SET jellyfin_ready_at=?,jellyfin_username=?,jellyfin_url=?,revision=revision+1
     WHERE source_database=? AND request_id=? AND revision=? AND jellyfin_ready_at IS NULL
     AND EXISTS(SELECT 1 FROM members WHERE id=member_onboarding.member_id AND role='member' AND status='pending')
-    AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active') AND unixepoch('now')<? RETURNING member_id`,at,username,url,sourceDatabase,requestId,expectedRevision,actorId,expiresAt).first();
+    AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
+    AND NOT EXISTS(SELECT 1 FROM member_approval_holds WHERE source_database=? AND request_id=?)
+    AND unixepoch('now')<? RETURNING member_id`,at,username,url,sourceDatabase,requestId,expectedRevision,actorId,sourceDatabase,requestId,expiresAt).first();
    if(!result) deny(); return linked(requestId,requestRevision);
   }
  };

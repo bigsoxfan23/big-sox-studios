@@ -26,6 +26,7 @@ test('members page links to the request form and describes approved prelaunch on
  assert.match(html,/Become a Member/);
  assert.match(html,/Membership requests open/);
  assert.match(html,/Member sign-in is not live yet/);
+ assert.match(html,/one-time code sent to your approved email/);assert.doesNotMatch(html,/Google sign-in|verified Google account/);
  assert.match(html,/Jellyfin uses its own credentials/);
  assert.match(html,/Member Sign In <small[^>]*>Coming Soon/);
  for(const obsolete of [/future invite-only/,/Google, Apple/,/mandatory multi-factor/])assert.doesNotMatch(html,obsolete);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {welcomeFixture,seed} from './welcome-fixture.mjs';
 import {hmac} from '../../membership/common.mjs';
-import {welcomeLiveEnabled} from '../src/welcome-live-route.mjs';
+import {welcomeLiveEnabled,expectedMemberLoginUrl} from '../src/welcome-live-route.mjs';
 
 const providerId='550e8400-e29b-41d4-a716-446655440011';
 const input={action:'preview',request_revision:'1',message:'Hello synthetic friend!',password:'transient-synthetic-secret'};
@@ -15,8 +15,11 @@ async function ready(t,{enabled=true,send=false}={}){
  // Apply reviewed schema only inside an isolated in-memory synthetic fixture.
  f.portal.exec(readFileSync(new URL('../../portal/migrations/0006-welcome-reconciliation.sql',import.meta.url),'utf8'));
  if(enabled)f.env.PORTAL_WELCOME_LIVE_ROUTE='review-only-12';
+ f.env.MEMBER_LOGIN_URL='https://members-staging.bigsoxstudios.com/app';
  if(send)Object.assign(f.env,{PORTAL_WELCOME_LIVE_SEND:'enabled-12',RESEND_API_KEY:'re_synthetic12345678',SENDER_EMAIL:'welcome@example.test'});
- const id=seed(f.storage,{status:'approved'}),setup=`/membership/requests/${id}/setup`,path=`/membership/requests/${id}/welcome-live`;
+ const id=seed(f.storage,{status:'approved'});
+ if(send)f.env.PORTAL_WELCOME_LIVE_REQUEST_ID=id;
+ const setup=`/membership/requests/${id}/setup`,path=`/membership/requests/${id}/welcome-live`;
  assert.equal((await f.post(setup,await f.form(setup),{request_revision:'1',action:'start',confirm:'yes'})).status,303);
  assert.equal((await f.post(setup,await f.form(setup),{request_revision:'1',revision:'1',action:'jellyfin-ready',confirm:'yes',username:'synthetic',url:'https://jellyfin.example.test/'})).status,303);
  return {...f,id,path,setup,count:table=>f.portal.prepare(`SELECT count(*) n FROM ${table}`).get().n};
@@ -44,10 +47,25 @@ test('default OFF is 404 behind existing signed exact Owner authentication; no b
  for(const change of [{PORTAL_WELCOME_LIVE_ROUTE:'enabled-12'},{PORTAL_WELCOME_LIVE_ROUTE:'review-only-12',PORTAL_ONBOARDING:'off'},{PORTAL_WELCOME_LIVE_ROUTE:'review-only-12',APP_ORIGIN:'https://owner.bigsoxstudios.com'}])assert.equal(welcomeLiveEnabled({...f.env,...change}),false);
  assert.equal(f.count('welcome_intents'),0);assert.equal(calls.length,0);
 });
+test('live welcome requires a pinned environment-specific Member sign-in URL; no staging link in production',async t=>{
+ assert.equal(expectedMemberLoginUrl({APP_ORIGIN:'https://owner.bigsoxstudios.com'}),'https://members.bigsoxstudios.com/app');
+ assert.equal(expectedMemberLoginUrl({APP_ORIGIN:'https://bss-owner-launchpad-staging.fridman-greg.workers.dev'}),'https://members-staging.bigsoxstudios.com/app');
+ assert.equal(expectedMemberLoginUrl({APP_ORIGIN:'https://unknown.example.test'}),null);
+ const f=await ready(t),prepared=await f.form(f.path),before=f.portal.prepare('SELECT total_changes() n').get().n;
+ for(const value of [undefined,'https://members.bigsoxstudios.com/app','https://evil.example.test/app','https://members-staging.bigsoxstudios.com/app?x=1']){
+  f.env.MEMBER_LOGIN_URL=value;
+  assert.equal((await f.request(f.path)).status,503);
+  assert.equal((await f.post(f.path,prepared,input)).status,503);
+ }
+ assert.equal(f.portal.prepare('SELECT total_changes() n').get().n,before);
+ assert.equal(f.count('welcome_intents'),0);
+});
+
 test('route-only GET/HEAD and preview are read-only with CSP, escaping, no-store and secure cookie; simulation remains separate',async t=>{
  const calls=mockProvider(t),f=await ready(t),before=f.portal.prepare('SELECT total_changes() n').get().n;
  const p=await preview(f,{...input,message:'<img src=x onerror=alert(1)> & hello'});
  assert.equal(p.r.status,200);assert.match(p.html,/&lt;img/);assert.doesNotMatch(p.html,/<img/);
+ assert.match(p.html,/https:\/\/members-staging\.bigsoxstudios\.com\/app/);
  assert.match(p.r.headers.get('Content-Security-Policy'),/script-src 'none'.*form-action 'self'/);
  assert.match(p.r.headers.get('Cache-Control'),/no-store/);assert.match(p.r.headers.get('Set-Cookie'),/Secure; HttpOnly; SameSite=Strict/);
  assert.equal((await f.request(f.path,{method:'HEAD'})).status,200);
@@ -66,6 +84,21 @@ test('send/inspect/record gates and invalid credential/sender refuse before any 
  }
  assert.equal(f.count('welcome_intents'),0);assert.equal(calls.length,0);
 });
+test('live gate authorizes only the exact approved request before any D1 read or provider call',async t=>{
+ const calls=mockProvider(t),f=await ready(t,{send:true}),p=await preview(f);
+ const db=f.env.PORTAL_DB,reqDb=f.env.MEMBERSHIP_DB;
+ let touched=0;
+ f.env.PORTAL_DB=f.env.MEMBERSHIP_DB={prepare(){touched++;throw Error('unexpected D1 access');}};
+ for(const value of [undefined,'',crypto.randomUUID(),f.id.toUpperCase()]){
+  f.env.PORTAL_WELCOME_LIVE_REQUEST_ID=value;
+  assert.equal((await f.post(f.path,p,sendFields(p))).status,403);
+ }
+ assert.equal(touched,0);
+ assert.equal(calls.length,0);
+ f.env.PORTAL_DB=db;f.env.MEMBERSHIP_DB=reqDb;
+ assert.equal(f.count('welcome_intents'),0);
+});
+
 test('strict forms, CSRF, Origin, changed message/proof and expired review cannot claim or dispatch',async t=>{
  const calls=mockProvider(t),f=await ready(t,{send:true}),p=await preview(f);
  for(const kind of ['csrf','origin','missing-origin','duplicate','extra','confirm','proof','message','revision','content-type','session','expired-csrf']){

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {createApprovedMemberAdmission} from '../../portal/approved-member-admission.mjs';
+import {createRequestOnboarding} from '../../portal/request-onboarding.mjs';
 import {createOtpAuthenticator} from '../../portal/otp-identity.mjs';
 const read=path=>readFileSync(new URL('../../'+path,import.meta.url),'utf8');
-const memberSchemas=['portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql'];
+const memberSchemas=['portal/schema.sql','portal/migrations/0004-request-onboarding.sql','portal/migrations/0005-welcome-intents.sql','portal/migrations/0007-owner-admission-withdrawal-holds.sql'];
 const at=()=>Math.floor(Date.now()/1000);
 function adapter(sqlite){const wrap=(sql,args=[])=>({bind(...v){return wrap(sql,v);},async first(){return sqlite.prepare(sql).get(...args)||null;},async all(){return{results:sqlite.prepare(sql).all(...args)};},async run(){return sqlite.prepare(sql).run(...args);}});return{prepare:sql=>wrap(sql),async batch(ss){sqlite.exec('BEGIN');try{for(const s of ss)await s.run();sqlite.exec('COMMIT');}catch(e){sqlite.exec('ROLLBACK');throw e;}}};}
 async function identity(email='friend@example.test',{clock=at,expiresAt=clock()+600,idp='onetimepin'}={}){
@@ -76,4 +77,100 @@ test('real local workerd/D1 concurrent admission, immutable audit, and stale-ses
   assert.equal((await memberDb.prepare('SELECT count(*) n FROM identities').first()).n,1);assert.equal((await memberDb.prepare("SELECT count(*) n FROM audit_events WHERE action='first-approved-login'").first()).n,1);assert.equal((await memberDb.prepare('SELECT count(*) n FROM service_grants').first()).n,0);
   await memberDb.prepare("INSERT INTO revocations VALUES('runtime-revoke','friend','owner',?)").bind(at()).run();await assert.rejects(api.admit(who));assert.equal((await memberDb.prepare('PRAGMA quick_check').first()).quick_check,'ok');assert.deepEqual((await memberDb.prepare('PRAGMA foreign_key_check').all()).results,[]);
  }finally{await mf.dispose();}
+});
+
+function ownerHold(f,change={}) {
+ return createRequestOnboarding({requestDb:f.opts.requestDb,memberDb:f.opts.memberDb,
+  sourceDatabase:'source',actorId:'owner',expiresAt:f.clock.at+600,now:()=>f.clock.at,...change});
+}
+test('Owner withdrawal hold wins before first-login batch: no identity, active Member, or grant',async()=>{
+ const f=await fixture(),prior=f.count('audit_events'),api=ownerHold(f);
+ const batch=f.opts.memberDb.batch;
+ let calls=0;
+ f.opts.memberDb.batch=async statements=>{
+  calls++;
+  await api.holdAdmission('request',1);
+  f.requests.exec("UPDATE membership_requests SET status='revoked',revision=2");
+  return batch(statements);
+ };
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(calls,1);
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+ assert.equal(f.count('identities'),0);
+ assert.equal(f.count('service_grants'),0);
+ assert.equal(f.members.prepare("SELECT count(*) n FROM audit_events WHERE action='first-approved-login'").get().n,0);
+ assert.equal(f.count('member_approval_holds'),1);
+ assert.equal(f.count('audit_events'),prior+1);
+ await assert.rejects(f.api.admit(f.identity));
+ assert.deepEqual(f.members.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+test('admission wins before Owner hold: later withdrawal preserves already active Member but blocks sessions',async()=>{
+ const f=await fixture(),prior=f.count('audit_events');
+ await f.api.admit(f.identity);
+ await ownerHold(f).holdAdmission('request',1);
+ // The hold alone must deny this still-approved request and existing OTP session.
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.requests.prepare("SELECT status FROM membership_requests WHERE id='request'").get().status,'approved');
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'active');
+ f.requests.exec("UPDATE membership_requests SET status='revoked',revision=2");
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'active');
+ assert.equal(f.count('identities'),1);
+ assert.equal(f.count('member_approval_holds'),1);
+ assert.equal(f.count('audit_events'),prior+2);
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.count('service_grants'),0);
+});
+test('non-Owner cannot create the first admission hold or mutate an approved request',async()=>{
+ const f=await fixture(),prior=f.count('audit_events');
+ await assert.rejects(ownerHold(f,{actorId:'friend'}).holdAdmission('request',1));
+ assert.equal(f.count('member_approval_holds'),0);
+ assert.equal(f.count('audit_events'),prior);
+ assert.deepEqual({...f.requests.prepare("SELECT status,revision FROM membership_requests WHERE id='request'").get()},{status:'approved',revision:1});
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+});
+test('Owner withdrawal hold is immutable, owner-authorized, idempotent and prevents later admission',async()=>{
+ const f=await fixture(),api=ownerHold(f),prior=f.count('audit_events');
+ assert.deepEqual(await api.holdAdmission('request',1),{requestId:'request',held:true});
+ assert.deepEqual(await api.holdAdmission('request',1),{requestId:'request',held:true});
+ assert.equal(f.count('audit_events'),prior+1);
+ assert.equal(f.count('member_approval_holds'),1);
+ assert.throws(()=>f.members.exec("UPDATE member_approval_holds SET request_revision=3"),/immutable Owner approval hold/);
+ assert.throws(()=>f.members.exec("DELETE FROM member_approval_holds"),/retain Owner approval hold/);
+ await assert.rejects(ownerHold(f,{actorId:'friend'}).holdAdmission('request',1));
+ await assert.rejects(ownerHold(f,{expiresAt:1}).holdAdmission('request',1));
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.count('identities'),0);
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+});
+test('missing admission-hold migration fails closed, not falling back to unsafe activation',async()=>{
+ const f=await fixture();
+ f.members.exec('DROP TABLE member_approval_holds');
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.count('identities'),0);
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+});
+
+test('held approved request denies first OTP login without a Requests D1 status change',async()=>{
+ const f=await fixture(),prior=f.count('audit_events');
+ await ownerHold(f).holdAdmission('request',1);
+ assert.equal(f.requests.prepare("SELECT status FROM membership_requests WHERE id='request'").get().status,'approved');
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.count('identities'),0);
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+ assert.equal(f.members.prepare("SELECT count(*) n FROM audit_events WHERE action='first-approved-login'").get().n,0);
+ assert.equal(f.count('audit_events'),prior+1);
+});
+test('only original Owner can reuse a hold; expired original session cannot retry',async()=>{
+ const f=await fixture(),api=ownerHold(f);
+ await api.holdAdmission('request',1);
+ const original={...f.members.prepare('SELECT * FROM member_approval_holds').get()},prior=f.count('audit_events');
+ f.members.prepare("INSERT INTO members VALUES('otherowner','otherowner@example.test','owner','active',?)").run(f.clock.at);
+ await assert.rejects(ownerHold(f,{actorId:'otherowner'}).holdAdmission('request',1));
+ assert.deepEqual({...f.members.prepare('SELECT * FROM member_approval_holds').get()},original);
+ assert.equal(f.count('audit_events'),prior);
+ f.clock.at+=601;
+ await assert.rejects(api.holdAdmission('request',1));
+ assert.deepEqual({...f.members.prepare('SELECT * FROM member_approval_holds').get()},original);
+ assert.equal(f.count('audit_events'),prior);
+ assert.equal(f.requests.prepare("SELECT status FROM membership_requests WHERE id='request'").get().status,'approved');
 });

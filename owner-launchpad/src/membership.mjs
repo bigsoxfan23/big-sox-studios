@@ -1,4 +1,4 @@
-import {onboardingRoute,onboardingEnabled,onboardingApi} from './onboarding-route.mjs';
+import {onboardingRoute,onboardingEnabled,withdrawalHoldRequired,onboardingApi} from './onboarding-route.mjs';
 import {welcomeRoute} from './welcome-route.mjs';
 import {welcomeLiveRoute} from './welcome-live-route.mjs';
 import {memberRemovalRoute} from './member-removal-route.mjs';
@@ -60,13 +60,32 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
    // A guessed/nonexistent ID and a stale revision both produce the same private conflict.
    const current = await database.prepare('SELECT status,pii_cleared_at FROM membership_requests WHERE id=? AND revision=?').bind(decision[1],revision).first();
    requireThat(current && current.pii_cleared_at === null && (status===current.status || transitions[current.status].includes(status)),409);
+   // Owner-only withdrawal first seals admission in Members D1. If the hold
+   // cannot be recorded, leave Requests D1 approved; never race a first login.
+   // This does NOT remove or silently revoke an existing active Member.
+   const heldWithdrawal=current.status==='approved' && status==='revoked' && withdrawalHoldRequired(env);
+   if(heldWithdrawal) {
+    // Missing/misconfigured staging onboarding must block withdrawal BEFORE
+    // the Requests-D1 CAS. No durable Members hold means no withdrawal.
+    await (await onboardingApi(env,expiresAt,now)).holdAdmission(decision[1],revision);
+   }
    const time = now();
-   const updated = await database.prepare(`UPDATE membership_requests SET status=?,owner_note=?,revision=revision+1,updated_at=?,
+   let updated;
+   try {
+    updated=await database.prepare(`UPDATE membership_requests SET status=?,owner_note=?,revision=revision+1,updated_at=?,
     closed_at=CASE WHEN ? IN ('rejected','revoked','expired') THEN COALESCE(closed_at,?) ELSE closed_at END
     WHERE id=? AND revision=? AND status=? AND pii_cleared_at IS NULL RETURNING id`)
     .bind(status,note,time,status,time,decision[1],revision,current.status).first();
+   } catch(error) {
+    if(!heldWithdrawal)throw error;
+    // Hold committed in Members D1; status in Requests D1 is unknown.
+    // Never remove the hold or claim that withdrawal completed.
+    return respond(503,'Withdrawal needs attention. Member admission remains held; request status could not be confirmed. Reload the approved request before retrying. No email or service access was granted.');
+   }
    // D1 meta.changes may include trigger writes; RETURNING identifies the
    // conditional application update itself without relying on that counter.
+   if(heldWithdrawal && updated?.id!==decision[1])
+    return respond(409,'Withdrawal needs attention. Member admission remains held; the request changed before withdrawal completed. Reload the approved request and retry with its current revision.');
    requireThat(updated?.id===decision[1],409);
    if(current.status==='pending' && status==='approved' && onboardingEnabled(env)) {
     try { await (await onboardingApi(env,expiresAt,now)).link(decision[1],revision+1); }
@@ -84,12 +103,19 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
   const rows = await database.prepare(`SELECT id,name,email,reason,owner_note,status,revision,created_at,pii_cleared_at
    FROM membership_requests WHERE ${selected.predicate} AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT 21`).bind(...selected.statuses,time,time,id).all();
   const recentAudit = await database.prepare(`SELECT request_id,event,from_status,to_status,revision,occurred_at FROM audit_events WHERE request_id IN (SELECT id FROM membership_requests WHERE ${selected.predicate}) ORDER BY occurred_at DESC,id DESC LIMIT 20`).bind(...selected.statuses).all();
+  // Read-only reconciliation marker for approved Requests with immutable holds.
+  const heldRequestIds=new Set();
+  if(onboardingEnabled(env) && rows.results.some(row=>row.status==='approved')) {
+   const held=await (await onboardingApi(env,expiresAt,now)).withdrawalHolds(rows.results.slice(0,20).filter(row=>row.status==='approved').map(row=>row.id));
+   for(const row of held)heldRequestIds.add(row.request_id);
+  }
   const auditHTML = recentAudit.results.map(event=>`<li>${e(event.request_id)} · ${e(new Date(event.occurred_at).toISOString())} · ${e(event.event)} · ${e(labels[event.from_status] || 'New request')} → ${e(labels[event.to_status])} · revision ${e(event.revision)}</li>`).join('');
   const token = await issue(request,env,now());
   const items = rows.results.slice(0,20).map(row=>`<article><header><span class="initial" aria-hidden="true">${e((row.name || '?').trim().slice(0,1).toUpperCase())}</span><h2>${e(row.name || 'Details removed')}</h2><span class="status">${e(labels[row.status])}</span></header>
    <p>${e(row.email)} <small>Submitted email · not yet verified</small></p><p>${e(row.reason)}</p><p>Received ${e(new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeZone:'America/Chicago'}).format(new Date(row.created_at)))}${row.status==='approved' && row.created_at<=now()-365*DAY ? ' · Annual owner review due' : ''}</p>
    ${row.status==='approved' && onboardingEnabled(env)?`<p><a href="${BASE}${e(row.id)}/setup">Continue member setup</a></p>`:''}
    ${row.status==='approved' ? '<p>Membership approved. Manual Jellyfin setup and a welcome email are still separate steps. Approval alone does not activate website access.</p>' : ''}
+   ${heldRequestIds.has(row.id) ? '<p>Admission held after an interrupted withdrawal. This request remains approved. Reload and select Withdraw approval to finish the audited request transition. The original hold stays immutable; no Member is activated by this recovery.</p>' : ''}
    ${row.pii_cleared_at !== null ? '<p>Personal details cleared under retention policy.</p>' : `<details><summary>Review Request</summary><form method="post" action="${BASE}${e(row.id)}/decision">
    <input type="hidden" name="csrf" value="${e(token)}"><input type="hidden" name="revision" value="${row.revision}">
    <label>Private note (only you can see this)<textarea name="note" maxlength="500">${e(row.owner_note)}</textarea></label>

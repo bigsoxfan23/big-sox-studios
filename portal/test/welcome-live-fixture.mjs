@@ -9,7 +9,7 @@ export const sql = path => readFileSync(new URL('../../'+path,import.meta.url),'
 // do not rewrite/split trigger SQL to approximate a migration.
 export const baseline = ['portal/schema.sql','portal/migrations/0001-first-owner-bootstrap.sql',
  'portal/migrations/0003-invitation-claim-nonces.sql','portal/migrations/0004-request-onboarding.sql',
- 'portal/migrations/0005-welcome-intents.sql'];
+ 'portal/migrations/0005-welcome-intents.sql','portal/migrations/0007-owner-admission-withdrawal-holds.sql'];
 export const migration = 'portal/migrations/0006-welcome-reconciliation.sql';
 export const content = Object.freeze({message:'Welcome, synthetic friend!',password:'synthetic-only-password'});
 export const providerId = '550e8400-e29b-41d4-a716-446655440011';
