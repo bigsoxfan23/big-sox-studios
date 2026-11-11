@@ -149,3 +149,28 @@ test('missing admission-hold migration fails closed, not falling back to unsafe 
  assert.equal(f.count('identities'),0);
  assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
 });
+
+test('held approved request denies first OTP login without a Requests D1 status change',async()=>{
+ const f=await fixture(),prior=f.count('audit_events');
+ await ownerHold(f).holdAdmission('request',1);
+ assert.equal(f.requests.prepare("SELECT status FROM membership_requests WHERE id='request'").get().status,'approved');
+ await assert.rejects(f.api.admit(f.identity));
+ assert.equal(f.count('identities'),0);
+ assert.equal(f.members.prepare("SELECT status FROM members WHERE id='friend'").get().status,'pending');
+ assert.equal(f.members.prepare("SELECT count(*) n FROM audit_events WHERE action='first-approved-login'").get().n,0);
+ assert.equal(f.count('audit_events'),prior+1);
+});
+test('only original Owner can reuse a hold; expired original session cannot retry',async()=>{
+ const f=await fixture(),api=ownerHold(f);
+ await api.holdAdmission('request',1);
+ const original={...f.members.prepare('SELECT * FROM member_approval_holds').get()},prior=f.count('audit_events');
+ f.members.prepare("INSERT INTO members VALUES('otherowner','otherowner@example.test','owner','active',?)").run(f.clock.at);
+ await assert.rejects(ownerHold(f,{actorId:'otherowner'}).holdAdmission('request',1));
+ assert.deepEqual({...f.members.prepare('SELECT * FROM member_approval_holds').get()},original);
+ assert.equal(f.count('audit_events'),prior);
+ f.clock.at+=601;
+ await assert.rejects(api.holdAdmission('request',1));
+ assert.deepEqual({...f.members.prepare('SELECT * FROM member_approval_holds').get()},original);
+ assert.equal(f.count('audit_events'),prior);
+ assert.equal(f.requests.prepare("SELECT status FROM membership_requests WHERE id='request'").get().status,'approved');
+});

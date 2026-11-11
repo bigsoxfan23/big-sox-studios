@@ -40,11 +40,28 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
     AND unixepoch('now')<? ON CONFLICT(source_database,request_id) DO NOTHING
     RETURNING request_id`,sourceDatabase,requestId,actorId,revision,at,actorId,expiresAt).first();
    if(!held) {
-    const previous=await query(`SELECT request_id,actor_id,request_revision
-     FROM member_approval_holds WHERE source_database=? AND request_id=?`,sourceDatabase,requestId).first();
-    if(!previous||previous.actor_id!==actorId||previous.request_revision!==revision)deny();
+    // Recheck the active Owner and DB deadline on a previously committed hold:
+    // INSERT may have been rejected after a session/deadline crossing.
+    const previous=await query(`SELECT h.request_id,h.actor_id,h.request_revision
+     FROM member_approval_holds h JOIN members m ON m.id=h.actor_id
+     WHERE h.source_database=? AND h.request_id=?
+     AND m.id=? AND m.role='owner' AND m.status='active'
+     AND unixepoch('now')<?`,sourceDatabase,requestId,actorId,expiresAt).first();
+    const retryAt=now();if(!safeTime(retryAt)||retryAt>=expiresAt)deny();
+    // A private note may advance Requests D1 after the immutable hold commits.
+    // Only the original active Owner can retry with the latest approved revision.
+    if(!previous||previous.actor_id!==actorId||previous.request_revision>revision)deny();
    }
    return Object.freeze({requestId,held:true});
+  },
+  async withdrawalHolds(requestIds) {
+   if(!Array.isArray(requestIds)||requestIds.length>20||requestIds.some(x=>!id(x)))deny();
+   const at=now();if(!safeTime(at)||at>=expiresAt)deny();
+   if(!await query("SELECT id FROM members WHERE id=? AND role='owner' AND status='active'",actorId).first())deny();
+   if(!requestIds.length)return [];
+   const marks=requestIds.map(()=>'?').join(',');
+   return (await query(`SELECT request_id,request_revision FROM member_approval_holds
+    WHERE source_database=? AND request_id IN (${marks})`,sourceDatabase,...requestIds).all()).results;
   },
   async link(requestId,revision) {
    const request=await approved(requestId,revision);

@@ -2,7 +2,11 @@ import {createRequestOnboarding} from '../../portal/request-onboarding.mjs';
 import {db,escapeHTML as e,readBody,requireThat,sameSite,secret} from '../../membership/common.mjs';
 const SOURCE='48b0a0cc-40ad-4495-8883-a42b4a938b71';
 const TARGET='43a8a15b-e195-4712-9198-1dcc9f0152af';
-export const onboardingEnabled=env=>env.PORTAL_ONBOARDING==='staging-12' && env.APP_ORIGIN==='https://bss-owner-launchpad-staging.fridman-greg.workers.dev';
+const STAGING_OWNER_ORIGIN='https://bss-owner-launchpad-staging.fridman-greg.workers.dev';
+export const onboardingEnabled=env=>env.PORTAL_ONBOARDING==='staging-12' && env.APP_ORIGIN===STAGING_OWNER_ORIGIN;
+// A staging flag downgrade must NEVER allow an approved -> revoked request
+// transition to skip its Members-D1 hold. Production has a distinct origin.
+export const withdrawalHoldRequired=env=>env.APP_ORIGIN===STAGING_OWNER_ORIGIN || env.PORTAL_ONBOARDING==='staging-12';
 export async function onboardingApi(env,expiresAt,now) {
  requireThat(onboardingEnabled(env) && env.ONBOARDING_SOURCE_ID===SOURCE && env.ONBOARDING_MEMBER_DB_ID===TARGET && env.PORTAL_DB?.prepare,503);
  const owners=(await env.PORTAL_DB.prepare("SELECT id,recipient FROM members WHERE role='owner' AND status='active' LIMIT 2").all()).results;
