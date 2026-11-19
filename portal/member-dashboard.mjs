@@ -7,6 +7,26 @@ import {prepareOwnerAction,executeOwnerAction,ownerActionSetCookie} from './owne
 import {createApprovedMemberAdmission} from './approved-member-admission.mjs';
 import {simplifiedMemberDashboard,loadSimplifiedMember} from './simplified-member-dashboard.mjs';
 
+// Exact staging compatibility plus explicitly gated, separately bound production.
+const PROD_REQUESTS_ID='21e13fa1-0ab3-4573-8d20-983c847ba0e9';
+const STAGING_MEMBER_ID='43a8a15b-e195-4712-9198-1dcc9f0152af';
+const PROD_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function approvedMemberOriginReady(env) {
+ if(!env?.APPROVED_REQUESTS_DB) return false;
+ const staging=env.APP_ORIGIN==='https://members-staging.bigsoxstudios.com' &&
+  env.APPROVED_REQUESTS_ID==='48b0a0cc-40ad-4495-8883-a42b4a938b71' &&
+  env.APPROVED_MEMBER_DB_ID===STAGING_MEMBER_ID;
+ const production=env.APP_ORIGIN==='https://members.bigsoxstudios.com' &&
+  env.PORTAL_PRODUCTION_MODE==='reviewed-production-12' &&
+  env.PORTAL_APPROVED_OTP_ASSEMBLY==='reviewed-production-12' &&
+  env.APPROVED_REQUESTS_ID===PROD_REQUESTS_ID &&
+  PROD_UUID.test(env.APPROVED_MEMBER_DB_ID) &&
+  env.APPROVED_MEMBER_DB_ID!==PROD_REQUESTS_ID &&
+  env.APPROVED_MEMBER_DB_ID!==STAGING_MEMBER_ID &&
+  env.APPROVED_MEMBER_DB_ID===env.BOOTSTRAP_DATABASE_ID;
+ return staging||production;
+}
+
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
  'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https://bigsoxstudios.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
@@ -58,9 +78,7 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    if(approvedMode && member?.role!=='owner'){
     // This switch stays OFF in live staging. Enabling it requires a separately
     // reviewed request-DB binding/Access plan and approved real activation.
-    if(env.APP_ORIGIN!=='https://members-staging.bigsoxstudios.com'||!env.APPROVED_REQUESTS_DB
-     ||env.APPROVED_REQUESTS_ID!=='48b0a0cc-40ad-4495-8883-a42b4a938b71'
-     ||env.APPROVED_MEMBER_DB_ID!=='43a8a15b-e195-4712-9198-1dcc9f0152af')throw Error('admission unavailable');
+    if(!approvedMemberOriginReady(env))throw Error('admission unavailable');
     if((!member||member.status!=='active')&&(!['GET','HEAD'].includes(request.method)
      ||!['/','/services/jellyfin'].includes(approvedPath)))throw Error('denied');
     await createApprovedMemberAdmission({memberDb:env.DB,requestDb:env.APPROVED_REQUESTS_DB,sourceDatabase:env.APPROVED_REQUESTS_ID,now:()=>Math.floor(now()/1000)}).admit(identity);

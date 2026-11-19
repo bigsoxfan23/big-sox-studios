@@ -1,0 +1,39 @@
+# Task #12 production Owner candidate — SOURCE ONLY. Do not replace the
+# active Owner Worker until protected Members D1 and Access have been verified.
+# Preserve real OWNER_EMAIL, MEMBERSHIP_CSRF_KEY and existing mail secrets
+# through encrypted bindings; never copy staging secrets or embed credentials.
+name = "bss-owner-launchpad"
+main = "src/worker.mjs"
+tsconfig = "tsconfig.json"
+compatibility_date = "2026-10-14"
+workers_dev = false
+preview_urls = false
+keep_vars = true
+
+[vars]
+ACCESS_ISSUER = "https://old-hill-995d.cloudflareaccess.com"
+ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
+APP_ORIGIN = "https://owner.bigsoxstudios.com"
+# Safe same-origin placeholder, not rendered as a live Mail Desk link.
+MAIL_DESK_URL = "https://owner.bigsoxstudios.com/"
+# Release only AFTER the new Members D1, hold triggers, and Owner/Members
+# Worker bindings are independently verified together.
+PORTAL_ONBOARDING = "disabled-before-verified-release"
+PORTAL_PRODUCTION_ONBOARDING = "disabled-before-verified-release"
+ONBOARDING_SOURCE_ID = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
+ONBOARDING_MEMBER_DB_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+PRODUCTION_MEMBER_DB_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+PORTAL_MEMBER_REMOVAL = "disabled-before-verified-release"
+PORTAL_WELCOME = "simulation-12"
+PORTAL_WELCOME_LIVE_ROUTE = "review-only-12"
+PORTAL_WELCOME_LIVE_SEND = "disabled-reconciliation-12"
+
+[[d1_databases]]
+binding = "MEMBERSHIP_DB"
+database_name = "bss-membership-requests"
+database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
+
+[[d1_databases]]
+binding = "PORTAL_DB"
+database_name = "bss-members-portal-production"
+database_id = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"

@@ -1,0 +1,36 @@
+# Task #12 SOURCE-ONLY: verified production IDs, activation deliberately OFF.
+# Do not attach a custom domain or activate a Worker until independent release
+# rehearsals, OTP/MFA runtime acceptance, and rollback checks pass in Step 3/4.
+# No routes, direct workers.dev or previews are configured here.
+name = "big-sox-studios-members"
+main = "./production-otp-release-entry.mjs"
+compatibility_date = "2026-10-09"
+workers_dev = false
+preview_urls = false
+keep_vars = true
+
+[vars]
+ACCESS_ISSUER = "https://old-hill-995d.cloudflareaccess.com"
+APP_ORIGIN = "https://members.bigsoxstudios.com"
+ACCESS_AUDIENCE = "3bb9e98e55d2950a5f6630460f9f9b4e558eab58582497be3e806bf129a9c6c4"
+OWNER_ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
+APPROVED_REQUESTS_ID = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
+APPROVED_MEMBER_DB_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+BOOTSTRAP_DATABASE_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+OTP_CUSTOM_HOSTS = ["members.bigsoxstudios.com"]
+# Change this ONLY AFTER independent review of the exact runtime/bindings.
+PORTAL_PRODUCTION_MODE = "disabled-before-verified-release"
+PORTAL_APPROVED_OTP_ASSEMBLY = "reviewed-production-12"
+PORTAL_APPROVED_MEMBERS = "enabled-12-approved"
+PORTAL_SIMPLIFIED_MEMBER_UI = "enabled-12"
+PORTAL_OWNER_CONTROLS = "disabled-until-reviewed"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bss-members-portal-production"
+database_id = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+
+[[d1_databases]]
+binding = "APPROVED_REQUESTS_DB"
+database_name = "bss-membership-requests"
+database_id = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
