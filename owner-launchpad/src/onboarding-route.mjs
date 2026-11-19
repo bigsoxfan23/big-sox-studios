@@ -2,16 +2,38 @@ import {createRequestOnboarding} from '../../portal/request-onboarding.mjs';
 import {db,escapeHTML as e,readBody,requireThat,sameSite,secret} from '../../membership/common.mjs';
 const SOURCE='48b0a0cc-40ad-4495-8883-a42b4a938b71';
 const TARGET='43a8a15b-e195-4712-9198-1dcc9f0152af';
+const PRODUCTION_SOURCE='21e13fa1-0ab3-4573-8d20-983c847ba0e9';
 const STAGING_OWNER_ORIGIN='https://bss-owner-launchpad-staging.fridman-greg.workers.dev';
-export const onboardingEnabled=env=>env.PORTAL_ONBOARDING==='staging-12' && env.APP_ORIGIN===STAGING_OWNER_ORIGIN;
-// A staging flag downgrade must NEVER allow an approved -> revoked request
-// transition to skip its Members-D1 hold. Production has a distinct origin.
-export const withdrawalHoldRequired=env=>env.APP_ORIGIN===STAGING_OWNER_ORIGIN || env.PORTAL_ONBOARDING==='staging-12';
+const PRODUCTION_OWNER_ORIGIN='https://owner.bigsoxstudios.com';
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const productionScope=env=>env.APP_ORIGIN===PRODUCTION_OWNER_ORIGIN &&
+ env.PORTAL_ONBOARDING==='production-12' &&
+ env.PORTAL_PRODUCTION_ONBOARDING==='reviewed-production-12' &&
+ env.ONBOARDING_SOURCE_ID===PRODUCTION_SOURCE &&
+ UUID.test(env.ONBOARDING_MEMBER_DB_ID) &&
+ env.ONBOARDING_MEMBER_DB_ID===env.PRODUCTION_MEMBER_DB_ID &&
+ ![SOURCE,TARGET,PRODUCTION_SOURCE].includes(env.ONBOARDING_MEMBER_DB_ID);
+export const onboardingEnabled=env=>
+ (env.APP_ORIGIN===STAGING_OWNER_ORIGIN && env.PORTAL_ONBOARDING==='staging-12') ||
+ productionScope(env);
+// Even if configuration is disabled or downgraded, an approved -> revoked
+// transition must first commit the hold, on BOTH staging and production.
+export const withdrawalHoldRequired=env=>
+ [STAGING_OWNER_ORIGIN,PRODUCTION_OWNER_ORIGIN].includes(env.APP_ORIGIN) ||
+ ['staging-12','production-12'].includes(env.PORTAL_ONBOARDING);
+const sourceId=env=>env.APP_ORIGIN===PRODUCTION_OWNER_ORIGIN?PRODUCTION_SOURCE:SOURCE;
+export const memberWelcomeUrl=env=>env.APP_ORIGIN===PRODUCTION_OWNER_ORIGIN
+ ?'https://members.bigsoxstudios.com/app'
+ :'https://members-staging.bigsoxstudios.com/app';
+export const memberDirectoryUrl=env=>memberWelcomeUrl(env)+'/manage';
+
 export async function onboardingApi(env,expiresAt,now) {
- requireThat(onboardingEnabled(env) && env.ONBOARDING_SOURCE_ID===SOURCE && env.ONBOARDING_MEMBER_DB_ID===TARGET && env.PORTAL_DB?.prepare,503);
+ requireThat(onboardingEnabled(env) && env.PORTAL_DB?.prepare,503);
+ requireThat(env.APP_ORIGIN===PRODUCTION_OWNER_ORIGIN || (env.ONBOARDING_SOURCE_ID===SOURCE && env.ONBOARDING_MEMBER_DB_ID===TARGET),503);
+ const source=sourceId(env);
  const owners=(await env.PORTAL_DB.prepare("SELECT id,recipient FROM members WHERE role='owner' AND status='active' LIMIT 2").all()).results;
  requireThat(owners?.length===1 && owners[0].recipient===env.OWNER_EMAIL,403);
- return createRequestOnboarding({requestDb:db(env),memberDb:env.PORTAL_DB,sourceDatabase:SOURCE,actorId:owners[0].id,expiresAt,now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN});
+ return createRequestOnboarding({requestDb:db(env),memberDb:env.PORTAL_DB,sourceDatabase:source,actorId:owners[0].id,expiresAt,now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN});
 }
 export async function onboardingRoute(request,env,{now,respond,expiresAt,issue,check,css,cookie}) {
  const url=new URL(request.url),match=/^\/membership\/requests\/([a-f0-9-]{36})\/setup$/.exec(url.pathname),list=url.pathname==='/membership/members/';
@@ -22,8 +44,8 @@ export async function onboardingRoute(request,env,{now,respond,expiresAt,issue,c
   if(list){
    if(!['GET','HEAD'].includes(request.method))return respond(405,'Method not allowed',{Allow:'GET, HEAD'});
    // This is the existing Phase2 directory's onboarding subset, never a new identity store.
-   const rows=(await env.PORTAL_DB.prepare(`SELECT o.request_id,m.id,m.recipient,m.status,o.jellyfin_ready_at FROM member_onboarding o JOIN members m ON m.id=o.member_id WHERE o.source_database=? ORDER BY o.approved_at DESC,o.request_id LIMIT 100`).bind(SOURCE).all()).results;
-   return render('Members',`<p>Approved people and manual setup.</p><p><a href="https://members-staging.bigsoxstudios.com/app/manage">Existing member directory and invitation history</a></p>${rows.map(r=>`<article><h2>${e(r.recipient)}</h2><p>${e(({pending:'Setting Up',active:'Active',revoked:'Removed'})[r.status]||r.status)} · ${r.jellyfin_ready_at===null?'Waiting for Jellyfin setup':'Jellyfin marked ready'}</p>${r.status==='pending'?`<a href="/membership/requests/${e(r.request_id)}/setup">Manage setup</a>`:''}${['pending','active'].includes(r.status)&&env.PORTAL_MEMBER_REMOVAL==='enabled-12'?`<a href="/membership/members/${e(r.id)}/remove">Remove Member</a>`:''}${r.status==='revoked'?'<p>Also disable this Jellyfin account and its sessions manually.</p>':''}</article>`).join('')||'<p>No linked members yet. Start setup from an approved request.</p>'}`,request,respond,css);
+   const rows=(await env.PORTAL_DB.prepare(`SELECT o.request_id,m.id,m.recipient,m.status,o.jellyfin_ready_at FROM member_onboarding o JOIN members m ON m.id=o.member_id WHERE o.source_database=? ORDER BY o.approved_at DESC,o.request_id LIMIT 100`).bind(sourceId(env)).all()).results;
+   return render('Members',`<p>Approved people and manual setup.</p><p><a href="${memberDirectoryUrl(env)}">Existing member directory and invitation history</a></p>${rows.map(r=>`<article><h2>${e(r.recipient)}</h2><p>${e(({pending:'Setting Up',active:'Active',revoked:'Removed'})[r.status]||r.status)} · ${r.jellyfin_ready_at===null?'Waiting for Jellyfin setup':'Jellyfin marked ready'}</p>${r.status==='pending'?`<a href="/membership/requests/${e(r.request_id)}/setup">Manage setup</a>`:''}${['pending','active'].includes(r.status)&&env.PORTAL_MEMBER_REMOVAL==='enabled-12'?`<a href="/membership/members/${e(r.id)}/remove">Remove Member</a>`:''}${r.status==='revoked'?'<p>Also disable this Jellyfin account and its sessions manually.</p>':''}</article>`).join('')||'<p>No linked members yet. Start setup from an approved request.</p>'}`,request,respond,css);
   }
   if(!['GET','HEAD','POST'].includes(request.method))return respond(405,'Method not allowed',{Allow:'GET, HEAD, POST'});
   const record=await db(env).prepare('SELECT id,name,email,status,revision,pii_cleared_at FROM membership_requests WHERE id=?').bind(match[1]).first();
@@ -39,7 +61,7 @@ export async function onboardingRoute(request,env,{now,respond,expiresAt,issue,c
    else await api.markJellyfinReady(record.id,revision,{expectedRevision:Number(fields.get('revision')),confirmed:true,username:fields.get('username'),url:fields.get('url')});
    return respond(303,null,{Location:url.pathname});
   }
-  const link=await env.PORTAL_DB.prepare('SELECT member_id FROM member_onboarding WHERE source_database=? AND request_id=?').bind(SOURCE,record.id).first();
+  const link=await env.PORTAL_DB.prepare('SELECT member_id FROM member_onboarding WHERE source_database=? AND request_id=?').bind(sourceId(env),record.id).first();
   const row=link?await api.read(record.id,record.revision):null;
   const token=await issue(request,env,now());
   const hidden=`<input type="hidden" name="csrf" value="${e(token)}"><input type="hidden" name="request_revision" value="${record.revision}">`;

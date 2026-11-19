@@ -1,6 +1,6 @@
 import {createWelcomeReview} from '../../portal/welcome-review.mjs';
 import {createWelcomeDelivery} from '../../portal/welcome-delivery.mjs';
-import {onboardingApi,onboardingEnabled,render} from './onboarding-route.mjs';
+import {onboardingApi,onboardingEnabled,memberWelcomeUrl,render} from './onboarding-route.mjs';
 import {escapeHTML as e,hmac,readBody,requireThat,sameSite} from '../../membership/common.mjs';
 export const welcomeEnabled=env=>onboardingEnabled(env)&&env.PORTAL_WELCOME==='simulation-12';
 // Existing Owner staging only; no credential or live sender binding is used.
@@ -15,7 +15,7 @@ export async function welcomeRoute(request,env,{now,respond,expiresAt,issue,chec
   if(!current.jellyfin_ready_at)return render('Welcome email','<p>Complete manual Jellyfin setup before preparing a welcome. No email has been sent.</p>',request,respond,css);
   const owner=await env.PORTAL_DB.prepare("SELECT id FROM members WHERE role='owner' AND status='active'").first();requireThat(owner,403);
   const review=createWelcomeReview({onboarding:api,actorId:owner.id,sessionBinding:await hmac(env.MEMBERSHIP_CSRF_KEY,'welcome-session:'+request.headers.get('Cf-Access-Jwt-Assertion')),
-   signingKey:env.MEMBERSHIP_CSRF_KEY,expiresAt,jellyfinOrigin:env.JELLYFIN_ORIGIN,memberLoginUrl:'https://members-staging.bigsoxstudios.com/app',now:()=>Math.floor(now()/1000)});
+   signingKey:env.MEMBERSHIP_CSRF_KEY,expiresAt,jellyfinOrigin:env.JELLYFIN_ORIGIN,memberLoginUrl:memberWelcomeUrl(env),now:()=>Math.floor(now()/1000)});
   const delivery=createWelcomeDelivery({memberDb:env.PORTAL_DB,onboarding:api,review,sourceDatabase:env.ONBOARDING_SOURCE_ID,actorId:owner.id,expiresAt,now:()=>Math.floor(now()/1000)});
   const token=await issue(request,env,now()),setCookie=`${cookie}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900`;
   const hidden=`<input type="hidden" name="csrf" value="${e(token)}"><input type="hidden" name="request_revision" value="${source.revision}">`;
