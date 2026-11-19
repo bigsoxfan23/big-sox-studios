@@ -15,8 +15,8 @@ APP_ORIGIN = "https://members.bigsoxstudios.com"
 ACCESS_AUDIENCE = "REPLACE_WITH_NEW_MEMBERS_PRODUCTION_ACCESS_AUDIENCE"
 OWNER_ACCESS_AUDIENCE = "e558d6d6d467575e87242a666242f508dc6355e5d0f14f07bb9fa0a808e5b7c0"
 APPROVED_REQUESTS_ID = "21e13fa1-0ab3-4573-8d20-983c847ba0e9"
-APPROVED_MEMBER_DB_ID = "REPLACE_WITH_NEW_PRODUCTION_MEMBERS_D1_UUID"
-BOOTSTRAP_DATABASE_ID = "REPLACE_WITH_NEW_PRODUCTION_MEMBERS_D1_UUID"
+APPROVED_MEMBER_DB_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
+BOOTSTRAP_DATABASE_ID = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
 OTP_CUSTOM_HOSTS = ["members.bigsoxstudios.com"]
 # Change this ONLY AFTER independent review of the exact runtime/bindings.
 PORTAL_PRODUCTION_MODE = "disabled-before-verified-release"
@@ -28,7 +28,7 @@ PORTAL_OWNER_CONTROLS = "disabled-until-reviewed"
 [[d1_databases]]
 binding = "DB"
 database_name = "bss-members-portal-production"
-database_id = "REPLACE_WITH_NEW_PRODUCTION_MEMBERS_D1_UUID"
+database_id = "613c9c18-69f9-4cf4-b7b1-afb0de49bd6d"
 
 [[d1_databases]]
 binding = "APPROVED_REQUESTS_DB"
