@@ -207,7 +207,7 @@ test('owner GET and HEAD: existing destinations plus membership, no secrets or s
  const f = fixture(); const jwt = await token();
  const response = await f.request(jwt); assert.equal(response.status,200);
  const html = await response.text();
- assert.deepEqual([...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]), ['https://bigsoxstudios.com/admin/', env.MAIL_DESK_URL, '/membership/requests/']);
+ assert.deepEqual([...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]), ['/membership/requests/', '/membership/requests/', 'https://members-staging.bigsoxstudios.com/app/manage', env.MAIL_DESK_URL, '/services/', 'https://bigsoxstudios.com/admin/', '/cdn-cgi/access/logout']);
  for (const secret of [jwt, env.OWNER_EMAIL, env.ACCESS_AUDIENCE, env.ACCESS_ISSUER]) assert.ok(!html.includes(secret));
  assert.ok(!html.includes('<script') && !html.includes('<form') && !html.includes('src='));
  for (const [name,value] of Object.entries({ 'cache-control':'no-store','referrer-policy':'no-referrer','x-content-type-options':'nosniff','strict-transport-security':'max-age=31536000' })) assert.equal(response.headers.get(name),value);
@@ -328,4 +328,21 @@ test('missing and unsafe config fails closed, including destinations that could 
  });
  test('JWKS body reading also has a deadline',async()=>{
  await denied(await fixture(()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{'));}}))).request(await token()));
+ });
+
+
+ test('services overview is Owner-only, read-only, and makes manual setup explicit',async()=>{
+ await denied(await fixture().request(undefined,'/services/'));
+ await denied(await fixture().request(await token({email:'member@example.test'}),'/services/'));
+ const f=fixture(),jwt=await token(); const r=await f.request(jwt,'/services/');
+ assert.equal(r.status,200); const html=await r.text();
+ assert.match(html,/Manual setup/); assert.match(html,/Coming Soon/);
+ assert.doesNotMatch(html,/<form|<script|password/i);
+ assert.equal((await f.request(jwt,'/services/',{method:'POST'})).status,405);
+ const head=await f.request(jwt,'/services/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
+ });
+ test('homepage shows friendly count failure rather than a fabricated zero',async()=>{
+ const r=await fixture().request(await token());const html=await r.text();
+ assert.match(html,/Welcome back, Greg/);assert.match(html,/count is unavailable/);
+ assert.doesNotMatch(html,/Pending:|A little room to run/);
  });

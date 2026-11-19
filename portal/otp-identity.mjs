@@ -1,8 +1,13 @@
 import {createAuthenticator,validateConfig} from './access.mjs';
 import {normalizeEmail} from './identity.mjs';
 
-// This is an independent OTP namespace. It cannot mint the repository's generic
-// identity brand or participate in invitation claims/links without further review.
+const verifiedOtp = new WeakSet();
+export function requireOtpIdentity(identity,at) {
+ if (!verifiedOtp.has(identity) || identity.expiresAt<=at || !Number.isSafeInteger(at)) throw Error('OTP session unavailable');
+ return identity;
+}
+// Independent exact-email OTP namespace. It cannot mint the generic repository
+// identity brand or perform account linking. Task12.2 claims require this brand.
 export function checkOtpHost(request,env) {
  validateConfig(env);
  const url=new URL(request.url);
@@ -31,6 +36,7 @@ export function createOtpAuthenticator({verifyAccess=createAuthenticator(),now=(
    identity.email!==claims.email) throw Error('denied');
   normalizeEmail(claims.email); // syntax validation only; DO NOT normalize subject
   if (claims.exp<=Math.floor(now()/1000)) throw Error('denied');
-  return Object.freeze({provider:'otp',subject:claims.email,issuedAt:claims.iat,expiresAt:claims.exp});
+  const result=Object.freeze({provider:'otp',subject:claims.email,issuedAt:claims.iat,expiresAt:claims.exp});
+  verifiedOtp.add(result); return result;
  };
 }

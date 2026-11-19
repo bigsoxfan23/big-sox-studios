@@ -1,13 +1,38 @@
+import {handleInvitationClaim,scriptCsp} from './invitation-claim.mjs';
 import {checkOtpHost,createOtpAuthenticator} from './otp-identity.mjs';
 import {authorizeMember,mayManageMembers,SERVICES} from './authorization.mjs';
 import {studioPage,studioPreview} from './studio-ui.mjs';
 import {ownerMembersView} from './owner-members-view.mjs';
 import {prepareOwnerAction,executeOwnerAction,ownerActionSetCookie} from './owner-member-actions.mjs';
+import {createApprovedMemberAdmission} from './approved-member-admission.mjs';
+import {simplifiedMemberDashboard,loadSimplifiedMember} from './simplified-member-dashboard.mjs';
+
+// Exact staging compatibility plus explicitly gated, separately bound production.
+const PROD_REQUESTS_ID='21e13fa1-0ab3-4573-8d20-983c847ba0e9';
+const STAGING_MEMBER_ID='43a8a15b-e195-4712-9198-1dcc9f0152af';
+const PROD_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function approvedMemberOriginReady(env) {
+ if(!env?.APPROVED_REQUESTS_DB) return false;
+ const staging=env.APP_ORIGIN==='https://members-staging.bigsoxstudios.com' &&
+  env.APPROVED_REQUESTS_ID==='48b0a0cc-40ad-4495-8883-a42b4a938b71' &&
+  env.APPROVED_MEMBER_DB_ID===STAGING_MEMBER_ID;
+ const production=env.APP_ORIGIN==='https://members.bigsoxstudios.com' &&
+  env.PORTAL_PRODUCTION_MODE==='reviewed-production-12' &&
+  env.PORTAL_APPROVED_OTP_ASSEMBLY==='reviewed-production-12' &&
+  env.APPROVED_REQUESTS_ID===PROD_REQUESTS_ID &&
+  PROD_UUID.test(env.APPROVED_MEMBER_DB_ID) &&
+  env.APPROVED_MEMBER_DB_ID!==PROD_REQUESTS_ID &&
+  env.APPROVED_MEMBER_DB_ID!==STAGING_MEMBER_ID &&
+  env.APPROVED_MEMBER_DB_ID===env.BOOTSTRAP_DATABASE_ID;
+ return staging||production;
+}
 
 const headers={
  'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
  'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https://bigsoxstudios.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
- 'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
+ // Native same-origin form POSTs need a non-opaque Origin; no-referrer makes browsers send null.
+ // Keep exact Origin validation and suppress referrers for cross-origin navigation.
+ 'Referrer-Policy':'same-origin','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
  'X-Robots-Tag':'noindex, nofollow, noarchive','Content-Type':'text/html; charset=utf-8'
 };
 // Failure responses stay intentionally tiny and avoid echoing private identifiers.
@@ -25,7 +50,7 @@ const dashboard=(member,mountPath)=>{
  ownerPanel+'</div><p><a class="button secondary" href="/cdn-cgi/access/logout">Sign out of Cloudflare Access</a></p><p class="fine muted">Signing out ends your Access session across applications, but not your email provider session.</p>','Member portal');
 };
 
-export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/'}={}) {
+export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath='/',projectInvitation,preflightInvitation}={}) {
  if (!['/','/app'].includes(mountPath)) throw Error('invalid mount');
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  return {async fetch(request,env,ctx) {
@@ -35,13 +60,30 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    checkOtpHost(request,env);
    stage='jwt-otp';
    const identity=await authenticate(request,env,ctx);
+   const claimUrl=new URL(request.url);
+   const approvedMode=env.PORTAL_APPROVED_MEMBERS==='enabled-12-approved';
+   const approvedPath=mountPath==='/'?claimUrl.pathname:(claimUrl.pathname==='/app'?'/':claimUrl.pathname.startsWith('/app/')?claimUrl.pathname.slice(4):null);
+   if(approvedMode&&claimUrl.search)return respond(400,'Unavailable','This address is unavailable.');
+   if(approvedMode&&approvedPath===null)throw Error('denied');
+   if(!approvedMode && claimUrl.pathname===(mountPath==='/app'?'/app/invite':'/invite') && env.PORTAL_INVITATIONS==='enabled-12-2')
+    return await handleInvitationClaim(request,env,identity,mountPath==='/app'?'/app':'',()=>Math.floor(now()/1000));
    stage='d1-lookup';
-   // One live snapshot, every path/method. No login writes, no email fallback,
-   // no owner shortcut and no cached membership, roles or service grants.
-   const member=await env.DB.prepare(`SELECT m.id,m.role,m.status,
+   // Legacy lookup is read-only. Explicitly enabled approved admission below
+   // can bind a first OTP identity; no email fallback or cached authorization.
+   const readMember=()=>env.DB.prepare(`SELECT m.id,m.role,m.status,
     COALESCE(json_group_array(g.service) FILTER(WHERE g.service IS NOT NULL),'[]') AS grants
     FROM identities i JOIN members m ON m.id=i.member_id LEFT JOIN service_grants g ON g.member_id=m.id
     WHERE i.provider=? AND i.subject=? GROUP BY m.id`).bind(identity.provider,identity.subject).first();
+   let member=await readMember();
+   if(approvedMode && member?.role!=='owner'){
+    // This switch stays OFF in live staging. Enabling it requires a separately
+    // reviewed request-DB binding/Access plan and approved real activation.
+    if(!approvedMemberOriginReady(env))throw Error('admission unavailable');
+    if((!member||member.status!=='active')&&(!['GET','HEAD'].includes(request.method)
+     ||!['/','/services/jellyfin'].includes(approvedPath)))throw Error('denied');
+    await createApprovedMemberAdmission({memberDb:env.DB,requestDb:env.APPROVED_REQUESTS_DB,sourceDatabase:env.APPROVED_REQUESTS_ID,now:()=>Math.floor(now()/1000)}).admit(identity);
+    member=await readMember();
+   }
    stage='member-decode';
    if (!member || typeof member.id!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(member.id)) throw Error('denied');
    member.grants=JSON.parse(member.grants);
@@ -55,20 +97,40 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    stage='route';
    const path=mountPath==='/'?url.pathname:(url.pathname==='/app'?'/':url.pathname.startsWith('/app/')?url.pathname.slice(4):null);
    if (path===null) throw Error('denied');
+   if(path==='/manage/invitation-preflight'){
+    if(!mayManageMembers(member)||env.PORTAL_INVITATIONS!=='enabled-12-2')throw Error('denied');
+    if(!['GET','HEAD'].includes(request.method))return respond(405,'Unavailable','This method is unavailable.');
+    if(typeof preflightInvitation!=='function')return respond(503,'Invitation setup unavailable','Policy readiness could not be verified. No invitation was created.');
+    try{
+     const result=await preflightInvitation(env.DB);
+     if(result?.ready!==true||Math.floor(now()/1000)>=identity.expiresAt)throw Error('unavailable');
+     return respond(200,'Invitation setup ready','Access policy readback passed. No invitation was created.');
+    }catch{return respond(503,'Invitation setup unavailable','Policy readiness could not be verified. No invitation was created.');}
+   }
    if(path==='/manage') {
     if(!mayManageMembers(member)) throw Error('denied');
     const enabled=env.PORTAL_OWNER_CONTROLS==='enabled-12-1';
     if(request.method==='POST') {
      if(!enabled)return respond(405,'Unavailable','This method is unavailable.');
      if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
-     await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
+     const outcome=await executeOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000),{allowDelivery:env.PORTAL_INVITATIONS==='enabled-12-2',projectInvitation:env.PORTAL_INVITATIONS==='enabled-12-2'?(projectInvitation??(async()=>{throw Error('Access eligibility unavailable');})):undefined});
+     if(outcome?.invitation) {
+      const deliveryCsrf=await prepareOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000));
+      const invite=outcome.invitation,prefix=mountPath==='/app'?'/app':'';
+      const link=env.APP_ORIGIN+prefix+'/invite';
+      const code=invite.id+'.'+invite.secret;
+      const script="document.getElementById('copy-invitation').addEventListener('click',async()=>{const field=document.getElementById('claim-link');field.select();try{await navigator.clipboard.writeText(field.value);document.getElementById('copy-result').textContent='Link copied. Copy the separate invitation code privately too.';}catch{document.getElementById('copy-result').textContent='Select and copy the link above.';}});document.getElementById('copy-code').addEventListener('click',async()=>{const field=document.getElementById('claim-code');field.select();try{await navigator.clipboard.writeText(field.value);document.getElementById('copy-result').textContent='Invitation code copied';}catch{document.getElementById('copy-result').textContent='Select and copy the code above.';}});";
+      const html=studioPage('Your invitation is ready','<section class="panel"><p>Expires '+new Date(invite.expiresAt*1000).toISOString()+'. Share the sign-in link and separate code privately with the approved recipient. The code is shown once. Keep the code out of browser addresses.</p><label>Sign-in link <textarea id="claim-link" readonly>'+link+'</textarea></label><button id="copy-invitation">Copy sign-in link</button><label>Private invitation code <textarea id="claim-code" readonly>'+code+'</textarea></label><button id="copy-code">Copy invitation code</button><p id="copy-result" role="status"></p><p>After privately sharing both items with the approved recipient, confirm delivery to enable acceptance.</p><form method="post" action="'+prefix+'/manage"><input type="hidden" name="csrf" value="'+deliveryCsrf+'"><input type="hidden" name="action" value="deliver"><input type="hidden" name="member" value="'+invite.id+'"><button type="submit">Confirm private delivery</button></form><a class="button" href="'+prefix+'/manage">Back to members</a></section><script>'+script+'</script>','Owner workspace');
+      return new Response(html,{status:200,headers:{...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("form-action 'none'","form-action 'self'")+'; script-src '+await scriptCsp(script),'Set-Cookie':ownerActionSetCookie(deliveryCsrf)}});
+     }
+     if(outcome?.unreleased)return respond(409,'Invitation not ready','Access eligibility or delivery readiness could not be confirmed. No invitation code was released. Reload the member list to check the current invitation status.');
      // DB-time expiry is checked atomically at mutation. Do not report 403 after a committed write.
      return new Response(null,{status:303,headers:{...headers,Location:mountPath==='/app'?'/app/manage':'/manage'}});
     }
     if(!['GET','HEAD'].includes(request.method))return respond(405,'Unavailable','This method is unavailable.');
     const csrf=enabled&&request.method==='GET'
      ?await prepareOwnerAction(env.DB,request,member.id,identity.expiresAt,()=>Math.floor(now()/1000)):null;
-    const html=await ownerMembersView(env.DB,mountPath,csrf);
+    const html=await ownerMembersView(env.DB,mountPath,csrf,env.PORTAL_INVITATIONS==='enabled-12-2');
     if(Math.floor(now()/1000)>=identity.expiresAt)throw Error('expired');
     const privateHeaders=csrf?{...headers,
      'Content-Security-Policy':headers['Content-Security-Policy'].replace("form-action 'none'","form-action 'self'"),
@@ -78,7 +140,9 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    if (!['GET','HEAD'].includes(request.method)) return respond(405,'Unavailable','This method is unavailable.');
    if (path==='/') {
     stage='dashboard-render';
-    return new Response(request.method==='HEAD'?null:dashboard(member,mountPath),{status:200,headers});
+    const html=env.PORTAL_SIMPLIFIED_MEMBER_UI==='enabled-12'&&member.role==='member'
+     ?await simplifiedMemberDashboard(env.DB,identity,{now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN}):dashboard(member,mountPath);
+    return new Response(request.method==='HEAD'?null:html,{status:200,headers});
    }
    if(path==='/ui-preview') {
     if(!mayManageMembers(member)) throw Error('denied');
@@ -88,6 +152,10 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
    // Own and legacy service paths are guarded even though no service is wired.
    const service=/^\/(?:api\/)?services\/([^/]+)(?:\/|$)/.exec(path)?.[1];
    if (service && (!SERVICES.includes(service) || !authorizeMember(member,service))) throw Error('denied');
+   if(service==='jellyfin'&&path==='/services/jellyfin'&&member.role==='member'&&env.PORTAL_SIMPLIFIED_MEMBER_UI==='enabled-12'){
+    const allowed=await loadSimplifiedMember(env.DB,identity,{now:()=>Math.floor(now()/1000),jellyfinOrigin:env.JELLYFIN_ORIGIN});
+    if(!allowed.jellyfinURL)throw Error('denied');return new Response(null,{status:303,headers:{...headers,Location:allowed.jellyfinURL}});
+   }
    return respond(404,'Unavailable','This resource is not connected.');
   } catch {
    // Server-internal callback is supplied only during an existing Owner-only
@@ -99,3 +167,4 @@ export function createMemberDashboard({verifyAccess,now=()=>Date.now(),mountPath
 }
 // Deployment remains safe-off in members-portal-staging/worker.mjs.
 export default createMemberDashboard();
+

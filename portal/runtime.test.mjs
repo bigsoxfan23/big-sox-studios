@@ -5,7 +5,7 @@ import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
 import {applySchema,envConfig,epoch,jwk,token,identityClaims} from './test-support.mjs';
 
 test('OFFLINE: complete Worker executes WebCrypto/JWKS/identity/live D1 in workerd with no outbound traffic',async t=>{
- const modules=['worker','access','identity','repository','authorization','projection'].map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
+ const modules=['worker','access','identity','repository','authorization','projection','access-policy-readback'].map(name=>({type:'ESModule',path:`portal/${name}.mjs`,contents:readFileSync(new URL(`./${name}.mjs`,import.meta.url),'utf8')}));
  const entry=`import {createWorker} from './portal/worker.mjs';
  const worker=createWorker({now:()=>${epoch}000,fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]}),
  resolveVerifiedIdentity:async claims=>({...claims.syntheticIdentity,accessSubject:claims.sub,expiresAt:claims.exp})});

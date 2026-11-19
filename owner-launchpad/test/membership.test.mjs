@@ -125,7 +125,7 @@ test('bounded stable pagination newest-first with equal timestamp tie breaks; an
  const next=first.html.match(/href="([^"]+)"[^>]*>Older requests/)[1];const second=await (await f.request(next.replaceAll('&amp;','&'))).text();assert.equal((second.match(/<article>/g)||[]).length,3);assert.doesNotMatch(second,/Annual owner review due/);assert.match((await f.form('invite-ready')).html,/Annual owner review due/);
  for(const query of ['?limit=9999','?before=invalid','?before=1&before=2'])assert.equal((await f.request('/membership/requests/'+query)).status,400);
 });
-test('third home card includes pending count and existing shortcuts',async()=>{const f=fixture();seed(f.storage);seed(f.storage,{status:'rejected'});const html=await (await f.request('/')).text();assert.match(html,/Pending: 1/);assert.ok(html.includes(envBase.MAIL_DESK_URL));assert.match(html,/https:\/\/bigsoxstudios.com\/admin\//);});
+test('home attention panel includes pending count and existing shortcuts',async()=>{const f=fixture();seed(f.storage);seed(f.storage,{status:'rejected'});const html=await (await f.request('/')).text();assert.match(html,/1 new membership request is waiting/);assert.ok(html.includes(envBase.MAIL_DESK_URL));assert.match(html,/https:\/\/bigsoxstudios.com\/admin\//);});
 test('method denials, HEAD semantics, unknown paths and missing membership config fail closed',async()=>{
  const f=fixture();for(const method of ['POST','PUT','DELETE','OPTIONS'])assert.equal((await f.request('/membership/requests/',{method})).status,405);
  const id=seed(f.storage);assert.equal((await f.request(`/membership/requests/${id}/decision`)).status,405);
@@ -189,7 +189,7 @@ test('strict view and cursor validation rejects empty, duplicate, unknown and in
 });
 test('each empty view has mobile navigation, one current page link, keyboard focus and matching CSS CSP with no scripts',async()=>{
  const f=fixture();
- for(const [view,message] of [['pending','No pending applications.'],['invite-ready','No invite-ready applications.'],['history','No rejected, withdrawn, or expired applications.']]) {
+ for(const [view,message] of [['pending','No new requests.'],['invite-ready','No approved requests awaiting setup.'],['history','No rejected, withdrawn, or expired applications.']]) {
   const r=await f.request(listPath(view)),html=await r.text();assert.ok(html.includes(message));
   const nav=html.match(/<nav aria-label="Membership request views">(.*?)<\/nav>/s)[1];
   assert.equal((nav.match(/<a /g)||[]).length,3);assert.equal((nav.match(/aria-current="page"/g)||[]).length,1);
@@ -234,7 +234,7 @@ test('real local workerd/D1 executes filtered SQL, stable pagination and authent
   modules:[{type:'ESModule',path:'entry.mjs',contents:`
    import {createWorker} from './owner-launchpad/src/worker.mjs';
    export default createWorker({now:()=>${TIME},fetcher:async()=>Response.json({keys:[${JSON.stringify(jwk)}]})});
-  `},...['owner-launchpad/src/worker.mjs','owner-launchpad/src/security.mjs','owner-launchpad/src/membership.mjs','membership/common.mjs'].map(path=>({type:'ESModule',path,contents:readFileSync(new URL('../../'+path,import.meta.url),'utf8')}))],
+  `},...['owner-launchpad/src/worker.mjs','owner-launchpad/src/security.mjs','owner-launchpad/src/membership.mjs','membership/common.mjs','owner-launchpad/src/onboarding-route.mjs','portal/request-onboarding.mjs','portal/identity.mjs','owner-launchpad/src/welcome-route.mjs','owner-launchpad/src/welcome-live-route.mjs','portal/welcome-live-delivery.mjs','portal/welcome-resend-transport.mjs','portal/welcome-reconciliation.mjs','portal/welcome-review.mjs','portal/welcome-delivery.mjs','owner-launchpad/src/member-removal-route.mjs','owner-launchpad/src/member-removal.mjs','portal/owner-member-actions.mjs','portal/repository.mjs','portal/projection.mjs','portal/access-policy-readback.mjs','portal/access-preflight.mjs','portal/authorization.mjs'].map(path=>({type:'ESModule',path,contents:readFileSync(new URL('../../'+path,import.meta.url),'utf8')}))],
   outboundService:()=>{throw Error('External services forbidden');}
  }));
  try {
@@ -270,3 +270,4 @@ test('real local workerd/D1 executes filtered SQL, stable pagination and authent
   const row=await d.prepare('SELECT status,owner_note FROM membership_requests WHERE id=?').bind(id).first();assert.equal(row.status,'revoked');assert.equal(row.owner_note,'Synthetic retained note');
  } finally {await mf.dispose();}
 });
+
