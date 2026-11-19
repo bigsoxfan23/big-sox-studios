@@ -14,6 +14,7 @@ async function fixture(){
  const storage=database(),portal=new DatabaseSync(':memory:');
  portal.exec(readFileSync(new URL('../../portal/schema.sql',import.meta.url),'utf8'));
  portal.exec(readFileSync(new URL('../../portal/migrations/0004-request-onboarding.sql',import.meta.url),'utf8'));
+ portal.exec(readFileSync(new URL('../../portal/migrations/0005-welcome-intents.sql',import.meta.url),'utf8'));
  portal.exec(readFileSync(new URL('../../portal/migrations/0007-owner-admission-withdrawal-holds.sql',import.meta.url),'utf8'));
  portal.prepare("INSERT INTO members VALUES('owner','owner@example.test','owner','active',?)").run(Math.floor(Date.now()/1000));
  const env={ACCESS_ISSUER:'https://synthetic.cloudflareaccess.com',ACCESS_AUDIENCE:'preview-aud',OWNER_EMAIL:'owner@example.test',APP_ORIGIN:origin,MAIL_DESK_URL:'https://mail.example.test/',MEMBERSHIP_DB:storage,MEMBERSHIP_CSRF_KEY:'synthetic-csrf-key-12345678901234567890',PORTAL_DB:memberDb(portal),PORTAL_ONBOARDING:'staging-12',ONBOARDING_SOURCE_ID:'48b0a0cc-40ad-4495-8883-a42b4a938b71',ONBOARDING_MEMBER_DB_ID:'43a8a15b-e195-4712-9198-1dcc9f0152af',JELLYFIN_ORIGIN:'https://jellyfin.example.test'};
@@ -88,6 +89,27 @@ test('Owner withdrawal seals admission even if approved request has no Member li
  assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,1);
  assert.equal(f.portal.prepare("SELECT count(*) n FROM audit_events WHERE action='owner-approval-withdrawal-hold' AND member_id='owner'").get().n,1);
  assert.equal(f.portal.prepare('SELECT count(*) n FROM member_onboarding').get().n,0);
+});
+test('Owner withdrawal refuses live dispatching or UNKNOWN before touching Requests D1 or its audit',async()=>{
+ for(const state of ['dispatching','UNKNOWN']) {
+  const f=await fixture(),id=seed(f.storage,{status:'approved'}),setup=`/membership/requests/${id}/setup`;
+  const page=await f.form(setup);
+  assert.equal((await f.post(setup,page,{request_revision:'1',action:'start',confirm:'yes'})).status,303);
+  const at=Math.floor(Date.now()/1000);
+  f.portal.prepare("UPDATE member_onboarding SET jellyfin_ready_at=?,jellyfin_username='synthetic',jellyfin_url='https://jellyfin.example.test/',revision=2").run(at);
+  f.portal.prepare(`INSERT INTO welcome_intents
+   SELECT 'synthetic-live',o.source_database,o.request_id,o.member_id,'owner',o.revision,m.recipient,?,'live','dispatching',?,?,NULL
+   FROM member_onboarding o JOIN members m ON m.id=o.member_id`).run('f'.repeat(64),at,at);
+  if(state==='UNKNOWN')f.portal.exec("UPDATE welcome_intents SET state='UNKNOWN'");
+  const prior=f.storage.rows()[0],before=f.portal.prepare('SELECT count(*) n FROM audit_events').get().n;
+  const form=await f.form('/membership/requests/?view=invite-ready');
+  const response=await f.post(`/membership/requests/${id}/decision`,form,{revision:'1',status:'revoked',note:'Synthetic withdrawal'});
+  assert.equal(response.status,503);
+  assert.deepEqual(f.storage.rows()[0],prior);
+  assert.equal(f.portal.prepare('SELECT count(*) n FROM audit_events').get().n,before);
+  assert.equal(f.portal.prepare('SELECT count(*) n FROM member_approval_holds').get().n,0);
+  assert.equal(f.portal.prepare('SELECT state FROM welcome_intents').get().state,state);
+ }
 });
 test('missing hold table fails closed: Owner cannot silently withdraw approval without the admission barrier',async()=>{
  const f=await fixture(),id=seed(f.storage,{status:'approved'}),form=await f.form('/membership/requests/?view=invite-ready');

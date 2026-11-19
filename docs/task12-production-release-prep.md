@@ -32,6 +32,27 @@ An initial bounded Codex security review of the SOURCE-ONLY production candidate
 
 ## Release gates before any production mutation
 
+**Separate operational blocker, confirmed November 19 (Step 4 source repair):**
+there is no production first-Owner browser enrollment path in this candidate.
+`portal/first-owner-bootstrap.mjs` accepts only `offline-test` and
+`staging-enrollment-source`; `portal/first-owner-enrollment.mjs` explicitly uses
+the staging mode. `members-portal-production/production-otp-release-entry.mjs`
+routes only `/` and `/app` paths and does not mount enrollment. An empty new
+production Members D1 therefore cannot establish the first authorized Owner
+through this candidate. Setting a database ID or production flag does not solve
+this. Keep production disabled until a separate reviewed, explicitly authorized
+browser bootstrap procedure binds the exact intended Owner OTP subject, fresh
+signed Access session and effective MFA policy, exact production origin/audience
+and pristine Members D1, source revision/nonce, short-lived session-bound CSRF
+confirmation, atomic receipt/identity/Owner/audit writes, replay denial and
+readback/rollback handling. Require explicit approval for that exact Owner and
+database before any commit. Do not enable the staging helper in production,
+relax authentication, insert an arbitrary Owner or copy a staging identity.
+
+Step 4's dispatch/withdrawal repair and local validation are recorded separately
+in [the source repair report](task12-step4-source-repair.md). Source readiness
+for independent re-review does not clear this production bootstrap gate.
+
 1. Complete independent Codex review of exact PR stack and this subsequent production-prep diff (Codex full review reached subscription quota on November 18 and produced **no final verdict**); fix HIGH/MED issues. Source-only local tests do not substitute.
 2. Verify exact prod Workers, production D1 backup/recovery, immutable hold triggers and database migrations in isolated SQLite; confirm no data copied from staging.
 3. Provision a restricted Members Access app and one-time PIN/MFA policy; obtain its new exact Access audience, then fill the deploy **candidate** configuration only. Do not use a staging audience. Verify secure routing and exact Cloudflare bindings.

@@ -48,11 +48,17 @@ export function createWelcomeLiveDelivery({enabled=false, memberDb, onboarding, 
     if (signal?.aborted) fail();
     // NOT NULL subquery + existing unique lock make authorization/deadline/CAS
     // failures atomic with the durable claim and its automatic audit event.
+    // This write is also the withdrawal linearization point: holdAdmission
+    // refuses live dispatching/UNKNOWN in this SAME Members D1. A hold that
+    // commits first excludes this claim; a winning claim protects the gap
+    // between the final SQL read and transport, including late/unknown sends.
     const claimed=await q(`INSERT INTO welcome_intents
      (id,source_database,request_id,member_id,actor_id,onboarding_revision,recipient,confirmation_digest,mode,state,created_at,updated_at)
      VALUES(?,?,?,(SELECT m.id FROM members m JOIN member_onboarding o ON o.member_id=m.id
       WHERE o.source_database=? AND o.request_id=? AND o.revision=? AND o.jellyfin_ready_at IS NOT NULL
       AND m.id=? AND m.recipient=? AND m.role='member' AND m.status='pending'
+      AND NOT EXISTS(SELECT 1 FROM member_approval_holds h
+       WHERE h.source_database=o.source_database AND h.request_id=o.request_id)
       AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
       AND unixepoch('now')<?),?,?,?,?,'live','dispatching',?,?) RETURNING id`,
      intentId,sourceDatabase,requestId,sourceDatabase,requestId,row.revision,row.member_id,mail.recipient,
@@ -68,6 +74,8 @@ export function createWelcomeLiveDelivery({enabled=false, memberDb, onboarding, 
       WHERE i.id=? AND i.mode='live' AND i.state='dispatching'
       AND o.source_database=i.source_database AND o.request_id=i.request_id AND o.revision=i.onboarding_revision
       AND o.jellyfin_ready_at IS NOT NULL AND m.role='member' AND m.status='pending' AND m.recipient=i.recipient
+      AND NOT EXISTS(SELECT 1 FROM member_approval_holds h
+       WHERE h.source_database=i.source_database AND h.request_id=i.request_id)
       AND EXISTS(SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
       AND unixepoch('now')<?`,intentId,actorId,deadline).first();
      time(deadline); if (!eligible) fail();

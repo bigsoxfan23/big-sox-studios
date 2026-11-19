@@ -30,6 +30,9 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
   // Called ONLY by the verified Owner withdrawal path, before Requests D1
   // changes status. This durable, terminal hold serializes with the Member
   // admission batch in the SAME Members D1. Never revoke from a Member GET.
+  // It also serializes with the live welcome claim: dispatching/UNKNOWN may
+  // still invoke or complete transport, so withdrawal must refuse until a
+  // definite outcome. Never expire or clear that durable uncertainty lock.
   async holdAdmission(requestId,revision) {
    await approved(requestId,revision);
    const at=now();if(!safeTime(at)||at>=expiresAt)deny();
@@ -37,8 +40,11 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
     (source_database,request_id,actor_id,request_revision,held_at)
     SELECT ?,?,?,?,? WHERE EXISTS(
      SELECT 1 FROM members WHERE id=? AND role='owner' AND status='active')
+    AND NOT EXISTS(SELECT 1 FROM welcome_intents i
+     WHERE i.source_database=? AND i.request_id=? AND i.mode='live'
+     AND i.state IN ('dispatching','UNKNOWN'))
     AND unixepoch('now')<? ON CONFLICT(source_database,request_id) DO NOTHING
-    RETURNING request_id`,sourceDatabase,requestId,actorId,revision,at,actorId,expiresAt).first();
+    RETURNING request_id`,sourceDatabase,requestId,actorId,revision,at,actorId,sourceDatabase,requestId,expiresAt).first();
    if(!held) {
     // Recheck the active Owner and DB deadline on a previously committed hold:
     // INSERT may have been rejected after a session/deadline crossing.
@@ -46,6 +52,9 @@ export function createRequestOnboarding({requestDb,memberDb,sourceDatabase,actor
      FROM member_approval_holds h JOIN members m ON m.id=h.actor_id
      WHERE h.source_database=? AND h.request_id=?
      AND m.id=? AND m.role='owner' AND m.status='active'
+     AND NOT EXISTS(SELECT 1 FROM welcome_intents i
+      WHERE i.source_database=h.source_database AND i.request_id=h.request_id AND i.mode='live'
+      AND i.state IN ('dispatching','UNKNOWN'))
      AND unixepoch('now')<?`,sourceDatabase,requestId,actorId,expiresAt).first();
     const retryAt=now();if(!safeTime(retryAt)||retryAt>=expiresAt)deny();
     // A private note may advance Requests D1 after the immutable hold commits.
