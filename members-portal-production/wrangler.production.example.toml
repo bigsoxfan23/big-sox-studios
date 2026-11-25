@@ -24,6 +24,13 @@ PORTAL_APPROVED_OTP_ASSEMBLY = "reviewed-production-12"
 PORTAL_APPROVED_MEMBERS = "enabled-12-approved"
 PORTAL_SIMPLIFIED_MEMBER_UI = "enabled-12"
 PORTAL_OWNER_CONTROLS = "disabled-until-reviewed"
+# Separate source-only first-Owner candidate:
+# production-owner-enrollment-entry.mjs. Keep both enrollment gates disabled.
+# No target email, HMAC key or nonce belongs in this example. A separately
+# authorized release must provision OWNER_ENROLLMENT_EMAIL,
+# OWNER_ENROLLMENT_HMAC_KEY and OWNER_ENROLLMENT_NONCE as encrypted bindings.
+PORTAL_MODE = "disabled-before-verified-enrollment"
+PORTAL_OWNER_ENROLLMENT = "disabled-before-verified-enrollment"
 
 [[d1_databases]]
 binding = "DB"

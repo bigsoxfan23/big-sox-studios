@@ -1,6 +1,7 @@
 import {studioPage} from './studio-ui.mjs';
 import {createFirstOwnerBootstrap} from './first-owner-bootstrap.mjs';
 import {b64,unb64} from './access.mjs';
+import {productionEnrollmentMode} from './production-boundary.mjs';
 
 export const enrollmentPath='/owner/enroll';
 const cookieName='__Host-first-owner-confirm';
@@ -24,11 +25,11 @@ const hash=async value=>b64(await crypto.subtle.digest('SHA-256',encoder.encode(
 // All dependencies are trusted server source injections, never browser/env proof.
 // The key must be a reviewed shared HMAC SHA-256 CryptoKey, separate from Access.
 // No default key or approved recipient is provided.
-export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
+export function createFirstOwnerEnrollment({confirmationKey,mode='staging-enrollment-source',...options}={}) {
  const enabled=confirmationKey?.type==='secret' && confirmationKey.algorithm?.name==='HMAC' &&
   confirmationKey.algorithm?.hash?.name==='SHA-256' && confirmationKey.algorithm?.length>=256 &&
   confirmationKey.usages.includes('sign') && confirmationKey.usages.includes('verify');
- const bootstrap=createFirstOwnerBootstrap({...options,mode:'staging-enrollment-source'});
+ const bootstrap=createFirstOwnerBootstrap({...options,mode});
  const now=options.now??(()=>Date.now());
  const seconds=()=>{const at=Math.floor(now()/1000);need(Number.isSafeInteger(at)&&at>=0);return at;};
  const sign=async payload=>{
@@ -36,7 +37,7 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
   return `${data}.${b64(await crypto.subtle.sign('HMAC',confirmationKey,encoder.encode(data)))}`;
  };
  return {async fetch(request,env,ctx) {
-  if(!enabled || env?.PORTAL_MODE!=='staging-enrollment-source') return page('<p>Not found</p>',404);
+  if(!enabled || !['staging-enrollment-source',productionEnrollmentMode].includes(mode) || env?.PORTAL_MODE!==mode) return page('<p>Not found</p>',404);
   let committing=false;
   let stage='route';
   try {
@@ -57,12 +58,12 @@ export function createFirstOwnerEnrollment({confirmationKey,...options}={}) {
     return page(`<p>The approved signed-in OTP identity will become the first active Owner. This action can succeed only once.</p><p>Continue only if you intend to accept the Owner role. Cloudflare Access manages MFA. Clicking confirm approves this Owner enrollment.</p><form method="post" action="${enrollmentPath}"><input type="hidden" name="ticket" value="${ticket}"><button type="submit" name="decision" value="confirm-first-owner">Confirm first Owner enrollment</button></form>`,200,cookie(secret,300));
    }
    // A top-level, user-initiated browser form POST, never GET or an API fetch.
-   // Origin may be omitted by intermediaries on legitimate same-site POSTs.
-   // Reject a foreign or literal null Origin when supplied. A valid HMAC ticket,
-   // same-site secure cookie and signed Access OTP session remain mandatory.
+   // Staging permits an omitted Origin for its existing browser compatibility.
+   // Production requires exact Origin. Both reject foreign/literal null Origin;
+   // HMAC ticket, secure cookie and signed Access OTP remain mandatory.
    stage='browser-origin';
    const origin=request.headers.get('Origin');
-   need(origin===null || origin===env.APP_ORIGIN);
+   need(origin===env.APP_ORIGIN || (mode!==productionEnrollmentMode && origin===null));
    stage='browser-site';
    need(request.headers.get('Sec-Fetch-Site')!=='cross-site');
    stage='browser-content-type';

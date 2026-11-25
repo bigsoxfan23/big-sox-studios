@@ -29,8 +29,9 @@ Digest encodings are lowercase SHA-256 hex over UTF-8. Structured input uses
   approval receipt is inserted on GET.
 - `approval_audit_id`: `browser-` followed by that ticket digest, identifying the
   same browser decision in the existing immutable audit trigger.
-- `at`/`expires_at`: commit preparation time and the earliest of JWT expiry,
-  JWT issue time plus five minutes, and ticket expiry.
+- `at`/`expires_at`: commit preparation time and the earliest of JWT expiry
+  and ticket expiry. Production additionally limits expiry to JWT issue time
+  plus five minutes and checks that deadline at SQL execution.
 
 These digests are integrity/context records, not synthetic proofs presented as
 real checks. Receipt readback is required after the write. Any ambiguous commit
@@ -43,3 +44,8 @@ replay across restart, missing key/target/DB, wrong host/issuer/audience/provide
 exact email binding, CSRF, session/ticket expiry across awaits, receipt meanings,
 and live dashboard roles/grants/revocation. They do not establish real Access
 MFA enforcement or constitute an actual Owner enrollment.
+
+The separately gated [production source candidate](TASK12_PRODUCTION_FIRST_OWNER_ENROLLMENT.md)
+also uses in-memory SQLite tests. Production additionally bounds session age
+and receipt expiry by JWT issue time plus 300 seconds; the staging session-age
+compatibility described above remains unchanged.
