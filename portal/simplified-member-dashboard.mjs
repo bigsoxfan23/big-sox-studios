@@ -45,6 +45,9 @@ export async function simplifiedMemberDashboard(db,identity,options={}) {
   '<span class="status preview">Getting ready</span><p>Greg is getting your Jellyfin access ready. Your Member sign-in and Jellyfin account are separate.</p>';
  return studioPage('Welcome to the studio',
   '<p class="lede">A little home for our projects, movies and good company.</p><p class="fine muted" style="overflow-wrap:anywhere">Signed in as '+e(member.email)+'</p><div class="grid">'+
+  // This status reflects a freshly verified identity and active D1 membership,
+  // not any separate service or Jellyfin grant.
+  '<section class="panel"><div class="eyeline"><h2>Membership</h2><span class="status">Active</span></div><p class="muted">Your studio membership is active. Services are approved separately.</p></section>'+
   '<section class="panel wide"><div class="eyeline"><h2>Jellyfin</h2></div>'+jellyfin+'</section>'+
   '<section class="panel"><h2>Palworld</h2><span class="status preview">Coming Soon</span><p class="muted">More adventures are on the way.</p></section>'+
   '<section class="panel"><h2>More from the studio</h2><span class="status preview">Coming Soon</span><p class="muted">We will share new projects here when they are ready.</p></section></div>'+

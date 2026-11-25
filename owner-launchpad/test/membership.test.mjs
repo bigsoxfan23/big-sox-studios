@@ -98,6 +98,39 @@ for(const mode of ['missing cookie','missing token','cookie mismatch','tampered 
   if(mode==='duplicate cookie')headers.Cookie+='; '+headers.Cookie;
   assert.ok([400,403].includes((await f.post(id,data,{headers,jwt})).status));assert.equal(f.storage.rows()[0].revision,1);assert.equal(f.storage.audit().length,1);
  });
+test('owner decision cannot commit after Access expires during an awaited request read',async()=>{
+ const f=fixture(),id=seed(f.storage),form=await f.form();
+ const prepare=f.storage.prepare.bind(f.storage);
+ let delayed=false;
+ f.storage.prepare=sql=>{
+  const stmt=prepare(sql);
+  if(!sql.startsWith('SELECT status,pii_cleared_at FROM membership_requests'))return stmt;
+  return {...stmt,bind(...args) {
+   const bound=stmt.bind(...args);
+   return {...bound,async first() {
+    const row=await bound.first();
+    delayed=true;f.advance(3600000);
+    return row;
+   }};
+  }};
+ };
+ const res=await f.post(id,fields(form),{headers:{Cookie:form.cookie}});
+ assert.equal(delayed,true);
+ assert.equal(res.status,403);
+ assert.equal(f.storage.rows()[0].status,'pending');
+ assert.equal(f.storage.rows()[0].revision,1);
+ assert.equal(f.storage.audit().length,1);
+ assert.equal(f.storage.writes,0);
+});
+
+test('SQLite rejects stale Owner JWT expiry in database-time decision guard',async()=>{
+ const f=fixture(),id=seed(f.storage);
+ const row=f.storage.sqlite.prepare("UPDATE membership_requests SET status='approved',revision=revision+1 WHERE id=? AND revision=1 AND status='pending' AND pii_cleared_at IS NULL AND unixepoch('now') < ? RETURNING id").get(id,1);
+ assert.equal(row,undefined);
+ assert.equal(f.storage.rows()[0].status,'pending');
+ assert.equal(f.storage.rows()[0].revision,1);
+});
+
 test('stale revision and nonexistent random ID share conflict; concurrent decisions only mutate once',async()=>{
  const f=fixture();const id=seed(f.storage);const form=await f.form(),options={headers:{Cookie:form.cookie}};
  const responses=await Promise.all([f.post(id,fields(form),options),f.post(id,fields(form,{status:'rejected'}),options)]);

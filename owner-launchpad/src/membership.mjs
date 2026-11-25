@@ -60,6 +60,11 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
    // A guessed/nonexistent ID and a stale revision both produce the same private conflict.
    const current = await database.prepare('SELECT status,pii_cleared_at FROM membership_requests WHERE id=? AND revision=?').bind(decision[1],revision).first();
    requireThat(current && current.pii_cleared_at === null && (status===current.status || transitions[current.status].includes(status)),409);
+   // JWT can expire during awaited D1 reads; CSRF alone grants no authority.
+   // Recheck before any admission hold or Requests-D1 mutation.
+   const decisionTime = now();
+   requireThat(Number.isSafeInteger(expiresAt) && Number.isSafeInteger(decisionTime) &&
+    Math.floor(decisionTime/1000)<expiresAt,403);
    // Owner-only withdrawal first seals admission in Members D1. If the hold
    // cannot be recorded, leave Requests D1 approved; never race a first login.
    // This does NOT remove or silently revoke an existing active Member.
@@ -70,12 +75,15 @@ export async function membershipRoute(request, env, {now = () => Date.now(), res
     await (await onboardingApi(env,expiresAt,now)).holdAdmission(decision[1],revision);
    }
    const time = now();
+   requireThat(Number.isSafeInteger(expiresAt) && Number.isSafeInteger(time) &&
+    Math.floor(time/1000)<expiresAt,403);
    let updated;
    try {
     updated=await database.prepare(`UPDATE membership_requests SET status=?,owner_note=?,revision=revision+1,updated_at=?,
     closed_at=CASE WHEN ? IN ('rejected','revoked','expired') THEN COALESCE(closed_at,?) ELSE closed_at END
-    WHERE id=? AND revision=? AND status=? AND pii_cleared_at IS NULL RETURNING id`)
-    .bind(status,note,time,status,time,decision[1],revision,current.status).first();
+    WHERE id=? AND revision=? AND status=? AND pii_cleared_at IS NULL
+    AND unixepoch('now') < ? RETURNING id`)
+    .bind(status,note,time,status,time,decision[1],revision,current.status,expiresAt).first();
    } catch(error) {
     if(!heldWithdrawal)throw error;
     // Hold committed in Members D1; status in Requests D1 is unknown.

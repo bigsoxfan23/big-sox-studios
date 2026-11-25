@@ -131,7 +131,7 @@ test('flags never replace signed JWT and exact runtime OTP identity',async t=>{
 for(const workerd of [false,true])test(`synthetic approved LIVE OTP first login and repeat checks (${workerd?'workerd D1':'SQLite D1 adapter'})`,async t=>{
  const f=await fixture(t,{workerd}),get=(path='/app')=>f.app.fetch(signed(path),f.env,context());
  const r=await get();assert.equal(r.status,200);privateResponse(r);
- const html=await r.text();assert.match(html,/Welcome to the studio/);assert.doesNotMatch(html,/Owner workspace|Private invitation code|Manage members/);
+ const html=await r.text();assert.match(html,/Welcome to the studio/);assert.match(html,/<h2>Membership<\/h2><span class="status">Active<\/span>/);assert.match(html,/Services are approved separately/);assert.doesNotMatch(html,/Owner workspace|Private invitation code|Manage members/);
  const count=async table=>(await f.db.prepare(`SELECT count(*) n FROM ${table}`).first()).n;
  assert.equal(await count('identities'),1);assert.equal(await count('service_grants'),0);
  assert.equal((await f.db.prepare('SELECT status FROM members WHERE id=?').bind(f.member).first()).status,'active');
