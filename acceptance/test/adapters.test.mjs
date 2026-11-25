@@ -48,7 +48,7 @@ function wired(t,options={}) {
 }
 async function attestation(f,token=f.tokens.member) {
  return verifyOperatorAttestation({request:new Request(`https://${PINS.memberHost}/acceptance/request`,{headers:{'Cf-Access-Jwt-Assertion':token}}),
-  claims:JSON.parse(Buffer.from(token.split('.')[1],'base64url')),env:{...f.env,ACCEPTANCE_OPERATOR_ATTESTATION:signAttestation(f.env,f.preflight,token,f.at)},role:'member',now:f.now,readTrustedPreflight:f.readTrustedPreflight});
+  claims:JSON.parse(Buffer.from(token.split('.')[1],'base64url')),env:{...f.env,ACCEPTANCE_OPERATOR_ATTESTATION:signAttestation(f.env,f.preflight,token,f.at)},role:'member',now:f.now,readTrustedPreflight:f.readTrustedPreflight,sessionDeadline:f.at+300});
 }
 
 test('actual staging adapters: Member POST reserves both, Notion GET/POST/GET then exact Gmail notice; Owner approves and confirms Outlook welcome once',async t=>{
@@ -346,6 +346,66 @@ test('wrong private Notion child before a decision PATCH is terminal UNKNOWN wit
  assert.equal((await f.approve(id)).status,409);
  assert.equal(f.requests.rows('acceptance_notion_decision')[0].state,'unknown');
  assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,0);
+ assert.equal((await f.welcome(id)).status,409);
+ assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
+});
+test('operator lease revoked while provider parent GET is in flight aborts all later POSTs',async t=>{
+ let f;const wire=[];
+ f=fixture(t,{entries:true,realAdapters:true,verifyAccessPolicy:undefined,readTrustedPreflight:undefined,
+  wireFetcher:async(url,init)=>{
+   wire.push({url,method:init.method});
+   if(url==='https://api.notion.com/v1/pages/'+PINS.parent) {
+    await f.requests.prepare("UPDATE acceptance_preflight_lease SET revoked=1 WHERE role='member'").run();
+    return Response.json(page(PINS.parent));
+   }
+   throw Error('prohibited network after revoked operator lease');
+  }});
+ const proof=preflightFixture(f.env,f.at);
+ for(const role of ['member','owner'])await applyOperatorLease({db:f.requests,
+  row:prepareOperatorLease({role,env:f.env,proof,at:f.at,generation:1})});
+ const {res}=await f.submit();assert.equal(res.status,409);
+ assert.deepEqual(wire.map(x=>x.method),['GET']);
+ assert.equal(f.requests.rows('acceptance_effects').find(x=>x.kind==='notion_ticket').state,'unknown');
+ assert.equal(f.requests.rows('acceptance_effects').find(x=>x.kind==='owner_notice').state,'reserved');
+ assert.equal((await f.get('member','/acceptance/request')).status,403);
+});
+test('Owner JWT expiry during Notion decision child GET prevents external PATCH',async t=>{
+ const f=wired(t,{respond:({url,init,value,f})=>{
+  if(url==='https://api.notion.com/v1/pages/'+childId && init.method==='GET' &&
+      f.requests.rows('acceptance_requests')[0]?.status==='approved')f.time((f.at+31)*1000);
+  return Response.json(value);
+ }});
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ f.tokens.owner=f.jwt('owner',{exp:f.at+30});
+ assert.equal((await f.approve(id)).status,409);
+ assert.equal(f.requests.rows('acceptance_notion_decision')[0].state,'unknown');
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,0);
+ assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
+});
+test('revocation during approval PATCH cannot race another PATCH or claim accepted approval sync',async t=>{
+ let started,release;
+ const seen=new Promise(resolve=>{started=resolve;});
+ const held=new Promise(resolve=>{release=resolve;});
+ const f=wired(t,{respond:async({url,init,value})=>{
+  if(url==='https://api.notion.com/v1/pages/'+childId && init.method==='PATCH') {
+   started();await held;
+  }
+  return Response.json(value);
+ }});
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ const pendingApproval=f.approve(id);
+ await seen;
+ const member=f.members.rows('acceptance_members')[0];
+ const owner=await f.form('owner','/acceptance/members/');
+ assert.equal((await f.post('owner','/acceptance/members/'+member.id+'/remove',owner,{revision:'2'})).status,409);
+ assert.equal(f.requests.rows('acceptance_requests')[0].status,'revoked');
+ assert.equal((await f.get('member','/acceptance/app')).status,403);
+ release();
+ assert.equal((await pendingApproval).status,409);
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,1);
+ assert.equal(f.requests.rows('acceptance_notion_decision').length,1);
+ assert.equal(f.requests.rows('acceptance_notion_decision')[0].state,'unknown');
+ assert.match(await (await f.get('owner','/acceptance/requests/')).text(),/Notion decision sync: approved: unknown/);
  assert.equal((await f.welcome(id)).status,409);
  assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
 });

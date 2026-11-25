@@ -1,7 +1,7 @@
 // Real wire formats, staging graph only. Never invoke without independently
 // reviewed evidence + verified HMAC operator attestation. Tests inject local fetch.
 import {PINS,must,sha256} from './config.mjs';
-import {requireAttestation} from './attestation.mjs';
+import {requireCurrentAttestation} from './attestation.mjs';
 import {providerPayload} from './providers.mjs';
 const notion='https://api.notion.com/v1/pages';
 const resend='https://api.resend.com/emails';
@@ -20,7 +20,7 @@ async function json(response) {
 export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
  const receipts=new WeakMap();
  async function scope(credential,attestation,kind) {
-  const proof=requireAttestation(attestation,now).preflight;
+  const proof=(await requireCurrentAttestation(attestation,now)).preflight;
   must(proof[kind].credentialDigest===await sha256(credential));
   return proof;
  }
@@ -44,7 +44,7 @@ export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
     exact(payload,providerPayload('notion_ticket',{id:payload.requestId,run_id:payload.runId},payload.intentId)));
    // Check the exact private destination before the single irreversible POST.
    const parent=await notionCall(`${notion}/${PINS.parent}`,credential,signal);
-   must(page(parent,PINS.parent));requireAttestation(attestation,now);must(!signal.aborted);
+   must(page(parent,PINS.parent));await requireCurrentAttestation(attestation,now);must(!signal.aborted);
    const title=[{type:'text',text:{content:payload.title}}];
    const result=await notionCall(notion,credential,signal,{parent:{type:'page_id',page_id:PINS.parent},
     properties:{title:{type:'title',title}},children:[{object:'block',type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:`TEST only. No service grants. Run ${payload.runId}; request ${payload.requestId}; intent ${payload.intentId}; decision pending; recorded ${new Date(now()).toISOString()}.`}}]}}]});
@@ -66,7 +66,7 @@ export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
    const oldTitle=child.properties?.title?.title?.map(p=>p.plain_text??p.text?.content).join('');
    must(page(child,payload.pageId) && child.parent?.type==='page_id' &&
     child.parent.page_id===PINS.parent && oldTitle?.startsWith('TEST · Task12 Acceptance'));
-   requireAttestation(attestation,now);must(!signal.aborted);
+   await requireCurrentAttestation(attestation,now);must(!signal.aborted);
    const result=await notionCall(notion+'/'+payload.pageId,credential,signal,{
     properties:{title:{type:'title',title:[{type:'text',text:{content:payload.title}}]}}
    },'PATCH');
@@ -83,7 +83,7 @@ export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
    if(kind==='owner_notice')must(uuid(requestId));
    must(exact(payload,providerPayload(kind,{id:requestId},payload.intentId,payload.recipientDigest)) &&
     payload.recipientDigest===await sha256(payload.to));
-   requireAttestation(attestation,now);must(!signal.aborted);
+   await requireCurrentAttestation(attestation,now);must(!signal.aborted);
    const result=await json(await fetcher(resend,{method:'POST',redirect:'manual',signal,
     headers:{Authorization:`Bearer ${credential}`,'Content-Type':'application/json','Idempotency-Key':payload.intentId},
     body:JSON.stringify({from:PINS.sender,to:[payload.to],subject:payload.subject,text:payload.text})}));
@@ -93,7 +93,7 @@ export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
   },
   async verifyReceipt({kind,payload,result,signal}) {
    const receipt=receipts.get(result);must(receipt && receipt.kind===kind && receipt.payload===payload);
-   receipts.delete(result);requireAttestation(receipt.attestation,now);must(!signal.aborted);
+   receipts.delete(result);await requireCurrentAttestation(receipt.attestation,now);must(!signal.aborted);
    if(kind==='notion_ticket' || kind==='notion_decision') {
     // Read-only corroboration of original ticket or one bounded decision PATCH.
     const child=await notionCall(`${notion}/${result.providerId}`,receipt.credential,signal);
@@ -102,7 +102,7 @@ export function createStagingProviders({fetcher=fetch,now=()=>Date.now()}={}) {
    }
    // Sending-only Resend keys cannot retrieve emails. The HTTPS POST 200 + id is
    // the acceptance receipt; no broader credential or delivery claim is needed.
-   requireAttestation(receipt.attestation,now);return !signal.aborted;
+   await requireCurrentAttestation(receipt.attestation,now);return !signal.aborted;
   },
  };
 }

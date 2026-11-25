@@ -33,7 +33,7 @@ export function createSecurity({fetcher=fetch,now=()=>Date.now(),verifyAccessPol
   // Existing OTP runtime proves OTP, not independent MFA. A separately reviewed,
   // server-owned readback/session verifier must establish unchanged Access + MFA.
   // An environment flag or unverified amr/client header is never that verifier.
-  const attestation=await verifyOperatorAttestation({env,role,now,readTrustedPreflight});
+  const attestation=await verifyOperatorAttestation({env,role,now,readTrustedPreflight,sessionDeadline:session.expiresAt});
   must(typeof verifyAccessPolicy==='function');
   const proof=await verifyAccessPolicy({request,claims,runtime,role,preflight:attestation.preflight,runId:env.ACCEPTANCE_RUN_ID,bindings:{requests:env.ACCEPTANCE_REQUESTS,members:env.ACCEPTANCE_MEMBERS,requestsId:env.ACCEPTANCE_REQUESTS_ID,membersId:env.ACCEPTANCE_MEMBERS_ID}});
   must(proof?.mfaVerified===true && proof.policyVerified===true && proof.allowlistVerified===true && proof.bindingsVerified===true &&

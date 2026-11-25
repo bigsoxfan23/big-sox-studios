@@ -7,7 +7,25 @@ const encoder=new TextEncoder();
 const verified=new WeakSet();
 export function requireAttestation(value,now) {must(verified.has(value) && value.expiresAt>Math.floor(now()/1000));return value;}
 const digest=value=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
-export async function verifyOperatorAttestation({env,role,now,readTrustedPreflight}) {
+// Re-read the authoritative operator role lease at EVERY irreversible boundary.
+// A previously branded attestation is not permission after operator revoke/renew.
+// Synthetic explicitly injected verifiers retain their existing isolated test path.
+export async function requireCurrentAttestation(value,now) {
+ requireAttestation(value,now);
+ const lease=value.lease;
+ if(lease) {
+  const row=await lease.db.prepare(
+   'SELECT signed_token,generation,revoked,expires_at FROM acceptance_preflight_lease WHERE role=? AND run_id=?'
+  ).bind(lease.role,lease.runId).first();
+  must(row?.revoked===0 && row.signed_token===lease.token &&
+   row.generation===lease.generation && row.expires_at>Math.floor(now()/1000));
+ }
+ requireAttestation(value,now);
+ return value;
+}
+
+export async function verifyOperatorAttestation({env,role,now,readTrustedPreflight,sessionDeadline}) {
+ must(Number.isSafeInteger(sessionDeadline) && sessionDeadline>Math.floor(now()/1000));
  must(typeof readTrustedPreflight==='function');
  must(typeof env.ACCEPTANCE_ATTESTATION_KEY==='string' && /^[A-Za-z0-9_-]{43}$/.test(env.ACCEPTANCE_ATTESTATION_KEY) &&
   ![env.ACCEPTANCE_CSRF_KEY,env.ACCEPTANCE_RUN_NONCE,env.ACCEPTANCE_NOTION_CREDENTIAL,env.ACCEPTANCE_SENDER_CREDENTIAL].includes(env.ACCEPTANCE_ATTESTATION_KEY));
@@ -61,6 +79,9 @@ export async function verifyOperatorAttestation({env,role,now,readTrustedPreflig
   resend.credentialDigest===await sha256(env.ACCEPTANCE_SENDER_CREDENTIAL) && digest(resend.readbackDigest));
  must(env.ACCEPTANCE_VERIFIED_SENDER===PINS.sender && typeof env.ACCEPTANCE_NOTION_CREDENTIAL==='string' && env.ACCEPTANCE_NOTION_CREDENTIAL.length>=32 &&
   typeof env.ACCEPTANCE_SENDER_CREDENTIAL==='string' && env.ACCEPTANCE_SENDER_CREDENTIAL.length>=32 && env.ACCEPTANCE_NOTION_CREDENTIAL!==env.ACCEPTANCE_SENDER_CREDENTIAL);
- const result=Object.freeze({expiresAt:signed.expiresAt,preflight:proof,preflightDigest:signed.preflightDigest});
+ const result=Object.freeze({expiresAt:Math.min(signed.expiresAt,sessionDeadline),preflight:proof,
+  preflightDigest:signed.preflightDigest,
+  lease:fromLease?Object.freeze({db:env.ACCEPTANCE_REQUESTS,role,runId:signed.runId,
+   generation:signed.generation,token}):null});
  verified.add(result);return result;
 }

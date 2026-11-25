@@ -109,7 +109,10 @@ CREATE TRIGGER acceptance_notion_decision_guard BEFORE INSERT ON acceptance_noti
   WHERE r.id=NEW.request_id AND r.status=NEW.decision
     AND (CASE NEW.decision WHEN 'approved' THEN r.approved_at ELSE r.revoked_at END)=NEW.decision_at
     AND e.kind='notion_ticket' AND e.state='accepted' AND e.provider_id=NEW.page_id
- ) BEGIN SELECT RAISE(ABORT,'TEST decision must follow accepted private Notion ticket'); END;
+ ) OR (NEW.decision='revoked' AND NOT EXISTS(
+  SELECT 1 FROM acceptance_notion_decision prior WHERE prior.request_id=NEW.request_id
+    AND prior.decision='approved' AND prior.state='accepted'
+ )) BEGIN SELECT RAISE(ABORT,'TEST decision must follow accepted private Notion ticket and ordered approval'); END;
 CREATE TRIGGER acceptance_notion_decision_terminal BEFORE UPDATE ON acceptance_notion_decision
  WHEN OLD.state!='reserved' OR NEW.state='reserved' OR
   NEW.request_id!=OLD.request_id OR NEW.decision!=OLD.decision OR

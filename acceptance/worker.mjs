@@ -2,6 +2,7 @@ import {PINS,must,guard,sha256,stmt,changed} from './config.mjs';
 import {boundary,createSecurity,csrfToken,formBody,fresh} from './security.mjs';
 import {verifiedProviders,providerPayload,once} from './providers.mjs';
 import {createStagingProviders} from './adapters.mjs';
+import {requireCurrentAttestation} from './attestation.mjs';
 const headers={'Content-Type':'text/html; charset=utf-8','Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store',
  'Content-Security-Policy':"default-src 'none'; script-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
  'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','X-Robots-Tag':'noindex, nofollow, noarchive',
@@ -26,7 +27,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
   if(path!=='/acceptance' && !path.startsWith('/acceptance/')) return base.fetch(request,env,ctx);
   let session,db;
   try {boundary(request,role);session=await authenticate(request,env,ctx,role);} catch {return response(403,'<p>Access verification required.</p>');}
-  try {db=await guard(env,session);fresh(session,now);} catch {return response(503,'<p>TEST isolation or configuration unavailable.</p>');}
+  try {db=await guard(env,session);await requireCurrentAttestation(session.attestation,now);fresh(session,now);} catch {return response(503,'<p>TEST isolation or configuration unavailable.</p>');}
   try {
    const digest=await sha256(PINS.tester);
    const render=async body=>{
@@ -39,6 +40,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     for(const intent of intents) {
      const current=await requestRow(db.requests,env,row.id);fresh(session,now);
      must(current?.status===(welcome?'approved':'pending') && proof.expiresAt>Math.floor(now()/1000));
+     await requireCurrentAttestation(session.attestation,now);fresh(session,now);
      const payload=providerPayload(intent.kind,row,intent.id,intent.recipient);
      const outcome=await once(providers,intent.kind,payload,intent.kind==='notion_ticket'?env.ACCEPTANCE_NOTION_CREDENTIAL:env.ACCEPTANCE_SENDER_CREDENTIAL,session.attestation);
      must(changed(await stmt(db.requests,"UPDATE acceptance_effects SET state=?,provider_id=?,updated_at=unixepoch() WHERE id=? AND state='reserved'",outcome.state,outcome.providerId,intent.id).run()));
@@ -47,7 +49,12 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     return true;
    };
    const syncDecision=async(row,decision)=>{
-    // Requests remains authority. Reserve exactly one Notion PATCH per decision.
+    // Request-first revocation denies access even when earlier approval sync
+    // remains reserved/unknown; never race a second PATCH against it.
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
+    const current=await requestRow(db.requests,env,row.id);
+    must(current?.status===decision && current.revision===row.revision);
+    const deadline=alive(session,now);
     const ticket=await stmt(db.requests,
      "SELECT provider_id FROM acceptance_effects WHERE request_id=? AND kind='notion_ticket' AND state='accepted'",
      row.id).first();
@@ -56,12 +63,18 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     must(Number.isSafeInteger(decidedAt) && decidedAt>0);
     const intentId=crypto.randomUUID();
     const locked=await stmt(db.requests,
-     "INSERT INTO acceptance_notion_decision(request_id,decision,intent_id,page_id,decision_at,state) SELECT ?,?,?,?,?,'reserved' WHERE EXISTS(SELECT 1 FROM acceptance_requests WHERE id=? AND run_id=? AND status=?)",
-     row.id,decision,intentId,ticket.provider_id,decidedAt,row.id,db.runId,decision).run();
+     "INSERT INTO acceptance_notion_decision(request_id,decision,intent_id,page_id,decision_at,state) SELECT ?,?,?,?,?,'reserved' WHERE unixepoch()<? AND EXISTS(SELECT 1 FROM acceptance_requests WHERE id=? AND run_id=? AND status=?) AND (?='approved' OR EXISTS(SELECT 1 FROM acceptance_notion_decision WHERE request_id=? AND decision='approved' AND state='accepted'))",
+     row.id,decision,intentId,ticket.provider_id,decidedAt,deadline,row.id,db.runId,decision,decision,row.id).run();
     if(!changed(locked))return false;
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     const payload=providerPayload('notion_decision',{
      id:row.id,run_id:db.runId,page_id:ticket.provider_id,decision,decision_at:decidedAt},intentId);
-    const outcome=await once(providers,'notion_decision',payload,env.ACCEPTANCE_NOTION_CREDENTIAL,session.attestation);
+    let outcome=await once(providers,'notion_decision',payload,env.ACCEPTANCE_NOTION_CREDENTIAL,session.attestation);
+    // If Request-first revocation raced an approved provider response, never
+    // label the local sync accepted. The external title may be uncertain and
+    // requires manual reconciliation; no speculative compensating retry.
+    const after=await requestRow(db.requests,env,row.id);
+    if(decision==='approved' && after?.status!=='approved')outcome={state:'unknown',providerId:null};
     must(changed(await stmt(db.requests,
      "UPDATE acceptance_notion_decision SET state=?,provider_id=? WHERE intent_id=? AND state='reserved'",
      outcome.state,outcome.providerId,intentId).run()));
@@ -76,6 +89,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const expiry=Math.min(alive(session,now),proof.expiresAt);
     // One D1 transaction: immutable request + locked outbox + BOTH consumed
     // intents. Unconditional FK inserts abort the whole batch if request expired.
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     const result=await db.requests.batch([
      stmt(db.requests,'INSERT OR IGNORE INTO acceptance_run VALUES(1,?,?)',db.runId,db.nonceDigest),
      stmt(db.requests,"INSERT INTO acceptance_requests(id,run_id,recipient_digest,created_at,updated_at) SELECT ?,?,?,unixepoch(),unixepoch() WHERE unixepoch()<? AND EXISTS(SELECT 1 FROM acceptance_run WHERE singleton=1 AND run_id=? AND nonce_digest=?)",id,db.runId,digest,expiry,db.runId,db.nonceDigest),
@@ -91,6 +105,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const member=await stmt(db.members,"SELECT * FROM acceptance_members WHERE request_id=? AND run_id=? AND recipient_digest=? AND status IN ('pending','active')",row.id,db.runId,digest).first();
     if(!member) return response(403,'<p>TEST membership unavailable.</p>');
     // Atomic identity bind + activation; SQL database time checks the signed session.
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     await db.members.batch([
      stmt(db.members,"INSERT OR IGNORE INTO acceptance_identities SELECT 'otp',?,id,unixepoch() FROM acceptance_members WHERE id=? AND status IN ('pending','active') AND unixepoch()<?",session.digest,member.id,alive(session,now)),
      stmt(db.members,"UPDATE acceptance_members SET status='active',active_at=unixepoch(),welcome_effect_id=? WHERE id=? AND status='pending' AND unixepoch()<? AND EXISTS(SELECT 1 FROM acceptance_identities WHERE provider='otp' AND subject_digest=? AND member_id=?)",row.welcome_id,member.id,alive(session,now),session.digest,member.id),
@@ -145,6 +160,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const member=await stmt(db.members,'SELECT * FROM acceptance_members WHERE id=? AND run_id=?',removal[1],db.runId).first();
     if(!member || member.status==='revoked') return conflict();
     // Requests is the immediate deny authority, even if the next D1 write crashes.
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     const result=await stmt(db.requests,"UPDATE acceptance_requests SET status='revoked',revision=revision+1,revoked_at=unixepoch(),updated_at=unixepoch() WHERE id=? AND run_id=? AND revision=? AND status='approved' AND unixepoch()<?",member.request_id,db.runId,revision,alive(session,now)).run();
     if(!changed(result)) return conflict();
     await stmt(db.members,"UPDATE acceptance_members SET status='revoked',revoked_at=unixepoch() WHERE id=? AND status IN ('pending','active')",member.id).run();
@@ -159,6 +175,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
    if(action[2]==='decision') {
     must(form.get('confirm')==='TEST');
     if(row.status!=='pending' || !receipts(ledger)) return conflict();
+    await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     const result=await stmt(db.requests,"UPDATE acceptance_requests SET status='approved',revision=revision+1,approved_at=unixepoch(),updated_at=unixepoch() WHERE id=? AND run_id=? AND revision=? AND status='pending' AND unixepoch()<?",row.id,db.runId,revision,alive(session,now)).run();
     if(!changed(result)) return conflict();
     const check=await requestRow(db.requests,env,row.id);fresh(session,now);must(check?.status==='approved');
@@ -178,6 +195,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
    must(await stmt(db.members,"SELECT id FROM acceptance_members WHERE request_id=? AND run_id=? AND status='pending'",row.id,db.runId).first());
    const proof=await verifiedProviders(providers,env,session,now,1);fresh(session,now);
    const intent={id:crypto.randomUUID(),kind:'test_welcome',recipient:digest};
+   await requireCurrentAttestation(session.attestation,now);fresh(session,now);
    const reserved=await stmt(db.requests,"INSERT INTO acceptance_effects(id,request_id,kind,recipient_digest,state,created_at,updated_at) SELECT ?,?,?,?,'reserved',unixepoch(),unixepoch() WHERE unixepoch()<? AND EXISTS(SELECT 1 FROM acceptance_requests WHERE id=? AND run_id=? AND revision=? AND status='approved')",intent.id,row.id,intent.kind,digest,Math.min(alive(session,now),proof.expiresAt),row.id,db.runId,revision).run();
    if(!changed(reserved))return conflict();
    return await dispatchReserved(row,[intent],proof,true)?response(200,'<p>TEST welcome accepted by provider. Inbox delivery remains unverified. The attempt is permanently consumed.</p>'):conflict();
