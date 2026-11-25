@@ -14,9 +14,9 @@ test.after(()=>{globalThis.fetch=network;});
 const childId='11111111-1111-4111-8111-111111111111';
 const emailId='22222222-2222-4222-8222-222222222222';
 const noticeSubject='TEST request awaiting review',welcomeSubject='TEST welcome — no service access';
-const page=(id=childId)=>({object:'page',id,archived:false,in_trash:false,public_url:null,parent:{type:'page_id',page_id:PINS.parent},properties:{title:{title:[{plain_text:'Task12 Acceptance — TEST Ticket'}]}}});
+const page=(id=childId,title='TEST · Task12 Acceptance — pending')=>({object:'page',id,archived:false,in_trash:false,public_url:null,parent:{type:'page_id',page_id:PINS.parent},properties:{title:{title:[{plain_text:title}]}}});
 function wired(t,options={}) {
- const wire=[];let f;
+ const wire=[];let f;let currentTitle='TEST · Task12 Acceptance — pending';
  const wireFetcher=async(url,init)=>{
   const body=init.body?JSON.parse(init.body):null;
   wire.push({url,init,body});
@@ -29,8 +29,12 @@ function wired(t,options={}) {
    assert.equal(init.method,'GET');value=page(PINS.parent);
   } else if(url==='https://api.notion.com/v1/pages') {
    assert.equal(init.method,'POST');value=page();
-  } else if(url===`https://api.notion.com/v1/pages/${childId}`) {
-   assert.equal(init.method,'GET');value=page();
+  } else if(url==='https://api.notion.com/v1/pages/'+childId) {
+   if(init.method==='PATCH') {
+    currentTitle=body?.properties?.title?.title?.[0]?.text?.content;
+    assert.match(currentTitle,/^TEST · Task12 Acceptance — (approved|revoked) · /);
+   } else assert.equal(init.method,'GET');
+   value=page(childId,currentTitle);
   } else if(url==='https://api.resend.com/emails') {
    assert.equal(init.method,'POST');value={id:emailId};
    // Durable accepted Notion evidence is required before the Gmail notice.
@@ -57,7 +61,7 @@ test('actual staging adapters: Member POST reserves both, Notion GET/POST/GET th
  const notion=f.wire[1];assert.deepEqual(notion.body.parent,{type:'page_id',page_id:PINS.parent});
  assert.deepEqual(Object.keys(notion.body),['parent','properties','children']);
  assert.equal(notion.init.headers.Authorization,`Bearer ${f.env.ACCEPTANCE_NOTION_CREDENTIAL}`);
- assert.equal(notion.body.properties.title.title[0].text.content,'Task12 Acceptance — TEST Ticket');
+ assert.equal(notion.body.properties.title.title[0].text.content,'TEST · Task12 Acceptance — pending');
  assert.match(notion.body.children[0].paragraph.rich_text[0].text.content,/TEST only\. No service grants/);
  assert.equal((await f.dispatch(id)).status,410);
  assert.doesNotMatch((await f.form('owner','/acceptance/requests/')).body,/\/dispatch/);
@@ -79,7 +83,7 @@ test('actual staging adapters: Member POST reserves both, Notion GET/POST/GET th
  assert.equal((await f.get('member','/acceptance/app')).status,200);
  const member=f.members.rows('acceptance_members')[0],revoke=await f.form('owner','/acceptance/members/');
  assert.equal((await f.post('owner',`/acceptance/members/${member.id}/remove`,revoke,{revision:'2'})).status,200);
- assert.equal((await f.get('member','/acceptance/app')).status,403);assert.equal(f.wire.length,5);
+ assert.equal((await f.get('member','/acceptance/app')).status,403);assert.equal(f.wire.length,11);
  assert.equal(f.members.rows('service_grants').length,0);
 });
 
@@ -226,7 +230,7 @@ test('runtime sender/key substitutions cannot be authorized by env readiness fla
 
 
 async function renewablePair(f,at,generation) {
- const proof=preflightFixture(f.env,at);
+ const proof=preflightFixture(f.env,at,f.at-1);
  for(const role of ['owner','member'])await applyOperatorLease({db:f.requests,
   row:prepareOperatorLease({role,env:f.env,proof,at,generation})});
  return proof;
@@ -288,24 +292,107 @@ test('operator renewal preserves run and audit across long multi-browser accepta
 });
 
 
-test('quota is required for each irreversible TEST send, but not after sends are consumed',async t=>{
+test('private Notion ticket title and Owner decision state are synchronized exactly once each',async t=>{
+ const f=wired(t),{res,id}=await f.submit();assert.equal(res.status,201);
+ const created=f.wire.find(x=>x.init.method==='POST' && x.url==='https://api.notion.com/v1/pages');
+ assert.match(created.body.properties.title.title[0].text.content,/^TEST · Task12 Acceptance/);
+ assert.match(created.body.children[0].paragraph.rich_text[0].text.content,/decision pending; recorded /);
+ assert.equal((await f.approve(id)).status,200);
+ let sync=f.requests.rows('acceptance_notion_decision');
+ assert.equal(sync.length,1);assert.equal(sync[0].state,'accepted');assert.equal(sync[0].decision,'approved');
+ const queue=await f.get('owner','/acceptance/requests/');
+ assert.match(await queue.text(),/Notion decision sync: approved: accepted/);
+ const patches=f.wire.filter(x=>x.init.method==='PATCH');
+ assert.equal(patches.length,1);
+ assert.match(patches[0].body.properties.title.title[0].text.content,/^TEST · Task12 Acceptance — approved · /);
+ assert.equal((await f.approve(id)).status,409);assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,1);
+ assert.equal((await f.welcome(id)).status,200);
+ const member=f.members.rows('acceptance_members')[0];
+ const remove=await f.form('owner','/acceptance/members/');
+ assert.equal((await f.post('owner','/acceptance/members/'+member.id+'/remove',remove,{revision:'2'})).status,200);
+ sync=f.requests.rows('acceptance_notion_decision');
+ assert.deepEqual(sync.map(x=>x.decision),['approved','revoked']);
+ assert.ok(sync.every(x=>x.state==='accepted'&&x.attempt_count===1));
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,2);
+ assert.match(f.wire.filter(x=>x.init.method==='PATCH')[1].body.properties.title.title[0].text.content,/^TEST · Task12 Acceptance — revoked · /);
+ assert.equal((await f.get('member','/acceptance/app')).status,403);
+ assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,2);
+});
+test('ambiguous Notion approval PATCH consumes lock, blocks welcome and never resends email',async t=>{
+ const f=wired(t,{respond:({url,init,value})=>{
+  if(url==='https://api.notion.com/v1/pages/'+childId&&init.method==='PATCH')return Response.json({error:'ambiguous'},{status:429});
+  return Response.json(value);
+ }});
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ assert.equal((await f.approve(id)).status,409);
+ assert.equal(f.requests.rows('acceptance_requests')[0].status,'approved');
+ assert.equal(f.requests.rows('acceptance_notion_decision')[0].state,'unknown');
+ assert.match(await (await f.get('owner','/acceptance/requests/')).text(),/Notion decision sync: approved: unknown/);
+ assert.equal((await f.welcome(id)).status,409);
+ assert.equal((await f.approve(id)).status,409);
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,1);
+ assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
+ assert.equal(f.members.rows('service_grants').length,0);
+ assert.throws(()=>f.requests.sqlite.exec("UPDATE acceptance_notion_decision SET state='reserved'"),/immutable/);
+ assert.throws(()=>f.requests.sqlite.exec('DELETE FROM acceptance_notion_decision'),/retain/);
+});
+test('wrong private Notion child before a decision PATCH is terminal UNKNOWN with no mutation',async t=>{
+ const f=wired(t,{respond:({url,init,value,f:ctx})=>{
+  if(url==='https://api.notion.com/v1/pages/'+childId&&init.method==='GET' &&
+     ctx.requests.rows('acceptance_requests')[0]?.status==='approved')value.parent.page_id='another-parent';
+  return Response.json(value);
+ }});
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ assert.equal((await f.approve(id)).status,409);
+ assert.equal(f.requests.rows('acceptance_notion_decision')[0].state,'unknown');
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,0);
+ assert.equal((await f.welcome(id)).status,409);
+ assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
+});
+test('single immutable Free/no-overage start evidence funds only two distinct TEST email attempts',async t=>{
  const f=fixture(t,{entries:true});
  f.preflight.resend.freeQuotaRemaining=1;
- const missing=await f.submit();assert.equal(missing.res.status,409);
+ assert.equal((await f.submit()).res.status,403);
  assert.equal(f.requests.rows('acceptance_requests').length,0);
- assert.equal(f.calls.length,0);
  f.preflight.resend.freeQuotaRemaining=2;
  const {res,id}=await f.submit();assert.equal(res.status,201);
  assert.equal(f.calls.length,2);
  assert.equal((await f.approve(id)).status,200);
- f.preflight.resend.freeQuotaRemaining=0;
- assert.equal((await f.welcome(id)).status,409);
- assert.equal(f.calls.length,2);
- assert.equal(f.requests.rows('acceptance_effects').length,2);
- f.preflight.resend.freeQuotaRemaining=1;
+ assert.equal(f.syncs.length,1);
  assert.equal((await f.welcome(id)).status,200);
- f.preflight.resend.freeQuotaRemaining=0;
- assert.equal((await f.get('member','/acceptance/app')).status,200);
+ assert.equal((await f.welcome(id)).status,409);
  assert.equal(f.calls.length,3);
- assert.equal(f.members.rows('service_grants').length,0);
+ assert.equal((await f.get('member','/acceptance/app')).status,200);
+ const budget=f.requests.rows('acceptance_send_budget')[0];
+ assert.equal(budget.plan,'free');assert.equal(budget.overages_enabled,0);
+ assert.equal(budget.max_email_attempts,2);assert.equal(budget.free_quota_at_start,2);
+ assert.throws(()=>f.requests.sqlite.exec('DELETE FROM acceptance_send_budget'),/immutable/);
+ assert.throws(()=>f.requests.sqlite.exec('UPDATE acceptance_send_budget SET free_quota_at_start=20'),/immutable/);
+ assert.deepEqual(f.requests.rows('acceptance_effects').filter(x=>x.kind!=='notion_ticket').map(x=>x.kind),['owner_notice','test_welcome']);
+});
+test('stale one-time Free quota evidence cannot start a new TEST after 300 seconds even with renewed access leases',async t=>{
+ const f=fixture(t,{entries:true,verifyAccessPolicy:undefined,readTrustedPreflight:undefined});
+ f.tokens.member=f.jwt('member',{exp:f.at+7200});
+ f.tokens.owner=f.jwt('owner',{exp:f.at+7200});
+ await renewablePair(f,f.at,1);
+ assert.equal((await f.get('member','/acceptance/request')).status,200);
+ f.time((f.at+360)*1000);
+ await renewablePair(f,f.at+360,2);
+ assert.equal((await f.get('member','/acceptance/request')).status,200);
+ assert.equal((await f.submit()).res.status,409);
+ assert.equal(f.requests.rows('acceptance_requests').length,0);
+ assert.equal(f.requests.rows('acceptance_effects').length,0);
+ assert.equal(f.calls.length,0);
+});
+test('changed Free plan, overages, accepted risk or quota snapshot fail closed before any TEST send',async t=>{
+ for(const change of [
+  {plan:'paid'}, {overagesEnabled:true},{sharedQuotaRiskAccepted:false},
+  {freeQuotaRemaining:1},{quotaEvidenceAt:1}
+ ]) {
+  const f=fixture(t);
+  Object.assign(f.preflight.resend,change);
+  const {res}=await f.submit();assert.ok([403,503].includes(res.status));
+  assert.equal(f.requests.rows('acceptance_requests').length,0);
+  assert.equal(f.calls.length,0);
+ }
 });

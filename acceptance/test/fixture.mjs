@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {generateKeyPairSync,createSign,randomBytes} from 'node:crypto';
 import {PINS} from '../config.mjs';
 import {preflightFixture,signAttestation} from './attestation-fixture.mjs';
+import {prepareStartBudget} from '../operator/renewal.mjs';
 import {createAcceptanceWorker} from '../worker.mjs';
 import {createMemberAcceptanceEntry} from '../../members-portal-staging/private-acceptance-entry.mjs';
 import {createOwnerAcceptanceEntry} from '../../owner-launchpad/src/private-acceptance-entry.mjs';
@@ -40,11 +41,17 @@ export function fixture(t,options={}) {
   ACCEPTANCE_NOTION_PARENT:PINS.parent,ACCEPTANCE_NOTION_CREDENTIAL:'synthetic-notion-credential-does-not-exist',
   ACCEPTANCE_SENDER_CREDENTIAL:'synthetic-sender-credential-does-not-exist',ACCEPTANCE_DISPATCH_GATE:'greg-one-run:synthetic-run-0001'};
  const preflight=preflightFixture(env,at);
+ const start=prepareStartBudget({env,proof:preflight});
+ requests.sqlite.prepare('INSERT INTO acceptance_send_budget VALUES(?,?,?,?,?,?,?,?,?,?)').run(
+  start.run_id,start.nonce_digest,start.credential_digest,start.quota_evidence_digest,
+  start.quota_observed_at,start.free_quota_at_start,start.plan,start.overages_enabled,
+  start.shared_quota_risk_accepted,start.max_email_attempts);
  const readTrustedPreflight=async()=>preflight;
- const calls=[];let providerResult='accepted';let scope=true;let receipt=true;
+ const calls=[],syncs=[];let providerResult='accepted';let scope=true;let receipt=true;
  const providers={
   async verifyScope(input){return scope?{parent:input.parent,runId:input.runId,pageOnly:true,privateParent:true,stagingOnly:true,sendingOnly:true,senderVerified:true,zeroSpend:true,recipientPinsVerified:true,expiresAt:Math.floor(now()/1000)+300}:null;},
-  async createTicket(payload){calls.push({kind:'notion_ticket',payload});return {state:providerResult,providerId:'local-ticket'};},
+  async createTicket(payload){calls.push({kind:'notion_ticket',payload});return {state:providerResult,providerId:'11111111-1111-4111-8111-111111111111'};},
+  async updateTicket(payload){syncs.push(payload);return {state:providerResult,providerId:payload.pageId};},
   async send(payload){calls.push({kind:payload.to===PINS.owner?'owner_notice':'test_welcome',payload});return {state:providerResult,providerId:payload.to===PINS.owner?'local-notice':'local-welcome'};},
   async verifyReceipt(){return receipt;},
  };
@@ -80,6 +87,6 @@ export function fixture(t,options={}) {
  async function dispatch(id){const f=await form('owner','/acceptance/requests/');return post('owner',`/acceptance/requests/${id}/dispatch`,f,{confirm:PINS.owner});}
  async function approve(id){const f=await form('owner','/acceptance/requests/');return post('owner',`/acceptance/requests/${id}/decision`,f);}
  async function welcome(id){const f=await form('owner',`/acceptance/requests/${id}/send-welcome`);return post('owner',`/acceptance/requests/${id}/send-welcome`,f,{revision:'2',confirm:PINS.tester});}
- return {env,preflight,readTrustedPreflight,requests,members,calls,baseCalls,owner,member,now,jwt,tokens,context,get,form,post,submit,dispatch,approve,welcome,providers,
+ return {env,preflight,readTrustedPreflight,requests,members,calls,syncs,baseCalls,owner,member,now,jwt,tokens,context,get,form,post,submit,dispatch,approve,welcome,providers,
   time:value=>{clock=value;},at,result:value=>{providerResult=value;},scope:value=>{scope=value;},receipt:value=>{receipt=value;}};
 }

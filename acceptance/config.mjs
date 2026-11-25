@@ -20,7 +20,7 @@ export const stmt=(db,sql,...args)=>db.prepare(sql).bind(...args);
 // a zero-row CAS fires no trigger, while successful audited writes may report >1.
 export const changed=result=>Number.isSafeInteger(result?.meta?.changes) && result.meta.changes>0;
 const binding=db=>db && typeof db.prepare==='function' && typeof db.batch==='function';
-export async function guard(env) {
+export async function guard(env,session) {
  must(env?.ACCEPTANCE_MODE==='private-staging-source' && env.ACCEPTANCE_REVISION===PINS.revision &&
   env.ACCEPTANCE_REQUESTS_ID===PINS.requestsId && env.ACCEPTANCE_MEMBERS_ID===PINS.membersId &&
   binding(env.ACCEPTANCE_REQUESTS) && binding(env.ACCEPTANCE_MEMBERS) && env.ACCEPTANCE_REQUESTS!==env.ACCEPTANCE_MEMBERS);
@@ -40,5 +40,20 @@ export async function guard(env) {
  const run=await stmt(env.ACCEPTANCE_REQUESTS,'SELECT * FROM acceptance_run WHERE singleton=1').first();
  const nonceDigest=await sha256(env.ACCEPTANCE_RUN_NONCE);
  must(!run || (run.run_id===env.ACCEPTANCE_RUN_ID && run.nonce_digest===nonceDigest));
+ // Verify the single historical Free/no-overages quota start against immutable
+ // D1. It is NOT a purported live Resend usage read on every lease renewal.
+ const resend=session?.attestation?.preflight?.resend;
+ must(resend?.credentialDigest===await sha256(env.ACCEPTANCE_SENDER_CREDENTIAL));
+ const budget=await stmt(env.ACCEPTANCE_REQUESTS,
+  'SELECT * FROM acceptance_send_budget WHERE run_id=? AND nonce_digest=?',
+  env.ACCEPTANCE_RUN_ID,nonceDigest).first();
+ const quotaDigest=await sha256(JSON.stringify({runId:env.ACCEPTANCE_RUN_ID,nonceDigest,
+  credentialDigest:resend.credentialDigest,quotaEvidenceAt:resend.quotaEvidenceAt,
+  freeQuotaRemaining:resend.freeQuotaRemaining,plan:resend.plan,overagesEnabled:resend.overagesEnabled,
+  sharedQuotaRiskAccepted:resend.sharedQuotaRiskAccepted,maxEmailAttempts:2}));
+ must(budget?.quota_evidence_digest===quotaDigest && budget.credential_digest===resend.credentialDigest &&
+  budget.quota_observed_at===resend.quotaEvidenceAt &&
+  budget.free_quota_at_start===resend.freeQuotaRemaining && budget.plan==='free' &&
+  budget.overages_enabled===0 && budget.shared_quota_risk_accepted===1 && budget.max_email_attempts===2);
  return {requests:env.ACCEPTANCE_REQUESTS,members:env.ACCEPTANCE_MEMBERS,runId:env.ACCEPTANCE_RUN_ID,nonceDigest};
 }

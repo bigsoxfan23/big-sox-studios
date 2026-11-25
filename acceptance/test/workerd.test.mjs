@@ -5,10 +5,17 @@ import {Miniflare,NoOpLog,convertV4MiniflareOptions} from 'miniflare';
 import {fixture} from './fixture.mjs';
 import {PINS} from '../config.mjs';
 async function schema(db,kind){
- const sql=[`${kind}.sql`,`migration-0002-${kind}.sql`].map(file=>readFileSync(new URL(`../${file}`,import.meta.url),'utf8')).join('\n').replace(/^--.*$/gm,'').trim();
+ const sql=[kind+'.sql','migration-0002-'+kind+'.sql',...(kind==='requests'?['migration-0003-requests-preflight.sql']:[])].map(file=>readFileSync(new URL('../'+file,import.meta.url),'utf8')).join('\n').replace(/^--.*$/gm,'').trim();
  // Preserve complete trigger bodies; only split before top-level statements.
  const statements=sql.split(/;(?=\s*(?:CREATE|INSERT|PRAGMA|$))/).map(s=>s.trim()).filter(Boolean);
  await db.batch(statements.map(sql=>db.prepare(sql)));
+}
+async function seedStartBudget(target,f) {
+ const row=f.requests.rows('acceptance_send_budget')[0];
+ await target.prepare('INSERT INTO acceptance_send_budget VALUES(?,?,?,?,?,?,?,?,?,?)').bind(
+ row.run_id,row.nonce_digest,row.credential_digest,row.quota_evidence_digest,
+ row.quota_observed_at,row.free_quota_at_start,row.plan,row.overages_enabled,
+ row.shared_quota_risk_accepted,row.max_email_attempts).run();
 }
 test('local workerd/D1 full synthetic flow, concurrent one-shot dispatch, SQL triggers, same JWT revocation',async t=>{
  const mf=new Miniflare(convertV4MiniflareOptions({log:new NoOpLog(),name:'task12-private-acceptance-offline',modules:true,
@@ -17,7 +24,7 @@ test('local workerd/D1 full synthetic flow, concurrent one-shot dispatch, SQL tr
  t.after(()=>mf.dispose());
  const requests=await mf.getD1Database('REQUESTS'),members=await mf.getD1Database('MEMBERS');
  await schema(requests,'requests');await schema(members,'members');
- const f=fixture(t,{entries:true});f.env.ACCEPTANCE_REQUESTS=requests;f.env.ACCEPTANCE_MEMBERS=members;
+ const f=fixture(t,{entries:true});await seedStartBudget(requests,f);f.env.ACCEPTANCE_REQUESTS=requests;f.env.ACCEPTANCE_MEMBERS=members;
  const form=await f.form('member','/acceptance/request');assert.equal(form.res.status,200);assert.equal(typeof form.csrf,'string');
  const submissions=await Promise.all([1,2].map(()=>f.post('member','/acceptance/request',form)));
  assert.deepEqual(submissions.map(r=>r.status).sort(),[201,409]);
@@ -50,7 +57,7 @@ test('offline Miniflare D1 with actual adapters and mocked HTTPS: atomic submit,
  const requests=await mf.getD1Database('REQUESTS'),members=await mf.getD1Database('MEMBERS');
  await schema(requests,'requests');await schema(members,'members');
  const wire=[],childId='11111111-1111-4111-8111-111111111111';
- const child={object:'page',id:childId,archived:false,in_trash:false,public_url:null,parent:{type:'page_id',page_id:PINS.parent},properties:{title:{title:[{plain_text:'Task12 Acceptance — TEST Ticket'}]}}};
+ const child={object:'page',id:childId,archived:false,in_trash:false,public_url:null,parent:{type:'page_id',page_id:PINS.parent},properties:{title:{title:[{plain_text:'TEST · Task12 Acceptance — pending'}]}}};
  const f=fixture(t,{entries:true,realAdapters:true,wireFetcher:async(url,init)=>{
   wire.push({url,init});
   const ledger=(await requests.prepare('SELECT * FROM acceptance_effects').all()).results;
@@ -62,7 +69,7 @@ test('offline Miniflare D1 with actual adapters and mocked HTTPS: atomic submit,
   const mail=JSON.parse(init.body);assert.equal(mail.from,PINS.sender);assert.deepEqual(mail.to,[PINS.owner]);assert.equal(mail.subject,'TEST request awaiting review');
   throw Error('synthetic timeout after POST may have been accepted');
  }});
- f.env.ACCEPTANCE_REQUESTS=requests;f.env.ACCEPTANCE_MEMBERS=members;
+ await seedStartBudget(requests,f);f.env.ACCEPTANCE_REQUESTS=requests;f.env.ACCEPTANCE_MEMBERS=members;
  const form=await f.form('member','/acceptance/request');
  const submissions=await Promise.all([1,2].map(()=>f.post('member','/acceptance/request',form)));
  assert.deepEqual(submissions.map(r=>r.status),[409,409]);

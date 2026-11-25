@@ -54,7 +54,10 @@ export async function verifyOperatorAttestation({env,role,now,readTrustedPreflig
   notion.credentialDigest===await sha256(env.ACCEPTANCE_NOTION_CREDENTIAL) && digest(notion.readbackDigest));
  must(resend?.sender===PINS.sender && resend.domain===PINS.senderDomain && resend.domainLimited===true && resend.sendingOnly===true &&
   resend.senderVerified===true && resend.stagingOnly===true && resend.zeroSpend===true && resend.paidFallback===false &&
-  Number.isSafeInteger(resend.freeQuotaRemaining) && resend.freeQuotaRemaining>=0 && resend.recipientPinsVerified===true &&
+  Number.isSafeInteger(resend.freeQuotaRemaining) && resend.freeQuotaRemaining>=2 &&
+  Number.isSafeInteger(resend.quotaEvidenceAt) && resend.quotaEvidenceAt<=signed.issuedAt &&
+  resend.plan==='free' && resend.overagesEnabled===false && resend.sharedQuotaRiskAccepted===true &&
+  resend.recipientPinsVerified===true &&
   resend.credentialDigest===await sha256(env.ACCEPTANCE_SENDER_CREDENTIAL) && digest(resend.readbackDigest));
  must(env.ACCEPTANCE_VERIFIED_SENDER===PINS.sender && typeof env.ACCEPTANCE_NOTION_CREDENTIAL==='string' && env.ACCEPTANCE_NOTION_CREDENTIAL.length>=32 &&
   typeof env.ACCEPTANCE_SENDER_CREDENTIAL==='string' && env.ACCEPTANCE_SENDER_CREDENTIAL.length>=32 && env.ACCEPTANCE_NOTION_CREDENTIAL!==env.ACCEPTANCE_SENDER_CREDENTIAL);

@@ -43,7 +43,9 @@ export function prepareOperatorLease({role,env,proof,at,generation}) {
   proof.notion?.parent===PINS.parent && proof.notion.destinationOnly===true &&
   proof.resend?.sender===PINS.sender && proof.resend.sendingOnly===true &&
   proof.resend.domainLimited===true && proof.resend.zeroSpend===true &&
-  proof.resend.paidFallback===false && Number.isSafeInteger(proof.resend.freeQuotaRemaining) && proof.resend.freeQuotaRemaining>=0 &&
+  proof.resend.paidFallback===false && Number.isSafeInteger(proof.resend.freeQuotaRemaining) && proof.resend.freeQuotaRemaining>=2 && proof.resend.plan==='free' &&
+  proof.resend.overagesEnabled===false && proof.resend.sharedQuotaRiskAccepted===true &&
+  Number.isSafeInteger(proof.resend.quotaEvidenceAt) && proof.resend.quotaEvidenceAt<=at &&
   Array.isArray(proof.bindings) && proof.bindings.length===2 &&
   proof.bindings[0].physicalId===PINS.requestsId &&
   proof.bindings[1].physicalId===PINS.membersId);
@@ -65,4 +67,39 @@ export async function applyOperatorLease({db,row}) {
  const result=await db.prepare(LEASE_UPSERT_SQL).bind(...leaseValues(row)).run();
  must(Number.isSafeInteger(result?.meta?.changes) && result.meta.changes>0);
  return {role:row.role,generation:row.generation,expiresAt:row.expires_at};
+}
+
+// One-time immutable baseline, from operator-confirmed actual Free/no-overage
+// dashboard and TWO unused permitted sends. No account credentials in SQL.
+// Operator must independently establish that the human owner has accepted the
+// residual shared-quota risk BEFORE creating this row. No automatic retries.
+export function prepareStartBudget({env,proof}) {
+ const r=proof?.resend;
+ must(proof?.runId===env?.ACCEPTANCE_RUN_ID &&
+  proof.nonceDigest===sha(env.ACCEPTANCE_RUN_NONCE) &&
+  r?.sender===PINS.sender && r?.domain===PINS.senderDomain &&
+  r.domainLimited===true && r.sendingOnly===true && r.senderVerified===true &&
+  r.plan==='free' && r.overagesEnabled===false && r.paidFallback===false &&
+  r.zeroSpend===true && r.sharedQuotaRiskAccepted===true &&
+  Number.isSafeInteger(r.quotaEvidenceAt) && Number.isSafeInteger(r.freeQuotaRemaining) &&
+  r.freeQuotaRemaining>=2 && r.quotaEvidenceAt>0 &&
+  r.credentialDigest===sha(env.ACCEPTANCE_SENDER_CREDENTIAL));
+ const q={runId:proof.runId,nonceDigest:proof.nonceDigest,
+  credentialDigest:r.credentialDigest,quotaEvidenceAt:r.quotaEvidenceAt,
+  freeQuotaRemaining:r.freeQuotaRemaining,plan:r.plan,overagesEnabled:r.overagesEnabled,
+  sharedQuotaRiskAccepted:r.sharedQuotaRiskAccepted,maxEmailAttempts:2};
+ return Object.freeze({run_id:q.runId,nonce_digest:q.nonceDigest,credential_digest:q.credentialDigest,
+  quota_evidence_digest:sha(JSON.stringify(q)),quota_observed_at:q.quotaEvidenceAt,
+  free_quota_at_start:q.freeQuotaRemaining,plan:'free',overages_enabled:0,
+  shared_quota_risk_accepted:1,max_email_attempts:2});
+}
+export async function applyStartBudget({db,row}) {
+ must(db && typeof db.prepare==='function' && row);
+ const result=await db.prepare(
+ 'INSERT INTO acceptance_send_budget VALUES(?,?,?,?,?,?,?,?,?,?)'
+ ).bind(row.run_id,row.nonce_digest,row.credential_digest,row.quota_evidence_digest,
+ row.quota_observed_at,row.free_quota_at_start,row.plan,row.overages_enabled,
+ row.shared_quota_risk_accepted,row.max_email_attempts).run();
+ must(Number.isSafeInteger(result?.meta?.changes) && result.meta.changes>0);
+ return {runId:row.run_id,maxEmailAttempts:2};
 }

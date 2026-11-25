@@ -26,7 +26,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
   if(path!=='/acceptance' && !path.startsWith('/acceptance/')) return base.fetch(request,env,ctx);
   let session,db;
   try {boundary(request,role);session=await authenticate(request,env,ctx,role);} catch {return response(403,'<p>Access verification required.</p>');}
-  try {db=await guard(env);fresh(session,now);} catch {return response(503,'<p>TEST isolation or configuration unavailable.</p>');}
+  try {db=await guard(env,session);fresh(session,now);} catch {return response(503,'<p>TEST isolation or configuration unavailable.</p>');}
   try {
    const digest=await sha256(PINS.tester);
    const render=async body=>{
@@ -45,6 +45,27 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
      if(outcome.state!=='accepted')return false;
     }
     return true;
+   };
+   const syncDecision=async(row,decision)=>{
+    // Requests remains authority. Reserve exactly one Notion PATCH per decision.
+    const ticket=await stmt(db.requests,
+     "SELECT provider_id FROM acceptance_effects WHERE request_id=? AND kind='notion_ticket' AND state='accepted'",
+     row.id).first();
+    must(ticket?.provider_id && /^[0-9a-f-]{36}$/.test(ticket.provider_id));
+    const decidedAt=decision==='approved'?row.approved_at:row.revoked_at;
+    must(Number.isSafeInteger(decidedAt) && decidedAt>0);
+    const intentId=crypto.randomUUID();
+    const locked=await stmt(db.requests,
+     "INSERT INTO acceptance_notion_decision(request_id,decision,intent_id,page_id,decision_at,state) SELECT ?,?,?,?,?,'reserved' WHERE EXISTS(SELECT 1 FROM acceptance_requests WHERE id=? AND run_id=? AND status=?)",
+     row.id,decision,intentId,ticket.provider_id,decidedAt,row.id,db.runId,decision).run();
+    if(!changed(locked))return false;
+    const payload=providerPayload('notion_decision',{
+     id:row.id,run_id:db.runId,page_id:ticket.provider_id,decision,decision_at:decidedAt},intentId);
+    const outcome=await once(providers,'notion_decision',payload,env.ACCEPTANCE_NOTION_CREDENTIAL,session.attestation);
+    must(changed(await stmt(db.requests,
+     "UPDATE acceptance_notion_decision SET state=?,provider_id=? WHERE intent_id=? AND state='reserved'",
+     outcome.state,outcome.providerId,intentId).run()));
+    return outcome.state==='accepted';
    };
    if(role==='member' && path==='/acceptance/request') {
     if(request.method==='GET') return render(form=>`<p>Submit one TEST request for run ${html(db.runId)}. This creates one private TEST Notion ticket and sends one TEST notice to ${html(PINS.owner)}. No CC/BCC or services. Signed Outlook OTP, independent MFA and this session-bound form are required.</p>${form(path,'Submit TEST request and notify Owner once')}`);
@@ -88,7 +109,10 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
      let body=`<p>TEST run ${html(db.runId)}. Owner notification: ${html(PINS.owner)}. TEST welcome: ${html(PINS.tester)}. No CC/BCC. No real services.</p>`;
      for(const row of rows) {
       const ledger=await effects(db.requests,row.id);
+      const sync=(await stmt(db.requests,
+       'SELECT decision,state FROM acceptance_notion_decision WHERE request_id=? ORDER BY decision',row.id).all()).results;
       body+=`<article><h2>TEST request ${html(row.id)}</h2><p>${html(row.status)} · revision ${row.revision}</p><p>${html(ledger.map(e=>`${e.kind}: ${e.state}`).join('; '))}</p>`;
+      body+='<p>Notion decision sync: '+html(sync.map(x=>x.decision+': '+x.state).join('; ')||'not yet reviewed')+'</p>';
       if(row.status==='pending') {
        body+=form(`/acceptance/requests/${row.id}/decision`,'Approve TEST request; no services',row.revision);
       }
@@ -106,7 +130,10 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const row=await requestRow(db.requests,env,action[1]);
     if(!row || row.status!=='approved') return conflict();
     const ledger=await effects(db.requests,row.id);
-    if(!receipts(ledger) || ledger.some(e=>e.kind==='test_welcome')) return conflict();
+    if(!receipts(ledger) || ledger.some(e=>e.kind==='test_welcome') ||
+     !(await stmt(db.requests,
+      "SELECT 1 AS ok FROM acceptance_notion_decision WHERE request_id=? AND decision='approved' AND state='accepted'",
+      row.id).first()))return conflict();
     return render(form=>`<p>Confirm ONE TEST welcome to ${html(PINS.tester)}, run ${html(db.runId)}, request ${html(row.id)}. No CC/BCC. No real service credentials or grants. Accepted means provider acceptance, not verified inbox delivery.</p>${form(path,`Send one TEST welcome to ${PINS.tester}`,row.revision,PINS.tester)}`);
    }
    if(request.method!=='POST' || (!action && !removal)) return response(404,'<p>Not found.</p>');
@@ -121,7 +148,10 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const result=await stmt(db.requests,"UPDATE acceptance_requests SET status='revoked',revision=revision+1,revoked_at=unixepoch(),updated_at=unixepoch() WHERE id=? AND run_id=? AND revision=? AND status='approved' AND unixepoch()<?",member.request_id,db.runId,revision,alive(session,now)).run();
     if(!changed(result)) return conflict();
     await stmt(db.members,"UPDATE acceptance_members SET status='revoked',revoked_at=unixepoch() WHERE id=? AND status IN ('pending','active')",member.id).run();
-    return response(200,'<p>TEST membership revoked. Original session denied. Audit, identity and all provider attempts retained.</p>');
+    const revoked=await requestRow(db.requests,env,member.request_id);
+    return await syncDecision(revoked,'revoked')?
+     response(200,'<p>TEST membership revoked; private Notion TEST decision synchronized. Original session denied.</p>'):
+     conflict();
    }
    const row=await requestRow(db.requests,env,action[1]);fresh(session,now);
    if(!row || row.revision!==revision || row.recipient_digest!==digest) return conflict();
@@ -134,11 +164,17 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     const check=await requestRow(db.requests,env,row.id);fresh(session,now);must(check?.status==='approved');
     const memberId=crypto.randomUUID();
     const resultMember=await stmt(db.members,"INSERT INTO acceptance_members(id,request_id,run_id,recipient_digest,created_at) SELECT ?,?,?,?,unixepoch() WHERE unixepoch()<? AND NOT EXISTS(SELECT 1 FROM service_grants)",memberId,row.id,db.runId,digest,alive(session,now)).run();
-    return changed(resultMember)?response(200,'<p>TEST approval recorded; one pending TEST Member. No real services.</p>'):conflict();
+    if(!changed(resultMember))return conflict();
+    return await syncDecision(check,'approved')?
+     response(200,'<p>TEST approval recorded; private Notion TEST decision synchronized. One pending TEST Member, no real services.</p>'):
+     conflict();
    }
    const welcome=action[2]==='send-welcome';must(welcome);
    must(form.get('confirm')===PINS.tester);
-   if(row.status!=='approved' || !receipts(ledger) || ledger.some(e=>e.kind==='test_welcome'))return conflict();
+   if(row.status!=='approved' || !receipts(ledger) || ledger.some(e=>e.kind==='test_welcome') ||
+    !(await stmt(db.requests,
+     "SELECT 1 AS ok FROM acceptance_notion_decision WHERE request_id=? AND decision='approved' AND state='accepted'",
+     row.id).first()))return conflict();
    must(await stmt(db.members,"SELECT id FROM acceptance_members WHERE request_id=? AND run_id=? AND status='pending'",row.id,db.runId).first());
    const proof=await verifiedProviders(providers,env,session,now,1);fresh(session,now);
    const intent={id:crypto.randomUUID(),kind:'test_welcome',recipient:digest};

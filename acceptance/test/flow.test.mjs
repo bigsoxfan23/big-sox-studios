@@ -235,7 +235,7 @@ test('durable SQLite evidence rejects fabricated acceptance, duplicate receipt a
  const f=fixture(t),id=await approved(f);assert.equal((await f.welcome(id)).status,200);
  const e=f.requests.rows('acceptance_effects').find(e=>e.kind==='test_welcome');
  assert.throws(()=>f.requests.sqlite.prepare("UPDATE acceptance_effects SET state='accepted',provider_id='duplicate' WHERE id=?").run(e.id),/immutable/);
- assert.throws(()=>f.requests.sqlite.prepare("INSERT INTO acceptance_effects(id,request_id,kind,recipient_digest,state,created_at,updated_at) VALUES(?,?,?,?,'accepted',unixepoch(),unixepoch())").run(crypto.randomUUID(),id,'test_welcome',e.recipient_digest),/reserve TEST/);
+ assert.throws(()=>f.requests.sqlite.prepare("INSERT INTO acceptance_effects(id,request_id,kind,recipient_digest,state,created_at,updated_at) VALUES(?,?,?,?,'accepted',unixepoch(),unixepoch())").run(crypto.randomUUID(),id,'test_welcome',e.recipient_digest),/(reserve TEST|two-email budget)/);
  assert.equal((await f.get('member','/acceptance/app')).status,200);
  assert.throws(()=>f.members.sqlite.exec('DELETE FROM acceptance_identities'),/retain/);
  assert.throws(()=>f.members.sqlite.exec('DELETE FROM acceptance_member_audit'),/immutable/);
