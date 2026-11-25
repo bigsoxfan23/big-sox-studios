@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {generateKeyPairSync,createSign,randomBytes} from 'node:crypto';
 import {PINS} from '../config.mjs';
+import {preflightFixture,signAttestation} from './attestation-fixture.mjs';
 import {createAcceptanceWorker} from '../worker.mjs';
 import {createMemberAcceptanceEntry} from '../../members-portal-staging/private-acceptance-entry.mjs';
 import {createOwnerAcceptanceEntry} from '../../owner-launchpad/src/private-acceptance-entry.mjs';
@@ -31,12 +32,14 @@ export function makeDb(kind,withDelta=true){
 export function fixture(t,options={}) {
  const requests=makeDb('requests'),members=makeDb('members');t.after(()=>{requests.close();members.close();});
  const at=Math.floor(Date.now()/1000);let clock=at*1000;
- const env={ACCEPTANCE_MODE:'private-staging-source',ACCEPTANCE_REVISION:PINS.revision,
+ const env={ACCEPTANCE_ATTESTATION_KEY:randomBytes(32).toString('base64url'),ACCEPTANCE_VERIFIED_SENDER:PINS.sender,ACCEPTANCE_MODE:'private-staging-source',ACCEPTANCE_REVISION:PINS.revision,
   ACCEPTANCE_REQUESTS_ID:PINS.requestsId,ACCEPTANCE_MEMBERS_ID:PINS.membersId,ACCEPTANCE_REQUESTS:requests,ACCEPTANCE_MEMBERS:members,
   ACCEPTANCE_OWNER_RECIPIENT:PINS.owner,ACCEPTANCE_TEST_RECIPIENT:PINS.tester,
   ACCEPTANCE_CSRF_KEY:randomBytes(32).toString('base64url'),ACCEPTANCE_RUN_NONCE:randomBytes(32).toString('base64url'),ACCEPTANCE_RUN_ID:'synthetic-run-0001',
   ACCEPTANCE_NOTION_PARENT:PINS.parent,ACCEPTANCE_NOTION_CREDENTIAL:'synthetic-notion-credential-does-not-exist',
   ACCEPTANCE_SENDER_CREDENTIAL:'synthetic-sender-credential-does-not-exist',ACCEPTANCE_DISPATCH_GATE:'greg-one-run:synthetic-run-0001'};
+ const preflight=preflightFixture(env,at);
+ const readTrustedPreflight=async()=>preflight;
  const calls=[];let providerResult='accepted';let scope=true;let receipt=true;
  const providers={
   async verifyScope(input){return scope?{parent:input.parent,runId:input.runId,pageOnly:true,privateParent:true,stagingOnly:true,sendingOnly:true,senderVerified:true,zeroSpend:true,recipientPinsVerified:true,expiresAt:at+600}:null;},
@@ -45,10 +48,10 @@ export function fixture(t,options={}) {
   async verifyReceipt(){return receipt;},
  };
  const now=()=>clock;
- const fetcher=async url=>{if(url!==`${PINS.issuer}/cdn-cgi/access/certs`)throw Error('network forbidden');return Response.json({keys:[jwk]});};
+ const fetcher=async (url,init)=>{if(url===`${PINS.issuer}/cdn-cgi/access/certs`)return Response.json({keys:[jwk]});if(options.wireFetcher)return options.wireFetcher(url,init);throw Error('network forbidden');};
  const verifyAccessPolicy=async({claims,runId})=>({mfaVerified:true,policyVerified:true,allowlistVerified:true,bindingsVerified:true,requestsId:PINS.requestsId,membersId:PINS.membersId,ownerHost:PINS.ownerHost,memberHost:PINS.memberHost,subject:claims.sub,audience:Array.isArray(claims.aud)?claims.aud[0]:claims.aud,runId,expiresAt:claims.exp});
  const baseCalls=[];const base={async fetch(req,environment,ctx){baseCalls.push({req,environment,ctx});return new Response('unchanged original route',{headers:{'Set-Cookie':'original=unchanged'}});}};
- const config={now,fetcher,verifyAccessPolicy,providers,base,...options};
+ const config={now,fetcher,verifyAccessPolicy,readTrustedPreflight,providers,base,...options,...(options.realAdapters?{providers:undefined}:{})};
  const owner=options.entries?createOwnerAcceptanceEntry(config):createAcceptanceWorker({...config,role:'owner'});
  const member=options.entries?createMemberAcceptanceEntry(config):createAcceptanceWorker({...config,role:'member'});
  function jwt(role,changes={}){
@@ -61,19 +64,21 @@ export function fixture(t,options={}) {
  async function get(role,path,extra={}){
   const origin=`https://${role==='owner'?PINS.ownerHost:PINS.memberHost}`;
   const req=new Request((extra.origin||origin)+path,{headers:{'Cf-Access-Jwt-Assertion':extra.token||tokens[role],...extra.headers}});
-  return (role==='owner'?owner:member).fetch(req,extra.env||env,extra.ctx||context(role));
+  let attestation;try{attestation=signAttestation(env,preflight,extra.token||tokens[role],at);}catch{/* Invalid synthetic JWT; runtime signature verification will deny. */}
+  return (role==='owner'?owner:member).fetch(req,{...env,ACCEPTANCE_OPERATOR_ATTESTATION:attestation,...extra.env},extra.ctx||context(role));
  }
  async function form(role,path){const res=await get(role,path);const body=await res.text();const csrf=/name="csrf" value="([^"]+)"/.exec(body)?.[1];return {res,body,csrf,cookie:res.headers.get('Set-Cookie')?.split(';')[0]};}
  async function post(role,path,formState,values={},extra={}){
   const origin=`https://${role==='owner'?PINS.ownerHost:PINS.memberHost}`;
   const body=new URLSearchParams({csrf:formState?.csrf||'',source_revision:PINS.revision,revision:'1',confirm:'TEST',...values});
   const req=new Request(origin+path,{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/x-www-form-urlencoded',Cookie:formState?.cookie||'','Cf-Access-Jwt-Assertion':extra.token||tokens[role],...extra.headers},body:extra.body||body});
-  return (role==='owner'?owner:member).fetch(req,extra.env||env,extra.ctx||context(role));
+  let attestation;try{attestation=signAttestation(env,preflight,extra.token||tokens[role],at);}catch{/* Invalid synthetic JWT; runtime signature verification will deny. */}
+  return (role==='owner'?owner:member).fetch(req,{...env,ACCEPTANCE_OPERATOR_ATTESTATION:attestation,...extra.env},extra.ctx||context(role));
  }
  async function submit(){const f=await form('member','/acceptance/request');const res=await post('member','/acceptance/request',f);return {res,id:requests.rows('acceptance_requests')[0]?.id};}
  async function dispatch(id){const f=await form('owner','/acceptance/requests/');return post('owner',`/acceptance/requests/${id}/dispatch`,f,{confirm:PINS.owner});}
  async function approve(id){const f=await form('owner','/acceptance/requests/');return post('owner',`/acceptance/requests/${id}/decision`,f);}
  async function welcome(id){const f=await form('owner',`/acceptance/requests/${id}/send-welcome`);return post('owner',`/acceptance/requests/${id}/send-welcome`,f,{revision:'2',confirm:PINS.tester});}
- return {env,requests,members,calls,baseCalls,owner,member,now,jwt,tokens,context,get,form,post,submit,dispatch,approve,welcome,providers,
+ return {env,preflight,readTrustedPreflight,requests,members,calls,baseCalls,owner,member,now,jwt,tokens,context,get,form,post,submit,dispatch,approve,welcome,providers,
   time:value=>{clock=value;},at,result:value=>{providerResult=value;},scope:value=>{scope=value;},receipt:value=>{receipt=value;}};
 }

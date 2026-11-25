@@ -2,6 +2,8 @@ import {createAuthenticator as ownerAuthenticator} from '../owner-launchpad/src/
 import {createAuthenticator,b64,unb64} from '../portal/access.mjs';
 import {createOtpAuthenticator} from '../portal/otp-identity.mjs';
 import {PINS,must,sha256} from './config.mjs';
+import {verifyOperatorAttestation} from './attestation.mjs';
+import {readSignedPreflight,verifyTrustedStagingPolicy} from './trusted-runtime.mjs';
 const encoder=new TextEncoder();
 export function boundary(request,role) {
  const url=new URL(request.url),host=role==='owner'?PINS.ownerHost:PINS.memberHost;
@@ -12,7 +14,7 @@ export function boundary(request,role) {
  if(request.headers.has('Sec-Fetch-Site')) must(['same-origin','none'].includes(request.headers.get('Sec-Fetch-Site')));
  return url;
 }
-export function createSecurity({fetcher=fetch,now=()=>Date.now(),verifyAccessPolicy}={}) {
+export function createSecurity({fetcher=fetch,now=()=>Date.now(),verifyAccessPolicy=verifyTrustedStagingPolicy,readTrustedPreflight=readSignedPreflight}={}) {
  const ownerVerify=ownerAuthenticator({fetcher,now});
  const memberVerify=createOtpAuthenticator({verifyAccess:createAuthenticator({fetcher,now}),now});
  return async (request,env,ctx,role)=>{
@@ -27,17 +29,18 @@ export function createSecurity({fetcher=fetch,now=()=>Date.now(),verifyAccessPol
   must(typeof claims.sub==='string' && claims.sub.length>0 && ctx?.access?.aud===audience && typeof ctx.access.getIdentity==='function');
   const runtime=await ctx.access.getIdentity();
   const expected=role==='owner'?PINS.owner:PINS.tester;
-  must(claims.email===expected && runtime?.email===expected && (role==='owner' || session.subject===expected));
+  must(claims.email===expected && runtime?.email===expected && (role==='owner' || session.subject===expected && runtime?.idp?.type==='onetimepin'));
   // Existing OTP runtime proves OTP, not independent MFA. A separately reviewed,
   // server-owned readback/session verifier must establish unchanged Access + MFA.
   // An environment flag or unverified amr/client header is never that verifier.
+  const attestation=await verifyOperatorAttestation({env,role,now,readTrustedPreflight});
   must(typeof verifyAccessPolicy==='function');
-  const proof=await verifyAccessPolicy({request,claims,runtime,role,runId:env.ACCEPTANCE_RUN_ID,bindings:{requests:env.ACCEPTANCE_REQUESTS,members:env.ACCEPTANCE_MEMBERS,requestsId:env.ACCEPTANCE_REQUESTS_ID,membersId:env.ACCEPTANCE_MEMBERS_ID}});
+  const proof=await verifyAccessPolicy({request,claims,runtime,role,preflight:attestation.preflight,runId:env.ACCEPTANCE_RUN_ID,bindings:{requests:env.ACCEPTANCE_REQUESTS,members:env.ACCEPTANCE_MEMBERS,requestsId:env.ACCEPTANCE_REQUESTS_ID,membersId:env.ACCEPTANCE_MEMBERS_ID}});
   must(proof?.mfaVerified===true && proof.policyVerified===true && proof.allowlistVerified===true && proof.bindingsVerified===true &&
    proof.requestsId===PINS.requestsId && proof.membersId===PINS.membersId && proof.ownerHost===PINS.ownerHost && proof.memberHost===PINS.memberHost && proof.subject===claims.sub &&
    proof.audience===audience && proof.runId===env.ACCEPTANCE_RUN_ID && Number.isSafeInteger(proof.expiresAt) &&
    proof.expiresAt<=session.expiresAt && proof.expiresAt>Math.floor(now()/1000));
-  return {expiresAt:proof.expiresAt,digest:await sha256(expected),role};
+  return {expiresAt:Math.min(proof.expiresAt,attestation.expiresAt),digest:await sha256(expected),role,attestation};
  };
 }
 async function key(env) {

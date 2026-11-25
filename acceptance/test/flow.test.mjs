@@ -13,13 +13,13 @@ const network=globalThis.fetch;
 test.before(()=>{globalThis.fetch=async()=>{throw Error('external network forbidden');};});
 test.after(()=>{globalThis.fetch=network;});
 const queue='/acceptance/requests/';
-async function approved(f){const {res,id}=await f.submit();assert.equal(res.status,201);assert.equal((await f.dispatch(id)).status,200);assert.equal((await f.approve(id)).status,200);return id;}
+async function approved(f){const {res,id}=await f.submit();assert.equal(res.status,201);assert.equal((await f.dispatch(id)).status,410);assert.equal((await f.approve(id)).status,200);return id;}
 
 test('SQLite complete synthetic run, two pinned emails, no grants, same-session revocation',async t=>{
  const f=fixture(t,{entries:true}),originalToken=f.tokens.member;
- const {res,id}=await f.submit();assert.equal(res.status,201);assert.equal(f.calls.length,0);
+ const {res,id}=await f.submit();assert.equal(res.status,201);assert.equal(f.calls.length,2);
  assert.equal((await f.get('member','/acceptance/app')).status,403);
- assert.equal((await f.dispatch(id)).status,200);assert.equal(f.calls.length,2);
+ assert.equal((await f.dispatch(id)).status,410);assert.equal(f.calls.length,2);
  assert.deepEqual(f.calls.map(x=>x.kind),['notion_ticket','owner_notice']);
  assert.equal((await f.approve(id)).status,200);
  assert.equal(f.members.rows('acceptance_members')[0].status,'pending');
@@ -67,7 +67,7 @@ test('exact JWT, runtime identity, host, audience, OTP and MFA fail closed',asyn
   ['member','/acceptance/request',{ctx:{access:{aud:PINS.memberAudience,getIdentity:async()=>({email:PINS.tester,idp:{type:'google'}})}}}],
  ];
  for(const [role,path,extra] of cases)assert.equal((await f.get(role,path,extra)).status,403,JSON.stringify([role,path,extra.origin]));
- const noProof=fixture(t,{verifyAccessPolicy:undefined});assert.equal((await noProof.get('owner',queue)).status,403);assert.equal((await noProof.get('member','/acceptance/request')).status,403);
+ const noProof=fixture(t,{verifyAccessPolicy:async()=>{throw Error('synthetic unverified policy');}});assert.equal((await noProof.get('owner',queue)).status,403);assert.equal((await noProof.get('member','/acceptance/request')).status,403);
  const fakeProof=fixture(t,{verifyAccessPolicy:async()=>({mfaVerified:true,policyVerified:true})});assert.equal((await fakeProof.get('owner',queue)).status,403);
  assert.equal(f.requests.rows('acceptance_requests').length,0);assert.equal(f.calls.length,0);
 });
@@ -85,10 +85,10 @@ test('D1 pins, physical markers, legacy object aliases, missing schema and run r
  const missing=makeDb('requests',false);t.after(()=>missing.close());
  assert.equal((await f.get('member','/acceptance/request',{env:{...f.env,ACCEPTANCE_REQUESTS:missing}})).status,503);
  assert.equal((await f.submit()).res.status,201);
- assert.equal((await f.get('member','/acceptance/request',{env:{...f.env,ACCEPTANCE_RUN_ID:'synthetic-run-0002'}})).status,503);
+ assert.equal((await f.get('member','/acceptance/request',{env:{...f.env,ACCEPTANCE_RUN_ID:'synthetic-run-0002'}})).status,403);
  const legacy={prepare(){throw Error('legacy must never be accessed');},batch(){throw Error('legacy must never be accessed');}};
  assert.equal((await f.get('owner',queue,{env:{...f.env,DB:legacy,MEMBERSHIP_DB:legacy,APPROVED_REQUESTS_DB:legacy}})).status,200);
- assert.equal(f.calls.length,0);
+ assert.equal(f.calls.length,2);
 });
 
 test('CSRF and strict schema reject cross-session, cross-origin, missing cookie, duplicate fields and recipient injection',async t=>{
@@ -108,7 +108,7 @@ test('concurrent duplicate request, dispatch, decision and welcome consume singl
  assert.deepEqual((await Promise.all([f.post('member','/acceptance/request',form),f.post('member','/acceptance/request',form)])).map(r=>r.status).sort(),[201,409]);
  const id=f.requests.rows('acceptance_requests')[0].id;
  const dispatch=await f.form('owner',queue);
- assert.deepEqual((await Promise.all([f.post('owner',`/acceptance/requests/${id}/dispatch`,dispatch,{confirm:PINS.owner}),f.post('owner',`/acceptance/requests/${id}/dispatch`,dispatch,{confirm:PINS.owner})])).map(r=>r.status).sort(),[200,409]);
+ assert.deepEqual((await Promise.all([f.post('owner',`/acceptance/requests/${id}/dispatch`,dispatch,{confirm:PINS.owner}),f.post('owner',`/acceptance/requests/${id}/dispatch`,dispatch,{confirm:PINS.owner})])).map(r=>r.status).sort(),[410,410]);
  assert.equal(f.calls.length,2);
  const decision=await f.form('owner',queue);
  assert.deepEqual((await Promise.all([f.post('owner',`/acceptance/requests/${id}/decision`,decision),f.post('owner',`/acceptance/requests/${id}/decision`,decision)])).map(r=>r.status).sort(),[200,409]);
@@ -119,14 +119,14 @@ test('concurrent duplicate request, dispatch, decision and welcome consume singl
 });
 
 for(const state of ['unknown','refused','malformed','throw','uncorroborated'])test(`provider ${state} permanently consumes ticket intent; no blind retry or admission`,async t=>{
- const f=fixture(t),{id}=await f.submit();
+ const f=fixture(t);
  if(state==='throw')f.providers.createTicket=async()=>{throw Error('timeout');};else f.result(state==='uncorroborated'?'accepted':state);
  if(state==='uncorroborated')f.receipt(false);
- assert.equal((await f.dispatch(id)).status,409);
+ const {res,id}=await f.submit();assert.equal(res.status,409);
  const effects=f.requests.rows('acceptance_effects');assert.equal(effects.length,2);assert.equal(effects[1].state,'reserved');
  assert.equal(effects[0].state,state==='refused'?'refused':'unknown');
  const attempts=f.calls.length;f.result('accepted');f.receipt(true);
- assert.equal((await f.dispatch(id)).status,409);assert.equal(f.calls.length,attempts);
+ assert.equal((await f.dispatch(id)).status,410);assert.equal(f.calls.length,attempts);
  assert.equal((await f.approve(id)).status,409);assert.equal((await f.get('member','/acceptance/app')).status,403);
  assert.throws(()=>f.requests.sqlite.exec("UPDATE acceptance_effects SET state='reserved'"),/immutable/);
  assert.throws(()=>f.requests.sqlite.exec('DELETE FROM acceptance_effects'),/immutable/);
@@ -140,15 +140,15 @@ test('UNKNOWN welcome never activates, cannot send again, refusal and duplicate 
 });
 
 test('credentials, independent gate and scope proof missing or wrong never reserve or dispatch',async t=>{
- const f=fixture(t),{id}=await f.submit();const form=await f.form('owner',queue);
+ const f=fixture(t);const form=await f.form('member','/acceptance/request');
  for(const overrides of [{ACCEPTANCE_NOTION_CREDENTIAL:''},{ACCEPTANCE_SENDER_CREDENTIAL:''},{ACCEPTANCE_DISPATCH_GATE:''},{ACCEPTANCE_NOTION_PARENT:'wrong'},
-  {ACCEPTANCE_OWNER_RECIPIENT:PINS.tester},{ACCEPTANCE_TEST_RECIPIENT:PINS.owner}])assert.notEqual((await f.post('owner',`/acceptance/requests/${id}/dispatch`,form,{confirm:PINS.owner},{env:{...f.env,...overrides}})).status,200);
- f.scope(false);assert.equal((await f.dispatch(id)).status,409);
- assert.equal(f.calls.length,0);assert.equal(f.requests.rows('acceptance_effects').length,0);assert.equal(f.requests.rows('acceptance_outbox')[0].state,'ready');
+  {ACCEPTANCE_OWNER_RECIPIENT:PINS.tester},{ACCEPTANCE_TEST_RECIPIENT:PINS.owner}])assert.notEqual((await f.post('member','/acceptance/request',form,{}, {env:{...f.env,...overrides}})).status,201);
+ f.scope(false);assert.equal((await f.submit()).res.status,409);
+ assert.equal(f.calls.length,0);assert.equal(f.requests.rows('acceptance_effects').length,0);assert.equal(f.requests.rows('acceptance_outbox').length,0);
 });
 
 test('Owner expires during awaited D1 read; database-time expiry prevents stale clock CAS',async t=>{
- const f=fixture(t),{id}=await f.submit();assert.equal((await f.dispatch(id)).status,200);const form=await f.form('owner',queue);
+ const f=fixture(t),{id}=await f.submit();assert.equal((await f.dispatch(id)).status,410);const form=await f.form('owner',queue);
  f.requests.hook=async sql=>{if(sql==='SELECT * FROM acceptance_requests WHERE run_id=? AND id=?')f.time((f.at+301)*1000);};
  assert.equal((await f.post('owner',`/acceptance/requests/${id}/decision`,form)).status,409);
  assert.equal(f.requests.rows('acceptance_requests')[0].status,'pending');assert.equal(f.members.rows('acceptance_members').length,0);
@@ -210,18 +210,18 @@ test('separate staging entrypoints preserve original handlers, deny service POST
 });
 
 test('crash after reservation and failed outcome persistence never free any attempt',async t=>{
- const f=fixture(t),{id}=await f.submit();
+ const f=fixture(t);
  f.providers.createTicket=async payload=>{f.calls.push({kind:'notion_ticket',payload});f.requests.hook=async sql=>{if(sql.startsWith('UPDATE acceptance_effects'))throw Error('synthetic persistence outage');};return {state:'accepted',providerId:'local-ticket'};};
- assert.equal((await f.dispatch(id)).status,409);assert.equal(f.calls.length,1);
+ const {res,id}=await f.submit();assert.equal(res.status,409);assert.equal(f.calls.length,1);
  assert.ok(f.requests.rows('acceptance_effects').every(e=>e.state==='reserved'));
- f.requests.hook=null;assert.equal((await f.dispatch(id)).status,409);assert.equal(f.calls.length,1);
+ f.requests.hook=null;assert.equal((await f.dispatch(id)).status,410);assert.equal(f.calls.length,1);
  assert.equal((await f.approve(id)).status,409);
 });
 
 test('expiry during scope proof prevents reservation; revoked request wins a concurrent Member activation',async t=>{
- const f=fixture(t),{id}=await f.submit();const originalScope=f.providers.verifyScope;
+ const f=fixture(t);const originalScope=f.providers.verifyScope;
  f.providers.verifyScope=async input=>{const proof=await originalScope(input);f.time((f.at+301)*1000);return proof;};
- assert.equal((await f.dispatch(id)).status,409);assert.equal(f.requests.rows('acceptance_effects').length,0);assert.equal(f.calls.length,0);
+ assert.equal((await f.submit()).res.status,409);assert.equal(f.requests.rows('acceptance_requests').length,0);assert.equal(f.requests.rows('acceptance_effects').length,0);assert.equal(f.calls.length,0);
  const g=fixture(t),approvedId=await approved(g);assert.equal((await g.welcome(approvedId)).status,200);
  // Interleave revocation immediately before the Member DB batch. The final
  // Requests authority read must deny, even if activation already began.
@@ -246,10 +246,10 @@ test('durable SQLite evidence rejects fabricated acceptance, duplicate receipt a
 
 
 test('a real local receipt timeout records UNKNOWN and late completion never unlocks the run',async t=>{
- const f=fixture(t),{id}=await f.submit();let resolveReceipt;
+ const f=fixture(t);let resolveReceipt;
  f.providers.verifyReceipt=()=>new Promise(resolve=>{resolveReceipt=resolve;});
- assert.equal((await f.dispatch(id)).status,409);
+ const {res,id}=await f.submit();assert.equal(res.status,409);
  const ledger=f.requests.rows('acceptance_effects');assert.equal(ledger[0].state,'unknown');assert.equal(ledger[1].state,'reserved');
  resolveReceipt(true);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(f.requests.rows('acceptance_effects')[0].state,'unknown');assert.equal((await f.dispatch(id)).status,409);assert.equal(f.calls.length,1);
+ assert.equal(f.requests.rows('acceptance_effects')[0].state,'unknown');assert.equal((await f.dispatch(id)).status,410);assert.equal(f.calls.length,1);
 });

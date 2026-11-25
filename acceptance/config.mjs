@@ -9,6 +9,7 @@ export const PINS=Object.freeze({
  membersId:'adf83cdc-e8df-4cc4-acd5-3f89ce6f34ea',
  parent:'423013a6-47c5-81f8-8bea-cb3730ca4d88',
  owner:'fridman.greg@gmail.com', tester:'greg.fridman@outlook.com',
+ sender:'support@bigsoxstudios.com', senderDomain:'bigsoxstudios.com',
  revision:'task12-private-acceptance-v1', attemptBudget:1,
 });
 export const sha256=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
