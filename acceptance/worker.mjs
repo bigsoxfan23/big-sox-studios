@@ -69,16 +69,18 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
     await requireCurrentAttestation(session.attestation,now);fresh(session,now);
     const payload=providerPayload('notion_decision',{
      id:row.id,run_id:db.runId,page_id:ticket.provider_id,decision,decision_at:decidedAt},intentId);
-    let outcome=await once(providers,'notion_decision',payload,env.ACCEPTANCE_NOTION_CREDENTIAL,session.attestation);
-    // If Request-first revocation raced an approved provider response, never
-    // label the local sync accepted. The external title may be uncertain and
-    // requires manual reconciliation; no speculative compensating retry.
-    const after=await requestRow(db.requests,env,row.id);
-    if(decision==='approved' && after?.status!=='approved')outcome={state:'unknown',providerId:null};
+    const outcome=await once(providers,'notion_decision',payload,env.ACCEPTANCE_NOTION_CREDENTIAL,session.attestation);
+    // In the same Requests D1 statement, serialize final approval evidence with
+    // Request-first revocation. A lost decision revision is terminal UNKNOWN.
+    const currentApproval="EXISTS(SELECT 1 FROM acceptance_requests r WHERE r.id=acceptance_notion_decision.request_id AND r.run_id=? AND r.status='approved' AND r.revision=?)";
     must(changed(await stmt(db.requests,
-     "UPDATE acceptance_notion_decision SET state=?,provider_id=? WHERE intent_id=? AND state='reserved'",
-     outcome.state,outcome.providerId,intentId).run()));
-    return outcome.state==='accepted';
+     `UPDATE acceptance_notion_decision SET
+       state=CASE WHEN decision='approved' AND NOT ${currentApproval} THEN 'unknown' ELSE ? END,
+       provider_id=CASE WHEN decision='approved' AND NOT ${currentApproval} THEN NULL ELSE ? END
+       WHERE intent_id=? AND state='reserved'`,
+     db.runId,row.revision,outcome.state,db.runId,row.revision,outcome.providerId,intentId).run()));
+    const recorded=await stmt(db.requests,'SELECT state FROM acceptance_notion_decision WHERE intent_id=?',intentId).first();
+    return recorded?.state==='accepted';
    };
    if(role==='member' && path==='/acceptance/request') {
     if(request.method==='GET') return render(form=>`<p>Submit one TEST request for run ${html(db.runId)}. This creates one private TEST Notion ticket and sends one TEST notice to ${html(PINS.owner)}. No CC/BCC or services. Signed Outlook OTP, independent MFA and this session-bound form are required.</p>${form(path,'Submit TEST request and notify Owner once')}`);

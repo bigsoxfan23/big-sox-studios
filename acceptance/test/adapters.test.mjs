@@ -409,6 +409,37 @@ test('revocation during approval PATCH cannot race another PATCH or claim accept
  assert.equal((await f.welcome(id)).status,409);
  assert.equal(f.wire.filter(x=>x.url==='https://api.resend.com/emails').length,1);
 });
+test('approval terminal write uses the current Request revision and persisted receipt',async t=>{
+ const f=wired(t);
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ let signal,unblock;
+ const wrote=new Promise(resolve=>{signal=resolve;});
+ const held=new Promise(resolve=>{unblock=resolve;});
+ f.requests.hook=async sql=>{
+  if(sql.startsWith('UPDATE acceptance_notion_decision SET')) {
+   f.requests.hook=null;signal();await held;
+  }
+ };
+ const pendingApproval=f.approve(id);
+ await wrote;
+ try {
+  const member=f.members.rows('acceptance_members')[0];
+  const owner=await f.form('owner','/acceptance/members/');
+  const removal=await f.post('owner','/acceptance/members/'+member.id+'/remove',owner,{revision:'2'});
+  assert.equal(removal.status,409);
+  assert.equal(f.requests.rows('acceptance_requests')[0].status,'revoked');
+  assert.equal((await f.get('member','/acceptance/app')).status,403);
+ } finally {unblock();}
+ assert.equal((await pendingApproval).status,409);
+ const [receipt]=f.requests.rows('acceptance_notion_decision');
+ assert.equal(receipt.state,'unknown');
+ assert.equal(receipt.provider_id,null);
+ assert.equal(f.requests.rows('acceptance_notion_decision').length,1);
+ assert.equal(f.requests.rows('acceptance_audit').filter(x=>x.event==='notion_decision:approved:unknown').length,1);
+ assert.equal(f.requests.rows('acceptance_audit').filter(x=>x.event==='notion_decision:approved:accepted').length,0);
+ assert.equal(f.wire.filter(x=>x.init.method==='PATCH').length,1);
+ assert.equal((await f.welcome(id)).status,409);
+});
 test('single immutable Free/no-overage start evidence funds only two distinct TEST email attempts',async t=>{
  const f=fixture(t,{entries:true});
  f.preflight.resend.freeQuotaRemaining=1;
