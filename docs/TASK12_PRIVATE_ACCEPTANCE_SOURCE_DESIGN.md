@@ -27,7 +27,7 @@ Existing protected Owner host bss-owner-launchpad-staging.fridman-greg.workers.d
 - POST /acceptance/requests/{id}/send-welcome: Greg's authenticated explicit confirmation of exact Outlook recipient and TEST message, only ONE attempt after reviewed state/receipt.
 - POST /acceptance/members/{id}/remove: audited revoke, retained identity and historical evidence, original session denial. No service/Cloudflare policy mutation.
 
-Both existing Access applications, policies and original routes must remain unchanged. Refuse workers.dev, preview URL, wrong Host, non-HTTPS, wrong audience, unexpected query/method, direct old staging DB, public site/production Workers. Paths are not live; never invite Greg to test until actual protected version routing verified.
+Both existing Access applications, policies and original routes must remain unchanged. Permit exactly the existing Cloudflare Access-protected Owner host bss-owner-launchpad-staging.fridman-greg.workers.dev ONLY for its reviewed Owner acceptance paths, with exact signed Owner JWT audience, Origin/Host and effective MFA; refuse EVERY OTHER workers.dev hostname or alias, including direct Member workers.dev, preview URLs, wrong Host, non-HTTPS, wrong audience, unexpected query/method, original staging D1, public site and production Workers. Paths are not live; never invite Greg to test until actual protected version routing verified.
 
 ## Notion TEST ticket and recipient-isolated real messaging
 
