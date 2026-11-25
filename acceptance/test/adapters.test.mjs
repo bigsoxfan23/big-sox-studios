@@ -1,3 +1,5 @@
+import {prepareOperatorLease,applyOperatorLease} from '../operator/renewal.mjs';
+import {preflightFixture} from './attestation-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture} from './fixture.mjs';
@@ -114,7 +116,7 @@ for(const [name,mutate] of Object.entries({
  'Notion destination-only key':p=>{p.notion.destinationOnly=false;},'Notion destination':p=>{p.notion.parent=childId;},
  'Notion credential':p=>{p.notion.credentialDigest=hash('other');},'Resend sending-only key':p=>{p.resend.sendingOnly=false;},
  'Resend domain limitation':p=>{p.resend.domainLimited=false;},'verified sender':p=>{p.resend.senderVerified=false;},
- 'free quota':p=>{p.resend.freeQuotaRemaining=1;},'paid fallback':p=>{p.resend.paidFallback=true;},'no spend':p=>{p.resend.zeroSpend=false;},
+ 'invalid free quota':p=>{p.resend.freeQuotaRemaining=-1;},'paid fallback':p=>{p.resend.paidFallback=true;},'no spend':p=>{p.resend.zeroSpend=false;},
  'sender pin':p=>{p.resend.sender='attacker@bigsoxstudios.com';},'scope freshness':p=>{p.observedAt-=301;},'revoked proof':p=>{p.revoked=true;},
 }))test(`even freshly signed synthetic attestation cannot bypass ${name} evidence requirements`,async t=>{
  const f=wired(t);mutate(f.preflight);
@@ -223,13 +225,87 @@ test('runtime sender/key substitutions cannot be authorized by env readiness fla
 });
 
 
-test('default staging verifier accepts independently signed preflight with real session, rejects tampering',async t=>{
+async function renewablePair(f,at,generation) {
+ const proof=preflightFixture(f.env,at);
+ for(const role of ['owner','member'])await applyOperatorLease({db:f.requests,
+  row:prepareOperatorLease({role,env:f.env,proof,at,generation})});
+ return proof;
+}
+test('default staging verifier requires renewable signed D1 proof and denies ENV fallback, replay and tamper',async t=>{
  const f=fixture(t,{entries:true,verifyAccessPolicy:undefined,readTrustedPreflight:undefined});
+ assert.equal((await f.get('member','/acceptance/request')).status,403);
  f.env.ACCEPTANCE_TRUSTED_PREFLIGHT=JSON.stringify(f.preflight);
+ assert.equal((await f.get('owner','/acceptance/requests/')).status,403);
+ await renewablePair(f,f.at,1);
  assert.equal((await f.get('member','/acceptance/request')).status,200);
  assert.equal((await f.get('owner','/acceptance/requests/')).status,200);
  assert.equal(f.requests.rows('acceptance_requests').length,0);
- const forged={...f.preflight,access:{...f.preflight.access,independentMfa:false}};
- assert.equal((await f.get('member','/acceptance/request',{env:{ACCEPTANCE_TRUSTED_PREFLIGHT:JSON.stringify(forged)}})).status,403);
+ assert.equal(f.requests.rows('acceptance_preflight_history').length,2);
+ const row=f.requests.rows('acceptance_preflight_lease').find(x=>x.role==='member');
+ await assert.rejects(f.requests.prepare('UPDATE acceptance_preflight_lease SET snapshot_json=? WHERE role=?')
+  .bind(JSON.stringify({...f.preflight,access:{...f.preflight.access,independentMfa:false}}),'member').run());
+ await assert.rejects(applyOperatorLease({db:f.requests,row:{...row,generation:1}}));
+ assert.equal((await f.get('member','/acceptance/request')).status,200);
+ f.time((f.at+301)*1000);
+ assert.equal((await f.get('member','/acceptance/request')).status,403);
+});
+test('operator renewal preserves run and audit across long multi-browser acceptance; stale/replay/revoke fail closed',async t=>{
+ const f=fixture(t,{entries:true,verifyAccessPolicy:undefined,readTrustedPreflight:undefined});
+ // Same signed Owner/Member Access sessions survive; only operator proof renews.
+ f.tokens.member=f.jwt('member',{exp:f.at+7200});
+ f.tokens.owner=f.jwt('owner',{exp:f.at+7200});
+ await renewablePair(f,f.at,1);
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ assert.equal(f.calls.length,2);
+ f.time((f.at+360)*1000);
+ assert.equal((await f.get('owner','/acceptance/requests/')).status,403);
+ await renewablePair(f,f.at+360,2);
+ assert.equal((await f.approve(id)).status,200);
+ f.time((f.at+720)*1000);
+ await renewablePair(f,f.at+720,3);
+ assert.equal((await f.welcome(id)).status,200);
+ f.time((f.at+1080)*1000);
+ await renewablePair(f,f.at+1080,4);
+ assert.equal((await f.get('member','/acceptance/app')).status,200);
+ assert.equal(f.requests.rows('acceptance_effects').length,3);
+ assert.equal(f.calls.length,3);
+ f.time((f.at+1440)*1000);
+ await renewablePair(f,f.at+1440,5);
+ const member=f.members.rows('acceptance_members')[0];
+ const ownerForm=await f.form('owner','/acceptance/members/');
+ assert.equal((await f.post('owner','/acceptance/members/'+member.id+'/remove',ownerForm,{revision:'2',confirm:'TEST'})).status,200);
+ assert.equal((await f.get('member','/acceptance/app')).status,403);
+ assert.equal(f.requests.rows('acceptance_effects').length,3);
+ assert.equal(f.calls.length,3);
+ assert.equal(f.members.rows('service_grants').length,0);
+ assert.equal(f.requests.rows('acceptance_preflight_history').length,10);
+ await assert.rejects(f.requests.prepare('UPDATE acceptance_preflight_lease SET generation=1 WHERE role=?').bind('member').run());
+ await f.requests.prepare('UPDATE acceptance_preflight_lease SET revoked=1 WHERE role=?').bind('member').run();
+ assert.equal((await f.get('member','/acceptance/app')).status,403);
+ await assert.rejects(applyOperatorLease({db:f.requests,row:prepareOperatorLease({
+  role:'member',env:f.env,proof:preflightFixture(f.env,f.at+1500),at:f.at+1500,generation:6})}));
+ assert.equal(f.requests.rows('acceptance_preflight_history').length,11);
+});
+
+
+test('quota is required for each irreversible TEST send, but not after sends are consumed',async t=>{
+ const f=fixture(t,{entries:true});
+ f.preflight.resend.freeQuotaRemaining=1;
+ const missing=await f.submit();assert.equal(missing.res.status,409);
  assert.equal(f.requests.rows('acceptance_requests').length,0);
+ assert.equal(f.calls.length,0);
+ f.preflight.resend.freeQuotaRemaining=2;
+ const {res,id}=await f.submit();assert.equal(res.status,201);
+ assert.equal(f.calls.length,2);
+ assert.equal((await f.approve(id)).status,200);
+ f.preflight.resend.freeQuotaRemaining=0;
+ assert.equal((await f.welcome(id)).status,409);
+ assert.equal(f.calls.length,2);
+ assert.equal(f.requests.rows('acceptance_effects').length,2);
+ f.preflight.resend.freeQuotaRemaining=1;
+ assert.equal((await f.welcome(id)).status,200);
+ f.preflight.resend.freeQuotaRemaining=0;
+ assert.equal((await f.get('member','/acceptance/app')).status,200);
+ assert.equal(f.calls.length,3);
+ assert.equal(f.members.rows('service_grants').length,0);
 });

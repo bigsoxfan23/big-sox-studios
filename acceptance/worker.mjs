@@ -49,7 +49,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
    if(role==='member' && path==='/acceptance/request') {
     if(request.method==='GET') return render(form=>`<p>Submit one TEST request for run ${html(db.runId)}. This creates one private TEST Notion ticket and sends one TEST notice to ${html(PINS.owner)}. No CC/BCC or services. Signed Outlook OTP, independent MFA and this session-bound form are required.</p>${form(path,'Submit TEST request and notify Owner once')}`);
     const form=await formBody(request,env,session,now);fields(form,['revision','confirm']);must(form.get('confirm')==='TEST' && form.get('revision')==='1');
-    const proof=await verifiedProviders(providers,env,session,now);fresh(session,now);
+    const proof=await verifiedProviders(providers,env,session,now,2);fresh(session,now);
     const id=crypto.randomUUID(),row={id,run_id:db.runId};
     const intents=await Promise.all(['notion_ticket','owner_notice'].map(async kind=>({id:crypto.randomUUID(),kind,recipient:await sha256(kind==='notion_ticket'?PINS.parent:PINS.owner)})));
     const expiry=Math.min(alive(session,now),proof.expiresAt);
@@ -140,7 +140,7 @@ export function createAcceptanceWorker({role,base,fetcher=fetch,now=()=>Date.now
    must(form.get('confirm')===PINS.tester);
    if(row.status!=='approved' || !receipts(ledger) || ledger.some(e=>e.kind==='test_welcome'))return conflict();
    must(await stmt(db.members,"SELECT id FROM acceptance_members WHERE request_id=? AND run_id=? AND status='pending'",row.id,db.runId).first());
-   const proof=await verifiedProviders(providers,env,session,now);fresh(session,now);
+   const proof=await verifiedProviders(providers,env,session,now,1);fresh(session,now);
    const intent={id:crypto.randomUUID(),kind:'test_welcome',recipient:digest};
    const reserved=await stmt(db.requests,"INSERT INTO acceptance_effects(id,request_id,kind,recipient_digest,state,created_at,updated_at) SELECT ?,?,?,?,'reserved',unixepoch(),unixepoch() WHERE unixepoch()<? AND EXISTS(SELECT 1 FROM acceptance_requests WHERE id=? AND run_id=? AND revision=? AND status='approved')",intent.id,row.id,intent.kind,digest,Math.min(alive(session,now),proof.expiresAt),row.id,db.runId,revision).run();
    if(!changed(reserved))return conflict();

@@ -27,7 +27,8 @@ export class LocalD1 {
 export function makeDb(kind,withDelta=true){
  const sql=readFileSync(new URL(`../${kind}.sql`,import.meta.url),'utf8');
  const delta=readFileSync(new URL(`../migration-0002-${kind}.sql`,import.meta.url),'utf8');
- return new LocalD1(sql+(withDelta?delta:''));
+ const lease=kind==='requests'?readFileSync(new URL('../migration-0003-requests-preflight.sql',import.meta.url),'utf8'):'';
+ return new LocalD1(sql+(withDelta?delta+lease:''));
 }
 export function fixture(t,options={}) {
  const requests=makeDb('requests'),members=makeDb('members');t.after(()=>{requests.close();members.close();});
@@ -42,7 +43,7 @@ export function fixture(t,options={}) {
  const readTrustedPreflight=async()=>preflight;
  const calls=[];let providerResult='accepted';let scope=true;let receipt=true;
  const providers={
-  async verifyScope(input){return scope?{parent:input.parent,runId:input.runId,pageOnly:true,privateParent:true,stagingOnly:true,sendingOnly:true,senderVerified:true,zeroSpend:true,recipientPinsVerified:true,expiresAt:at+600}:null;},
+  async verifyScope(input){return scope?{parent:input.parent,runId:input.runId,pageOnly:true,privateParent:true,stagingOnly:true,sendingOnly:true,senderVerified:true,zeroSpend:true,recipientPinsVerified:true,expiresAt:Math.floor(now()/1000)+300}:null;},
   async createTicket(payload){calls.push({kind:'notion_ticket',payload});return {state:providerResult,providerId:'local-ticket'};},
   async send(payload){calls.push({kind:payload.to===PINS.owner?'owner_notice':'test_welcome',payload});return {state:providerResult,providerId:payload.to===PINS.owner?'local-notice':'local-welcome'};},
   async verifyReceipt(){return receipt;},

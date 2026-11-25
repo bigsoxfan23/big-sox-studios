@@ -1,6 +1,8 @@
 import {PINS,must} from './config.mjs';
 // Provider preflight runs before any durable reservation or external I/O.
-export async function verifiedProviders(providers,env,session,now) {
+export async function verifiedProviders(providers,env,session,now,minUnsentQuota) {
+ must(Number.isSafeInteger(minUnsentQuota) && (minUnsentQuota===1 || minUnsentQuota===2) &&
+  session.attestation?.preflight?.resend?.freeQuotaRemaining>=minUnsentQuota);
  must(env.ACCEPTANCE_DISPATCH_GATE===`greg-one-run:${env.ACCEPTANCE_RUN_ID}` &&
   env.ACCEPTANCE_NOTION_PARENT===PINS.parent && env.ACCEPTANCE_OWNER_RECIPIENT===PINS.owner && env.ACCEPTANCE_TEST_RECIPIENT===PINS.tester &&
   typeof env.ACCEPTANCE_NOTION_CREDENTIAL==='string' && env.ACCEPTANCE_NOTION_CREDENTIAL.length>=32 &&

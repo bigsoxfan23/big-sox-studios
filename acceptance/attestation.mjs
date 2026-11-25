@@ -12,7 +12,13 @@ export async function verifyOperatorAttestation({env,role,now,readTrustedPreflig
  must(typeof env.ACCEPTANCE_ATTESTATION_KEY==='string' && /^[A-Za-z0-9_-]{43}$/.test(env.ACCEPTANCE_ATTESTATION_KEY) &&
   ![env.ACCEPTANCE_CSRF_KEY,env.ACCEPTANCE_RUN_NONCE,env.ACCEPTANCE_NOTION_CREDENTIAL,env.ACCEPTANCE_SENDER_CREDENTIAL].includes(env.ACCEPTANCE_ATTESTATION_KEY));
  const raw=unb64(env.ACCEPTANCE_ATTESTATION_KEY);must(raw.length===32);
- const token=env.ACCEPTANCE_OPERATOR_ATTESTATION;must(typeof token==='string' && token.length<=4096);
+ // The deployed default reader obtains an operator-signed, renewable lease
+ // from isolated Requests D1. Older static env tokens are accepted ONLY via
+ // an explicitly injected synthetic reader in local tests, never by default.
+ const observation=await readTrustedPreflight({runId:env.ACCEPTANCE_RUN_ID,env,role});
+ const fromLease=typeof observation?.signedToken==='string';
+ const token=fromLease?observation.signedToken:env.ACCEPTANCE_OPERATOR_ATTESTATION;
+ must(typeof token==='string' && token.length<=4096);
  const parts=token.split('.');must(parts.length===2);
  const key=await crypto.subtle.importKey('raw',raw,{name:'HMAC',hash:'SHA-256'},false,['verify']);
  must(await crypto.subtle.verify('HMAC',key,unb64(parts[1]),encoder.encode(parts[0])));
@@ -25,7 +31,9 @@ export async function verifyOperatorAttestation({env,role,now,readTrustedPreflig
   signed.expiresAt>at && signed.expiresAt>signed.issuedAt && signed.expiresAt-signed.issuedAt<=300 && digest(signed.preflightDigest));
  // Server-owned independent evidence store, never request headers/env booleans.
  // Obtain a fresh read each request, including revocation. No positive cache.
- const proof=await readTrustedPreflight({runId:env.ACCEPTANCE_RUN_ID,env});
+ const proof=fromLease?observation.snapshot:observation;
+ if(fromLease) must(Number.isSafeInteger(signed.generation) && signed.generation===observation.generation &&
+  signed.issuedAt===observation.issuedAt && signed.expiresAt===observation.expiresAt);
  must(proof && signed.preflightDigest===await sha256(JSON.stringify(proof)) && proof.runId===signed.runId &&
   proof.nonceDigest===signed.nonceDigest && proof.revision===PINS.revision && proof.revoked===false &&
   Number.isSafeInteger(proof.observedAt) && proof.observedAt<=signed.issuedAt && proof.observedAt>=at-300 &&
@@ -46,7 +54,7 @@ export async function verifyOperatorAttestation({env,role,now,readTrustedPreflig
   notion.credentialDigest===await sha256(env.ACCEPTANCE_NOTION_CREDENTIAL) && digest(notion.readbackDigest));
  must(resend?.sender===PINS.sender && resend.domain===PINS.senderDomain && resend.domainLimited===true && resend.sendingOnly===true &&
   resend.senderVerified===true && resend.stagingOnly===true && resend.zeroSpend===true && resend.paidFallback===false &&
-  Number.isSafeInteger(resend.freeQuotaRemaining) && resend.freeQuotaRemaining>=2 && resend.recipientPinsVerified===true &&
+  Number.isSafeInteger(resend.freeQuotaRemaining) && resend.freeQuotaRemaining>=0 && resend.recipientPinsVerified===true &&
   resend.credentialDigest===await sha256(env.ACCEPTANCE_SENDER_CREDENTIAL) && digest(resend.readbackDigest));
  must(env.ACCEPTANCE_VERIFIED_SENDER===PINS.sender && typeof env.ACCEPTANCE_NOTION_CREDENTIAL==='string' && env.ACCEPTANCE_NOTION_CREDENTIAL.length>=32 &&
   typeof env.ACCEPTANCE_SENDER_CREDENTIAL==='string' && env.ACCEPTANCE_SENDER_CREDENTIAL.length>=32 && env.ACCEPTANCE_NOTION_CREDENTIAL!==env.ACCEPTANCE_SENDER_CREDENTIAL);
