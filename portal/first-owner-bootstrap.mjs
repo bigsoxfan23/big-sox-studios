@@ -1,17 +1,29 @@
 // Source-only first-Owner receipt. Cloudflare manages MFA; the browser POST approves enrollment.
 import {createOtpAuthenticator} from './otp-identity.mjs';
+import {productionEnrollmentMode,productionEnrollmentReady,productionOwnerBoundary} from './production-boundary.mjs';
 
 const need=value=>{if(!value) throw Error('bootstrap denied');};
 const digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(b=>b.toString(16).padStart(2,'0')).join('');
 const hex=value=>typeof value==='string' && value.length===64 && /^[a-f0-9]{64}$/.test(value);
 const id=value=>typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+// Production requires the entire current Members schema to be pristine. These
+// predicates also run inside the receipt INSERT, under the same write lock.
+const productionEmpty=`NOT EXISTS(SELECT 1 FROM owner_action_nonces)
+ AND NOT EXISTS(SELECT 1 FROM invitation_claim_nonces)
+ AND NOT EXISTS(SELECT 1 FROM member_onboarding)
+ AND NOT EXISTS(SELECT 1 FROM welcome_intents)
+ AND NOT EXISTS(SELECT 1 FROM welcome_reconciliation_events)
+ AND NOT EXISTS(SELECT 1 FROM member_approval_holds)`;
 
 export function createFirstOwnerBootstrap({mode,target,verifyAccess,now=()=>Date.now()}={}) {
  const authenticate=createOtpAuthenticator({verifyAccess,now});
  // Snapshot configuration so a callback cannot change the approved target.
  const intended=Object.freeze({...target});
  return async function bootstrap(request,env,ctx,{commit=false,expectedConfirmationDigest,confirmationExpiresAt,browserTicketDigest}={}) {
-  need(['offline-test','staging-enrollment-source'].includes(mode) && env?.PORTAL_MODE===mode && env.DB);
+  const production=mode===productionEnrollmentMode;
+  need(['offline-test','staging-enrollment-source',productionEnrollmentMode].includes(mode) && env?.PORTAL_MODE===mode && env.DB);
+  if(production) need(productionEnrollmentReady(env) && intended.databaseId===productionOwnerBoundary.databaseId);
+  else need(env.APP_ORIGIN!==productionOwnerBoundary.origin);
   need(intended.role==='owner' && typeof intended.recipient==='string' && id(intended.databaseId) &&
    id(intended.revision) && typeof intended.nonce==='string' && /^[A-Za-z0-9_-]{32,128}$/.test(intended.nonce));
   need(env.BOOTSTRAP_DATABASE_ID===intended.databaseId && typeof commit==='boolean');
@@ -32,9 +44,10 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,now=()=>Date
   const time=()=>{const at=Math.floor(now()/1000);need(Number.isSafeInteger(at) && at>=0);return at;};
   const valid=()=>{
    const at=time();
-   // Cloudflare Access controls the signed session lifetime (including its MFA policy).
-   // The browser confirmation ticket, not the original Access JWT iat, is five minutes.
+   // Staging retains Access's session lifetime. Production additionally requires
+   // issuance within five minutes; the browser ticket has its own deadline.
    need(Number.isSafeInteger(identity.issuedAt) && identity.issuedAt<=at && identity.expiresAt>at);
+   if(production) need(at<identity.issuedAt+300);
    if (expectedConfirmationDigest!==undefined) need(hex(expectedConfirmationDigest) && expectedConfirmationDigest===confirmationDigest);
    if (confirmationExpiresAt!==undefined) need(Number.isSafeInteger(confirmationExpiresAt) && confirmationExpiresAt>at && confirmationExpiresAt<=at+300);
    if (commit) need(expectedConfirmationDigest===confirmationDigest && hex(browserTicketDigest) && confirmationExpiresAt>at);
@@ -48,19 +61,22 @@ export function createFirstOwnerBootstrap({mode,target,verifyAccess,now=()=>Date
    (SELECT count(*) FROM service_grants)+(SELECT count(*) FROM revocation_tasks)+(SELECT count(*) FROM projection_attempts)+
    (SELECT count(*) FROM first_owner_bootstrap) AS records`).first();
   need(state?.records===0);
+  if(production) need((await env.DB.prepare(`SELECT (${productionEmpty}) AS pristine`).first())?.pristine===1);
   const at=valid(); // recheck the same fresh JWT and browser deadline after the D1 await
   if (!commit) return Object.freeze({ready:true,committed:false,contextDigest,confirmationDigest});
   const approvalDigest=await digest(JSON.stringify({source:'browser-confirmation',decision:'confirm-first-owner',contextDigest,policyDigest,browserTicketDigest}));
   const approvalAuditId=`browser-${browserTicketDigest}`;
   const memberId=crypto.randomUUID();
   valid();
+  const expiresAt=Math.min(identity.expiresAt,confirmationExpiresAt,production?identity.issuedAt+300:identity.expiresAt);
   // One statement + triggers: receipt, exact binding, active Owner and audit all
-  // commit or roll back together. No pre-existing person can be promoted.
+  // commit or roll back together. Production also checks the database clock so
+  // a delayed SQL execution cannot outlive the accepted browser/session proof.
   await env.DB.prepare(`INSERT INTO first_owner_bootstrap
    (slot,nonce,member_id,subject,database_id,revision,session_digest,context_digest,policy_digest,approval_digest,approval_audit_id,at,expires_at)
-   VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(intended.nonce,memberId,identity.subject,intended.databaseId,intended.revision,
+   SELECT 1,?,?,?,?,?,?,?,?,?,?,?,?${production?` WHERE ${productionEmpty} AND unixepoch('now')>=? AND unixepoch('now')<?`:''}`).bind(intended.nonce,memberId,identity.subject,intended.databaseId,intended.revision,
    sessionDigest,contextDigest,policyDigest,approvalDigest,approvalAuditId,at,
-   Math.min(identity.expiresAt,confirmationExpiresAt)).run();
+   expiresAt,...(production?[at,expiresAt]:[])).run();
   // A readback failure can follow a successful commit: inspect, never retry blindly.
   const verified=await env.DB.prepare(`SELECT m.id FROM first_owner_bootstrap b
    JOIN members m ON m.id=b.member_id JOIN identities i ON i.member_id=m.id
